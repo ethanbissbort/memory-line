@@ -7,6 +7,7 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const databaseService = require('../database/database');
+const anthropicService = require('./services/anthropicService');
 
 let mainWindow = null;
 
@@ -1080,4 +1081,286 @@ ipcMain.handle('audio:getFile', async (event, filePath) => {
     }
 });
 
+// ===========================================
+// IPC Handlers - LLM & Processing
+// ===========================================
+
+/**
+ * Set Anthropic API key
+ */
+ipcMain.handle('llm:setApiKey', async (event, apiKey) => {
+    try {
+        // Store API key in database (encrypted in production)
+        const db = databaseService.getDatabase();
+        const stmt = db.prepare(`
+            INSERT INTO app_settings (setting_key, setting_value)
+            VALUES ('anthropic_api_key', ?)
+            ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value
+        `);
+
+        stmt.run(apiKey);
+
+        // Initialize Anthropic service
+        anthropicService.initialize(apiKey);
+
+        return { success: true };
+    } catch (error) {
+        console.error('Error setting API key:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Check if API key is set
+ */
+ipcMain.handle('llm:hasApiKey', async () => {
+    try {
+        const db = databaseService.getDatabase();
+        const stmt = db.prepare('SELECT setting_value FROM app_settings WHERE setting_key = ?');
+        const result = stmt.get('anthropic_api_key');
+
+        return {
+            success: true,
+            hasKey: !!result && !!result.setting_value
+        };
+    } catch (error) {
+        return {
+            success: false,
+            hasKey: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Initialize Anthropic service with stored API key
+ */
+async function initializeAnthropicService() {
+    try {
+        const db = databaseService.getDatabase();
+        const stmt = db.prepare('SELECT setting_value FROM app_settings WHERE setting_key = ?');
+        const result = stmt.get('anthropic_api_key');
+
+        if (result && result.setting_value) {
+            anthropicService.initialize(result.setting_value);
+            console.log('Anthropic service initialized from stored API key');
+        }
+    } catch (error) {
+        console.error('Failed to initialize Anthropic service:', error);
+    }
+}
+
+/**
+ * Process a single queue item
+ */
+ipcMain.handle('llm:processQueueItem', async (event, queueId) => {
+    try {
+        if (!anthropicService.isInitialized()) {
+            return {
+                success: false,
+                error: 'API key not set. Please configure Anthropic API key in Settings.'
+            };
+        }
+
+        const db = databaseService.getDatabase();
+        const { v4: uuidv4 } = require('uuid');
+
+        // Get queue item
+        const getQueue = db.prepare('SELECT * FROM recording_queue WHERE queue_id = ?');
+        const queueItem = getQueue.get(queueId);
+
+        if (!queueItem) {
+            return {
+                success: false,
+                error: 'Queue item not found'
+            };
+        }
+
+        if (queueItem.status !== 'pending') {
+            return {
+                success: false,
+                error: `Queue item status is ${queueItem.status}, expected pending`
+            };
+        }
+
+        // Update status to processing
+        const updateStatus = db.prepare(`
+            UPDATE recording_queue
+            SET status = 'processing'
+            WHERE queue_id = ?
+        `);
+        updateStatus.run(queueId);
+
+        // Process the audio file
+        const result = await anthropicService.processAudioFile(queueItem.audio_file_path, queueId);
+
+        if (!result.success) {
+            // Update queue status to failed
+            const updateFailed = db.prepare(`
+                UPDATE recording_queue
+                SET status = 'failed', error_message = ?, processed_at = datetime('now')
+                WHERE queue_id = ?
+            `);
+            updateFailed.run(result.error, queueId);
+
+            return {
+                success: false,
+                error: result.error
+            };
+        }
+
+        // Create pending event
+        const pendingId = uuidv4();
+        const insertPending = db.prepare(`
+            INSERT INTO pending_events (
+                pending_id, extracted_data, audio_file_path, transcript, queue_id, status
+            ) VALUES (?, ?, ?, ?, ?, 'pending_review')
+        `);
+
+        insertPending.run(
+            pendingId,
+            JSON.stringify(result.extractedData),
+            queueItem.audio_file_path,
+            result.transcript,
+            queueId
+        );
+
+        // Update queue status to completed (will be marked completed when user approves)
+        const updateCompleted = db.prepare(`
+            UPDATE recording_queue
+            SET status = 'completed', processed_at = datetime('now')
+            WHERE queue_id = ?
+        `);
+        updateCompleted.run(queueId);
+
+        return {
+            success: true,
+            data: {
+                pending_id: pendingId,
+                extracted_data: result.extractedData
+            }
+        };
+    } catch (error) {
+        console.error('Error processing queue item:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Process all pending queue items
+ */
+ipcMain.handle('llm:processAllPending', async () => {
+    try {
+        if (!anthropicService.isInitialized()) {
+            return {
+                success: false,
+                error: 'API key not set. Please configure Anthropic API key in Settings.'
+            };
+        }
+
+        const db = databaseService.getDatabase();
+
+        // Get all pending items
+        const getPending = db.prepare('SELECT queue_id FROM recording_queue WHERE status = ?');
+        const pendingItems = getPending.all('pending');
+
+        if (pendingItems.length === 0) {
+            return {
+                success: true,
+                message: 'No pending items to process',
+                processed: 0
+            };
+        }
+
+        const results = {
+            total: pendingItems.length,
+            succeeded: 0,
+            failed: 0,
+            errors: []
+        };
+
+        // Process each item
+        for (const item of pendingItems) {
+            try {
+                const result = await anthropicService.processAudioFile(item.audio_file_path, item.queue_id);
+
+                if (result.success) {
+                    // Create pending event
+                    const { v4: uuidv4 } = require('uuid');
+                    const pendingId = uuidv4();
+
+                    const insertPending = db.prepare(`
+                        INSERT INTO pending_events (
+                            pending_id, extracted_data, audio_file_path, transcript, queue_id, status
+                        ) VALUES (?, ?, ?, ?, ?, 'pending_review')
+                    `);
+
+                    const queueItem = db.prepare('SELECT * FROM recording_queue WHERE queue_id = ?').get(item.queue_id);
+
+                    insertPending.run(
+                        pendingId,
+                        JSON.stringify(result.extractedData),
+                        queueItem.audio_file_path,
+                        result.transcript,
+                        item.queue_id
+                    );
+
+                    // Update queue status
+                    const updateCompleted = db.prepare(`
+                        UPDATE recording_queue
+                        SET status = 'completed', processed_at = datetime('now')
+                        WHERE queue_id = ?
+                    `);
+                    updateCompleted.run(item.queue_id);
+
+                    results.succeeded++;
+                } else {
+                    // Update queue status to failed
+                    const updateFailed = db.prepare(`
+                        UPDATE recording_queue
+                        SET status = 'failed', error_message = ?, processed_at = datetime('now')
+                        WHERE queue_id = ?
+                    `);
+                    updateFailed.run(result.error, item.queue_id);
+
+                    results.failed++;
+                    results.errors.push({
+                        queueId: item.queue_id,
+                        error: result.error
+                    });
+                }
+            } catch (error) {
+                console.error(`Error processing queue item ${item.queue_id}:`, error);
+                results.failed++;
+                results.errors.push({
+                    queueId: item.queue_id,
+                    error: error.message
+                });
+            }
+        }
+
+        return {
+            success: true,
+            results: results
+        };
+    } catch (error) {
+        console.error('Error processing all pending items:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
 console.log('Main process initialized');
+
+// Initialize Anthropic service on startup
+app.whenReady().then(() => {
+    initializeAnthropicService();
+});

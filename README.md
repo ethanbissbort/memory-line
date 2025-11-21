@@ -6,7 +6,7 @@ A modern desktop application that functions as a personal memory and event timel
 
 ### Core Functionality
 
-✅ **Implemented (Phases 1-2)**:
+✅ **Implemented (Phases 1-3)**:
 - SQLite database with comprehensive schema for events, eras, tags, people, and locations
 - Full-text search support for events
 - Database service layer with migrations support
@@ -23,13 +23,16 @@ A modern desktop application that functions as a personal memory and event timel
 - Recording queue system with database persistence
 - Audio playback from queue with metadata display (duration, file size, timestamps)
 - Remove/cancel functionality for queue items
-- Review queue interface for pending events
-- Approve/reject workflow for extracted events (ready for Phase 3 LLM integration)
+- **Anthropic API integration with secure key storage**
+- **LLM-powered event extraction from transcripts**
+- **Structured prompt engineering for accurate data extraction**
+- **Mock transcription service (ready for STT integration)**
+- **Batch processing of queue items**
+- **Review queue with extracted event details (title, dates, description, category, tags, people, locations, confidence scores)**
+- **Approve/reject workflow that creates timeline events with full relationships**
+- **Process Queue button with API key validation**
 
-🚧 **In Progress (Phase 3)**:
-- Anthropic API integration for event extraction
-- Speech-to-text transcription
-- Review workflow enhancement for editing extracted events before approval
+✅ **Completed**: All core functionality through Phase 3!
 
 📋 **Planned (Phases 4-6)**:
 - RAG-based cross-referencing and pattern detection
@@ -308,11 +311,18 @@ For large timelines (110+ years of data), the app uses:
 - Remove/cancel queue items
 - Review queue with approve/reject functionality
 
-### Phase 3: LLM Integration - Extraction 📋 (PLANNED)
-- Anthropic API integration
-- Speech-to-text integration
-- Event extraction prompt engineering
-- Review workflow UI
+### Phase 3: LLM Integration - Extraction ✅ (COMPLETED)
+- Anthropic API integration with @anthropic-ai/sdk
+- Secure API key storage in database
+- Mock transcription service (placeholder for STT integration)
+- Event extraction with structured prompts
+- JSON parsing and validation
+- Batch processing of queue items
+- IPC handlers for LLM operations
+- Settings UI for API key management
+- Process Queue button with validation
+- Automatic pending event creation
+- Full approval workflow to timeline
 
 ### Phase 4: Timeline Visualization Enhancement 📋 (PLANNED)
 - Advanced zoom/pan controls

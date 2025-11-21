@@ -12,6 +12,7 @@ function QueuePanel() {
     const [reviewQueue, setReviewQueue] = useState([]);
     const [audioUrls, setAudioUrls] = useState({});
     const [isLoading, setIsLoading] = useState(false);
+    const [isProcessing, setIsProcessing] = useState(false);
 
     useEffect(() => {
         loadQueues();
@@ -101,6 +102,55 @@ function QueuePanel() {
         }
     };
 
+    const handleProcessQueue = async () => {
+        // Check if API key is set
+        const apiKeyCheck = await window.electronAPI.llm.hasApiKey();
+        if (!apiKeyCheck.success || !apiKeyCheck.hasKey) {
+            alert('Please configure your Anthropic API key in Settings before processing recordings.');
+            return;
+        }
+
+        const pendingCount = outgoingQueue.filter(item => item.status === 'pending').length;
+        if (pendingCount === 0) {
+            alert('No pending recordings to process.');
+            return;
+        }
+
+        if (!confirm(`Process ${pendingCount} pending recording(s) with LLM extraction?\n\nThis will:\n1. Transcribe audio (mock for demo)\n2. Extract event data using Claude\n3. Create pending events for your review\n\nNote: This uses your Anthropic API credits.`)) {
+            return;
+        }
+
+        setIsProcessing(true);
+        try {
+            const result = await window.electronAPI.llm.processAllPending();
+
+            if (result.success) {
+                const { results } = result;
+                if (results) {
+                    let message = `Processing complete!\n\nSucceeded: ${results.succeeded}\nFailed: ${results.failed}`;
+
+                    if (results.errors && results.errors.length > 0) {
+                        message += '\n\nErrors:\n' + results.errors.map(e => `- ${e.error}`).join('\n');
+                    }
+
+                    alert(message);
+                } else {
+                    alert(result.message || 'Processing complete!');
+                }
+
+                // Reload queues to show new pending events
+                await loadQueues();
+            } else {
+                alert('Failed to process queue: ' + result.error);
+            }
+        } catch (error) {
+            console.error('Error processing queue:', error);
+            alert('Failed to process queue: ' + error.message);
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
     const formatFileSize = (bytes) => {
         if (!bytes) return '0 B';
         const k = 1024;
@@ -130,13 +180,22 @@ function QueuePanel() {
         <div className="queue-panel">
             <div className="queue-header">
                 <h2>Processing Queue</h2>
-                <button
-                    className="button secondary"
-                    onClick={loadQueues}
-                    disabled={isLoading}
-                >
-                    {isLoading ? 'Loading...' : 'Refresh'}
-                </button>
+                <div className="queue-header-actions">
+                    <button
+                        className="button primary"
+                        onClick={handleProcessQueue}
+                        disabled={isProcessing || isLoading}
+                    >
+                        {isProcessing ? 'Processing...' : 'Process Queue with LLM'}
+                    </button>
+                    <button
+                        className="button secondary"
+                        onClick={loadQueues}
+                        disabled={isLoading}
+                    >
+                        {isLoading ? 'Loading...' : 'Refresh'}
+                    </button>
+                </div>
             </div>
 
             <div className="queue-tabs">

@@ -1047,6 +1047,29 @@ body {
 }
 
 /* ========================================
+   Queue Header Actions
+   ======================================== */
+.queue-header-actions {
+    display: flex;
+    gap: var(--spacing-sm);
+}
+
+/* ========================================
+   API Key Status
+   ======================================== */
+.api-key-status {
+    margin-bottom: var(--spacing-sm);
+    padding: var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    font-weight: 500;
+}
+
+.api-key-status.success {
+    background-color: #d1fae5;
+    color: #065f46;
+}
+
+/* ========================================
    Utility Classes
    ======================================== */
 button:disabled {

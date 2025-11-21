@@ -79,6 +79,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
             ipcRenderer.invoke('pending:approve', { pendingId, editedData }),
         reject: (pendingId) =>
             ipcRenderer.invoke('pending:reject', pendingId)
+    },
+
+    // LLM operations
+    llm: {
+        setApiKey: (apiKey) =>
+            ipcRenderer.invoke('llm:setApiKey', apiKey),
+        hasApiKey: () =>
+            ipcRenderer.invoke('llm:hasApiKey'),
+        processQueueItem: (queueId) =>
+            ipcRenderer.invoke('llm:processQueueItem', queueId),
+        processAllPending: () =>
+            ipcRenderer.invoke('llm:processAllPending')
     }
 });
 

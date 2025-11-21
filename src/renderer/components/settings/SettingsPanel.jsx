@@ -3,13 +3,29 @@
  * Application settings and configuration
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSettingsStore } from '../../store/settingsStore';
 
 function SettingsPanel() {
     const { settings, updateSetting } = useSettingsStore();
     const [apiKey, setApiKey] = useState('');
+    const [hasApiKey, setHasApiKey] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+
+    useEffect(() => {
+        // Check if API key is already set
+        const checkApiKey = async () => {
+            try {
+                const result = await window.electronAPI.llm.hasApiKey();
+                if (result.success) {
+                    setHasApiKey(result.hasKey);
+                }
+            } catch (error) {
+                console.error('Error checking API key:', error);
+            }
+        };
+        checkApiKey();
+    }, []);
 
     const handleSettingChange = async (key, value) => {
         const result = await updateSetting(key, value);
@@ -126,6 +142,11 @@ function SettingsPanel() {
 
                     <div className="setting-item">
                         <label>API Key</label>
+                        {hasApiKey && (
+                            <p className="api-key-status success">
+                                ✓ API key is configured
+                            </p>
+                        )}
                         <input
                             type="password"
                             placeholder="sk-ant-..."
@@ -133,16 +154,36 @@ function SettingsPanel() {
                             onChange={(e) => setApiKey(e.target.value)}
                         />
                         <p className="setting-hint">
-                            Your API key is stored securely and never sent anywhere except to Anthropic
+                            Your API key is stored securely and never sent anywhere except to Anthropic.
+                            Get your API key from: https://console.anthropic.com/
                         </p>
                         <button
                             className="button secondary"
-                            onClick={() => {
-                                // TODO: Save API key securely
-                                alert('API key saved! (Implementation pending)');
+                            onClick={async () => {
+                                if (!apiKey.trim()) {
+                                    alert('Please enter an API key');
+                                    return;
+                                }
+
+                                setIsSaving(true);
+                                try {
+                                    const result = await window.electronAPI.llm.setApiKey(apiKey);
+                                    if (result.success) {
+                                        alert('API key saved successfully!');
+                                        setHasApiKey(true);
+                                        setApiKey(''); // Clear input for security
+                                    } else {
+                                        alert('Failed to save API key: ' + result.error);
+                                    }
+                                } catch (error) {
+                                    alert('Failed to save API key: ' + error.message);
+                                } finally {
+                                    setIsSaving(false);
+                                }
                             }}
+                            disabled={isSaving}
                         >
-                            Save API Key
+                            {isSaving ? 'Saving...' : (hasApiKey ? 'Update API Key' : 'Save API Key')}
                         </button>
                     </div>
 
