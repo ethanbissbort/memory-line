@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using MemoryTimeline.Services;
 using MemoryTimeline.Views;
 using MemoryTimeline.ViewModels;
 
@@ -11,44 +12,48 @@ namespace MemoryTimeline;
 public sealed partial class MainWindow : Window
 {
     private readonly MainViewModel _viewModel;
+    private readonly INavigationService _navigationService;
 
-    public MainWindow(MainViewModel viewModel)
+    public MainWindow(MainViewModel viewModel, INavigationService navigationService)
     {
         InitializeComponent();
         _viewModel = viewModel;
+        _navigationService = navigationService;
 
         // Set window title bar customization
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(null);
 
+        // Initialize navigation service
+        _navigationService.Frame = ContentFrame;
+        RegisterPages();
+
         // Navigate to Timeline page by default
-        ContentFrame.Navigate(typeof(TimelinePage));
+        _navigationService.NavigateTo("Timeline");
+    }
+
+    private void RegisterPages()
+    {
+        _navigationService.RegisterPage("Timeline", typeof(TimelinePage));
+        _navigationService.RegisterPage("Queue", typeof(QueuePage));
+        _navigationService.RegisterPage("Search", typeof(SearchPage));
+        _navigationService.RegisterPage("Analytics", typeof(AnalyticsPage));
+        _navigationService.RegisterPage("Settings", typeof(SettingsPage));
     }
 
     private void NavigationView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
-        if (args.SelectedItemContainer != null)
+        if (args.IsSettingsSelected)
+        {
+            _navigationService.NavigateTo("Settings");
+        }
+        else if (args.SelectedItemContainer != null)
         {
             var navItemTag = args.SelectedItemContainer.Tag?.ToString();
-            NavigateToPage(navItemTag);
-        }
-    }
-
-    private void NavigateToPage(string? pageTag)
-    {
-        Type? pageType = pageTag switch
-        {
-            "Timeline" => typeof(TimelinePage),
-            "Queue" => typeof(QueuePage),
-            "Search" => typeof(SearchPage),
-            "Analytics" => typeof(AnalyticsPage),
-            "Settings" => typeof(SettingsPage),
-            _ => null
-        };
-
-        if (pageType != null && ContentFrame.CurrentSourcePageType != pageType)
-        {
-            ContentFrame.Navigate(pageType);
+            if (!string.IsNullOrEmpty(navItemTag))
+            {
+                _navigationService.NavigateTo(navItemTag);
+            }
         }
     }
 }

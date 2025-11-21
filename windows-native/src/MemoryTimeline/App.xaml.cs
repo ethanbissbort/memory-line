@@ -3,8 +3,10 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.UI.Xaml;
 using MemoryTimeline.Core.Services;
 using MemoryTimeline.Data;
+using MemoryTimeline.Data.Repositories;
 using MemoryTimeline.ViewModels;
 using MemoryTimeline.Views;
+using MemoryTimeline.Services;
 
 namespace MemoryTimeline;
 
@@ -34,7 +36,7 @@ public partial class App : Application
                 services.AddScoped<IEventRepository, EventRepository>();
                 services.AddScoped<IEraRepository, EraRepository>();
 
-                // Register services
+                // Register core services
                 services.AddSingleton<ISettingsService, SettingsService>();
                 services.AddScoped<IEventService, EventService>();
                 services.AddScoped<IAudioService, AudioService>();
@@ -45,6 +47,10 @@ public partial class App : Application
                 services.AddScoped<IExportService, ExportService>();
                 services.AddScoped<IImportService, ImportService>();
 
+                // Register app services
+                services.AddSingleton<INavigationService, NavigationService>();
+                services.AddSingleton<IThemeService, ThemeService>();
+
                 // Register ViewModels
                 services.AddTransient<MainViewModel>();
                 services.AddTransient<TimelineViewModel>();
@@ -53,6 +59,11 @@ public partial class App : Application
 
                 // Register Views
                 services.AddTransient<MainWindow>();
+                services.AddTransient<TimelinePage>();
+                services.AddTransient<QueuePage>();
+                services.AddTransient<SearchPage>();
+                services.AddTransient<AnalyticsPage>();
+                services.AddTransient<SettingsPage>();
             })
             .Build();
     }
@@ -68,6 +79,11 @@ public partial class App : Application
     public IServiceProvider Services => _host.Services;
 
     /// <summary>
+    /// Gets the main application window.
+    /// </summary>
+    public Window? Window => _mainWindow;
+
+    /// <summary>
     /// Invoked when the application is launched.
     /// </summary>
     /// <param name="args">Details about the launch request and process.</param>
@@ -77,5 +93,9 @@ public partial class App : Application
 
         _mainWindow = Services.GetRequiredService<MainWindow>();
         _mainWindow.Activate();
+
+        // Initialize theme
+        var themeService = Services.GetRequiredService<IThemeService>();
+        await themeService.InitializeAsync();
     }
 }
