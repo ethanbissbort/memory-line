@@ -34,3 +34,12 @@ yarn-error.log*
 
 # Electron builder
 build/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Test databases (regenerated on demand)
+tests/fixtures/databases/*.db
+tests/fixtures/databases/*.json
+!tests/fixtures/databases/README.md
