@@ -1,0 +1,671 @@
+/**
+ * Electron Main Process
+ * Handles window creation, IPC communication, and system integration
+ */
+
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const path = require('path');
+const fs = require('fs');
+const databaseService = require('../database/database');
+
+let mainWindow = null;
+
+/**
+ * Create the main application window
+ */
+function createMainWindow() {
+    mainWindow = new BrowserWindow({
+        width: 1400,
+        height: 900,
+        minWidth: 1000,
+        minHeight: 600,
+        backgroundColor: '#f5f5f5',
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            preload: path.join(__dirname, 'preload.js')
+        },
+        show: false // Don't show until ready
+    });
+
+    // Load the app
+    if (process.env.NODE_ENV === 'development') {
+        mainWindow.loadURL('http://localhost:8080');
+        mainWindow.webContents.openDevTools();
+    } else {
+        mainWindow.loadFile(path.join(__dirname, '../../dist/index.html'));
+    }
+
+    // Show window when ready
+    mainWindow.once('ready-to-show', () => {
+        mainWindow.show();
+    });
+
+    // Handle window close
+    mainWindow.on('closed', () => {
+        mainWindow = null;
+    });
+}
+
+/**
+ * Initialize the application
+ */
+function initializeApp() {
+    try {
+        // Initialize database
+        databaseService.initialize();
+
+        // Create assets directory if it doesn't exist
+        const assetsPath = path.join(app.getPath('userData'), 'assets');
+        const audioPath = path.join(assetsPath, 'audio');
+
+        if (!fs.existsSync(audioPath)) {
+            fs.mkdirSync(audioPath, { recursive: true });
+        }
+
+        console.log('Application initialized successfully');
+    } catch (error) {
+        console.error('Failed to initialize application:', error);
+        dialog.showErrorBox('Initialization Error',
+            'Failed to initialize the application. Please check the logs for details.');
+        app.quit();
+    }
+}
+
+// App event handlers
+app.on('ready', () => {
+    initializeApp();
+    createMainWindow();
+});
+
+app.on('window-all-closed', () => {
+    // On macOS, keep the app running even when all windows are closed
+    if (process.platform !== 'darwin') {
+        app.quit();
+    }
+});
+
+app.on('activate', () => {
+    // On macOS, recreate window when dock icon is clicked
+    if (mainWindow === null) {
+        createMainWindow();
+    }
+});
+
+app.on('before-quit', () => {
+    // Clean up before quitting
+    databaseService.close();
+});
+
+// ===========================================
+// IPC Handlers - Database Operations
+// ===========================================
+
+/**
+ * Get database statistics
+ */
+ipcMain.handle('db:getStats', async () => {
+    try {
+        return {
+            success: true,
+            data: databaseService.getStats()
+        };
+    } catch (error) {
+        console.error('Error getting database stats:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Create database backup
+ */
+ipcMain.handle('db:backup', async () => {
+    try {
+        const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
+            title: 'Save Database Backup',
+            defaultPath: `memory-timeline-backup-${new Date().toISOString().split('T')[0]}.db`,
+            filters: [
+                { name: 'Database Files', extensions: ['db'] },
+                { name: 'All Files', extensions: ['*'] }
+            ]
+        });
+
+        if (canceled || !filePath) {
+            return { success: false, canceled: true };
+        }
+
+        databaseService.backup(filePath);
+        return { success: true, filePath };
+    } catch (error) {
+        console.error('Error backing up database:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Vacuum database
+ */
+ipcMain.handle('db:vacuum', async () => {
+    try {
+        databaseService.vacuum();
+        return { success: true };
+    } catch (error) {
+        console.error('Error vacuuming database:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+// ===========================================
+// IPC Handlers - Events
+// ===========================================
+
+/**
+ * Get events within a date range
+ */
+ipcMain.handle('events:getRange', async (event, { startDate, endDate, limit = 1000 }) => {
+    try {
+        const db = databaseService.getDatabase();
+        const stmt = db.prepare(`
+            SELECT e.*,
+                   GROUP_CONCAT(DISTINCT t.tag_name) as tags,
+                   GROUP_CONCAT(DISTINCT p.name) as people,
+                   GROUP_CONCAT(DISTINCT l.name) as locations,
+                   era.name as era_name,
+                   era.color_code as era_color
+            FROM events e
+            LEFT JOIN eras era ON e.era_id = era.era_id
+            LEFT JOIN event_tags et ON e.event_id = et.event_id
+            LEFT JOIN tags t ON et.tag_id = t.tag_id
+            LEFT JOIN event_people ep ON e.event_id = ep.event_id
+            LEFT JOIN people p ON ep.person_id = p.person_id
+            LEFT JOIN event_locations el ON e.event_id = el.event_id
+            LEFT JOIN locations l ON el.location_id = l.location_id
+            WHERE e.start_date >= ? AND e.start_date <= ?
+            GROUP BY e.event_id
+            ORDER BY e.start_date ASC
+            LIMIT ?
+        `);
+
+        const events = stmt.all(startDate, endDate, limit);
+
+        // Parse JSON fields and split comma-separated values
+        events.forEach(event => {
+            if (event.extraction_metadata) {
+                event.extraction_metadata = JSON.parse(event.extraction_metadata);
+            }
+            event.tags = event.tags ? event.tags.split(',') : [];
+            event.people = event.people ? event.people.split(',') : [];
+            event.locations = event.locations ? event.locations.split(',') : [];
+        });
+
+        return {
+            success: true,
+            data: events
+        };
+    } catch (error) {
+        console.error('Error getting events:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Get a single event by ID
+ */
+ipcMain.handle('events:getById', async (event, eventId) => {
+    try {
+        const db = databaseService.getDatabase();
+        const stmt = db.prepare(`
+            SELECT e.*,
+                   GROUP_CONCAT(DISTINCT t.tag_name) as tags,
+                   GROUP_CONCAT(DISTINCT p.name) as people,
+                   GROUP_CONCAT(DISTINCT l.name) as locations,
+                   era.name as era_name,
+                   era.color_code as era_color
+            FROM events e
+            LEFT JOIN eras era ON e.era_id = era.era_id
+            LEFT JOIN event_tags et ON e.event_id = et.event_id
+            LEFT JOIN tags t ON et.tag_id = t.tag_id
+            LEFT JOIN event_people ep ON e.event_id = ep.event_id
+            LEFT JOIN people p ON ep.person_id = p.person_id
+            LEFT JOIN event_locations el ON e.event_id = el.event_id
+            LEFT JOIN locations l ON el.location_id = l.location_id
+            WHERE e.event_id = ?
+            GROUP BY e.event_id
+        `);
+
+        const eventData = stmt.get(eventId);
+
+        if (!eventData) {
+            return {
+                success: false,
+                error: 'Event not found'
+            };
+        }
+
+        // Parse JSON fields and split comma-separated values
+        if (eventData.extraction_metadata) {
+            eventData.extraction_metadata = JSON.parse(eventData.extraction_metadata);
+        }
+        eventData.tags = eventData.tags ? eventData.tags.split(',') : [];
+        eventData.people = eventData.people ? eventData.people.split(',') : [];
+        eventData.locations = eventData.locations ? eventData.locations.split(',') : [];
+
+        return {
+            success: true,
+            data: eventData
+        };
+    } catch (error) {
+        console.error('Error getting event:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Create a new event
+ */
+ipcMain.handle('events:create', async (event, eventData) => {
+    try {
+        const db = databaseService.getDatabase();
+        const { v4: uuidv4 } = require('uuid');
+
+        const eventId = uuidv4();
+        const {
+            title,
+            start_date,
+            end_date,
+            description,
+            category,
+            era_id,
+            audio_file_path,
+            raw_transcript,
+            extraction_metadata,
+            tags = [],
+            people = [],
+            locations = []
+        } = eventData;
+
+        // Begin transaction
+        const transaction = db.transaction(() => {
+            // Insert event
+            const insertEvent = db.prepare(`
+                INSERT INTO events (
+                    event_id, title, start_date, end_date, description,
+                    category, era_id, audio_file_path, raw_transcript, extraction_metadata
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+
+            insertEvent.run(
+                eventId,
+                title,
+                start_date,
+                end_date || null,
+                description || null,
+                category || 'other',
+                era_id || null,
+                audio_file_path || null,
+                raw_transcript || null,
+                extraction_metadata ? JSON.stringify(extraction_metadata) : null
+            );
+
+            // Insert tags
+            if (tags.length > 0) {
+                const insertTag = db.prepare(`
+                    INSERT OR IGNORE INTO tags (tag_id, tag_name) VALUES (?, ?)
+                `);
+                const linkTag = db.prepare(`
+                    INSERT INTO event_tags (event_id, tag_id, is_manual) VALUES (?, ?, 1)
+                `);
+
+                tags.forEach(tagName => {
+                    const tagId = uuidv4();
+                    insertTag.run(tagId, tagName);
+                    const existingTag = db.prepare('SELECT tag_id FROM tags WHERE tag_name = ?').get(tagName);
+                    linkTag.run(eventId, existingTag.tag_id);
+                });
+            }
+
+            // Insert people
+            if (people.length > 0) {
+                const insertPerson = db.prepare(`
+                    INSERT OR IGNORE INTO people (person_id, name) VALUES (?, ?)
+                `);
+                const linkPerson = db.prepare(`
+                    INSERT INTO event_people (event_id, person_id) VALUES (?, ?)
+                `);
+
+                people.forEach(personName => {
+                    const personId = uuidv4();
+                    insertPerson.run(personId, personName);
+                    const existingPerson = db.prepare('SELECT person_id FROM people WHERE name = ?').get(personName);
+                    linkPerson.run(eventId, existingPerson.person_id);
+                });
+            }
+
+            // Insert locations
+            if (locations.length > 0) {
+                const insertLocation = db.prepare(`
+                    INSERT OR IGNORE INTO locations (location_id, name) VALUES (?, ?)
+                `);
+                const linkLocation = db.prepare(`
+                    INSERT INTO event_locations (event_id, location_id) VALUES (?, ?)
+                `);
+
+                locations.forEach(locationName => {
+                    const locationId = uuidv4();
+                    insertLocation.run(locationId, locationName);
+                    const existingLocation = db.prepare('SELECT location_id FROM locations WHERE name = ?').get(locationName);
+                    linkLocation.run(eventId, existingLocation.location_id);
+                });
+            }
+        });
+
+        // Execute transaction
+        transaction();
+
+        return {
+            success: true,
+            data: { event_id: eventId }
+        };
+    } catch (error) {
+        console.error('Error creating event:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Update an existing event
+ */
+ipcMain.handle('events:update', async (event, { eventId, updates }) => {
+    try {
+        const db = databaseService.getDatabase();
+
+        // Build UPDATE query dynamically based on provided fields
+        const allowedFields = [
+            'title', 'start_date', 'end_date', 'description',
+            'category', 'era_id', 'audio_file_path', 'raw_transcript'
+        ];
+
+        const updateFields = [];
+        const values = [];
+
+        Object.keys(updates).forEach(key => {
+            if (allowedFields.includes(key)) {
+                updateFields.push(`${key} = ?`);
+                values.push(updates[key]);
+            }
+        });
+
+        if (updateFields.length === 0) {
+            return {
+                success: false,
+                error: 'No valid fields to update'
+            };
+        }
+
+        values.push(eventId);
+
+        const stmt = db.prepare(`
+            UPDATE events
+            SET ${updateFields.join(', ')}
+            WHERE event_id = ?
+        `);
+
+        stmt.run(...values);
+
+        return { success: true };
+    } catch (error) {
+        console.error('Error updating event:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Delete an event
+ */
+ipcMain.handle('events:delete', async (event, eventId) => {
+    try {
+        const db = databaseService.getDatabase();
+        const stmt = db.prepare('DELETE FROM events WHERE event_id = ?');
+        stmt.run(eventId);
+
+        return { success: true };
+    } catch (error) {
+        console.error('Error deleting event:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Search events using full-text search
+ */
+ipcMain.handle('events:search', async (event, { query, limit = 50 }) => {
+    try {
+        const db = databaseService.getDatabase();
+        const stmt = db.prepare(`
+            SELECT e.*,
+                   era.name as era_name,
+                   era.color_code as era_color
+            FROM events_fts fts
+            JOIN events e ON fts.rowid = e.rowid
+            LEFT JOIN eras era ON e.era_id = era.era_id
+            WHERE events_fts MATCH ?
+            ORDER BY rank
+            LIMIT ?
+        `);
+
+        const events = stmt.all(query, limit);
+
+        return {
+            success: true,
+            data: events
+        };
+    } catch (error) {
+        console.error('Error searching events:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+// ===========================================
+// IPC Handlers - Eras
+// ===========================================
+
+/**
+ * Get all eras
+ */
+ipcMain.handle('eras:getAll', async () => {
+    try {
+        const db = databaseService.getDatabase();
+        const stmt = db.prepare('SELECT * FROM eras ORDER BY start_date ASC');
+        const eras = stmt.all();
+
+        return {
+            success: true,
+            data: eras
+        };
+    } catch (error) {
+        console.error('Error getting eras:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Create a new era
+ */
+ipcMain.handle('eras:create', async (event, eraData) => {
+    try {
+        const db = databaseService.getDatabase();
+        const { v4: uuidv4 } = require('uuid');
+
+        const eraId = uuidv4();
+        const { name, start_date, end_date, color_code, description } = eraData;
+
+        const stmt = db.prepare(`
+            INSERT INTO eras (era_id, name, start_date, end_date, color_code, description)
+            VALUES (?, ?, ?, ?, ?, ?)
+        `);
+
+        stmt.run(eraId, name, start_date, end_date || null, color_code, description || null);
+
+        return {
+            success: true,
+            data: { era_id: eraId }
+        };
+    } catch (error) {
+        console.error('Error creating era:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Update an era
+ */
+ipcMain.handle('eras:update', async (event, { eraId, updates }) => {
+    try {
+        const db = databaseService.getDatabase();
+
+        const allowedFields = ['name', 'start_date', 'end_date', 'color_code', 'description'];
+        const updateFields = [];
+        const values = [];
+
+        Object.keys(updates).forEach(key => {
+            if (allowedFields.includes(key)) {
+                updateFields.push(`${key} = ?`);
+                values.push(updates[key]);
+            }
+        });
+
+        if (updateFields.length === 0) {
+            return {
+                success: false,
+                error: 'No valid fields to update'
+            };
+        }
+
+        values.push(eraId);
+
+        const stmt = db.prepare(`
+            UPDATE eras
+            SET ${updateFields.join(', ')}
+            WHERE era_id = ?
+        `);
+
+        stmt.run(...values);
+
+        return { success: true };
+    } catch (error) {
+        console.error('Error updating era:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Delete an era
+ */
+ipcMain.handle('eras:delete', async (event, eraId) => {
+    try {
+        const db = databaseService.getDatabase();
+        const stmt = db.prepare('DELETE FROM eras WHERE era_id = ?');
+        stmt.run(eraId);
+
+        return { success: true };
+    } catch (error) {
+        console.error('Error deleting era:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+// ===========================================
+// IPC Handlers - Settings
+// ===========================================
+
+/**
+ * Get all settings
+ */
+ipcMain.handle('settings:getAll', async () => {
+    try {
+        const db = databaseService.getDatabase();
+        const stmt = db.prepare('SELECT setting_key, setting_value FROM app_settings');
+        const rows = stmt.all();
+
+        const settings = {};
+        rows.forEach(row => {
+            settings[row.setting_key] = row.setting_value;
+        });
+
+        return {
+            success: true,
+            data: settings
+        };
+    } catch (error) {
+        console.error('Error getting settings:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Update a setting
+ */
+ipcMain.handle('settings:update', async (event, { key, value }) => {
+    try {
+        const db = databaseService.getDatabase();
+        const stmt = db.prepare(`
+            INSERT INTO app_settings (setting_key, setting_value)
+            VALUES (?, ?)
+            ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value
+        `);
+
+        stmt.run(key, value);
+
+        return { success: true };
+    } catch (error) {
+        console.error('Error updating setting:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+console.log('Main process initialized');
