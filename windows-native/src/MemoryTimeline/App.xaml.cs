@@ -39,6 +39,7 @@ public partial class App : Application
                 // Register core services
                 services.AddSingleton<ISettingsService, SettingsService>();
                 services.AddScoped<IEventService, EventService>();
+                services.AddScoped<ITimelineService, TimelineService>();
                 services.AddScoped<IAudioService, AudioService>();
                 services.AddScoped<ISpeechToTextService, SpeechToTextService>();
                 services.AddScoped<ILlmService, LlmService>();
