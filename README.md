@@ -6,7 +6,7 @@ A modern desktop application that functions as a personal memory and event timel
 
 ### Core Functionality
 
-✅ **Implemented (Phases 1-3)**:
+✅ **Implemented (Phases 1-3 + Enhancements)**:
 - SQLite database with comprehensive schema for events, eras, tags, people, and locations
 - Full-text search support for events
 - Database service layer with migrations support
@@ -26,13 +26,17 @@ A modern desktop application that functions as a personal memory and event timel
 - **Anthropic API integration with secure key storage**
 - **LLM-powered event extraction from transcripts**
 - **Structured prompt engineering for accurate data extraction**
-- **Mock transcription service (ready for STT integration)**
+- **Multi-engine STT service with 9 engine options (local and remote)**
+- **STT engine selection UI in Settings with per-engine configuration**
+- **Event edit modal for modifying extracted data before approval**
 - **Batch processing of queue items**
 - **Review queue with extracted event details (title, dates, description, category, tags, people, locations, confidence scores)**
-- **Approve/reject workflow that creates timeline events with full relationships**
+- **Approve/edit/reject workflow that creates timeline events with full relationships**
 - **Process Queue button with API key validation**
+- **Retry logic with exponential backoff for API calls**
+- **Enhanced error handling with detailed error messages**
 
-✅ **Completed**: All core functionality through Phase 3!
+✅ **Completed**: All core functionality through Phase 3, plus STT integration and edit workflow!
 
 📋 **Planned (Phases 4-6)**:
 - RAG-based cross-referencing and pattern detection
@@ -248,6 +252,76 @@ The system uses a carefully crafted prompt that instructs Claude to:
 - Include confidence scores
 - Handle ambiguity gracefully
 
+### Event Editing
+
+Before approving extracted events, you can edit them:
+1. Click "Edit" on any event in the Review Queue
+2. Modify any field (title, dates, description, category, tags, people, locations)
+3. Add or remove tags, people, and locations
+4. Save changes to approve and add to timeline
+5. Or approve without editing for quick workflow
+
+## Speech-to-Text (STT) Configuration
+
+The app supports multiple STT engines for audio transcription. Configure your preferred engine in Settings → Speech-to-Text Engine.
+
+### Available Engines
+
+**Local (Free) Engines:**
+- **Mock (Demo)** - Returns demo transcript for testing
+- **Whisper.cpp (Recommended)** - OpenAI Whisper running locally
+  - Cost: Free
+  - Accuracy: Excellent
+  - Setup: `npm install whisper-node`
+  - Models: tiny (39MB), base (74MB), small (244MB), medium (769MB), large (1.5GB)
+- **Vosk** - Lightweight offline recognition
+  - Cost: Free
+  - Accuracy: Good
+  - Setup: `npm install vosk` + download model from https://alphacephei.com/vosk/models
+  - Models: Small (50MB), Large (1.8GB)
+
+**Remote (Paid) Engines:**
+- **OpenAI Whisper API (Recommended for ease)** - Cloud version
+  - Cost: $0.006/minute
+  - Accuracy: Excellent
+  - Setup: API key from https://platform.openai.com/api-keys
+- **Google Cloud Speech-to-Text**
+  - Cost: $0.006-0.024/15 seconds
+  - Accuracy: Excellent
+  - Setup: Google Cloud account + credentials.json
+  - Features: 120+ languages, punctuation, real-time
+- **Deepgram**
+  - Cost: $0.0125/minute
+  - Accuracy: Very good
+  - Setup: API key from https://deepgram.com/
+- **AssemblyAI**
+  - Cost: $0.00025/second ($0.015/minute)
+  - Accuracy: Very good
+  - Setup: API key from https://www.assemblyai.com/
+
+### Configuring STT Engine
+
+1. Open Settings → Speech-to-Text Engine
+2. Select your preferred engine
+3. Enter engine-specific configuration:
+   - **Whisper API**: OpenAI API key
+   - **Whisper Local**: Model size (base recommended)
+   - **Vosk**: Path to downloaded model
+   - **Google Cloud**: Path to credentials.json
+   - **Deepgram/AssemblyAI**: API key
+4. Click "Initialize STT Engine"
+5. The engine will be used for all future transcriptions
+
+### Error Handling & Retry Logic
+
+The app includes robust error handling:
+- **Automatic retries** with exponential backoff for failed API calls
+- **Up to 3 retries** for LLM extraction (1s, 2s, 4s delays)
+- **Up to 2 retries** for STT transcription (2s, 4s delays)
+- **Detailed error messages** showing what failed and why
+- **Database tracking** of failed items with timestamps
+- **No retry** on authentication errors (401) or invalid requests (400)
+
 ## RAG Cross-Referencing
 
 The RAG (Retrieval-Augmented Generation) system analyzes your entire timeline to find connections:
@@ -452,5 +526,5 @@ For issues, questions, or suggestions:
 ---
 
 **Version**: 1.0.0-alpha
-**Status**: Alpha - Core functionality implemented, LLM features in progress
+**Status**: Alpha - Core functionality complete! Phase 3 (LLM Integration) complete with STT engine support, event editing, and enhanced error handling.
 **Last Updated**: 2025-11-21

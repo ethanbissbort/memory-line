@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { format, parseISO } from 'date-fns';
+import EventEditModal from '../events/EventEditModal';
 
 function QueuePanel() {
     const [activeTab, setActiveTab] = useState('outgoing'); // outgoing or review
@@ -13,6 +14,8 @@ function QueuePanel() {
     const [audioUrls, setAudioUrls] = useState({});
     const [isLoading, setIsLoading] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [editModalOpen, setEditModalOpen] = useState(false);
+    const [editingItem, setEditingItem] = useState(null);
 
     useEffect(() => {
         loadQueues();
@@ -99,6 +102,28 @@ function QueuePanel() {
         } catch (error) {
             console.error('Error rejecting event:', error);
             alert('Failed to reject event: ' + error.message);
+        }
+    };
+
+    const handleEditEvent = (item) => {
+        setEditingItem(item);
+        setEditModalOpen(true);
+    };
+
+    const handleSaveEdited = async (editedData) => {
+        if (!editingItem) return;
+
+        try {
+            const result = await window.electronAPI.pending.approve(editingItem.pending_id, editedData);
+            if (result.success) {
+                alert('Event approved and added to timeline!');
+                loadQueues();
+            } else {
+                alert('Failed to approve event: ' + result.error);
+            }
+        } catch (error) {
+            console.error('Error approving event:', error);
+            alert('Failed to approve event: ' + error.message);
         }
     };
 
@@ -360,7 +385,7 @@ function QueuePanel() {
                                             </button>
                                             <button
                                                 className="button secondary"
-                                                onClick={() => alert('Edit functionality coming in Phase 3!')}
+                                                onClick={() => handleEditEvent(item)}
                                             >
                                                 Edit
                                             </button>
@@ -378,6 +403,17 @@ function QueuePanel() {
                     </div>
                 )}
             </div>
+
+            {/* Event Edit Modal */}
+            <EventEditModal
+                isOpen={editModalOpen}
+                onClose={() => {
+                    setEditModalOpen(false);
+                    setEditingItem(null);
+                }}
+                eventData={editingItem?.extracted_data}
+                onSave={handleSaveEdited}
+            />
         </div>
     );
 }

@@ -91,6 +91,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
             ipcRenderer.invoke('llm:processQueueItem', queueId),
         processAllPending: () =>
             ipcRenderer.invoke('llm:processAllPending')
+    },
+
+    // STT (Speech-to-Text) operations
+    stt: {
+        getAvailableEngines: () =>
+            ipcRenderer.invoke('stt:getAvailableEngines'),
+        initializeEngine: (engine, config) =>
+            ipcRenderer.invoke('stt:initializeEngine', { engine, config })
     }
 });
 

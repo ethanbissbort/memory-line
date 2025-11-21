@@ -527,6 +527,63 @@ body {
 }
 
 /* ========================================
+   Event Edit Modal
+   ======================================== */
+.event-edit-modal {
+    max-width: 700px;
+}
+
+.event-edit-modal .modal-body {
+    max-height: 70vh;
+}
+
+.form-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-md);
+}
+
+.list-input {
+    display: flex;
+    gap: var(--spacing-xs);
+    margin-bottom: var(--spacing-xs);
+}
+
+.list-input input {
+    flex: 1;
+}
+
+.tag-remove {
+    margin-left: var(--spacing-xs);
+    background: none;
+    border: none;
+    color: white;
+    cursor: pointer;
+    font-weight: bold;
+    padding: 0 var(--spacing-xs);
+}
+
+.tag-remove:hover {
+    color: var(--error-color);
+}
+
+.confidence-display {
+    padding: var(--spacing-sm);
+    background-color: var(--background);
+    border-radius: var(--radius-md);
+    text-align: center;
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+    color: var(--primary-color);
+}
+
+/* ========================================
    Forms
    ======================================== */
 .form-group {

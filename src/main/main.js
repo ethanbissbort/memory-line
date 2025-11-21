@@ -8,6 +8,7 @@ const path = require('path');
 const fs = require('fs');
 const databaseService = require('../database/database');
 const anthropicService = require('./services/anthropicService');
+const sttService = require('./services/sttService');
 
 let mainWindow = null;
 
@@ -1337,10 +1338,24 @@ ipcMain.handle('llm:processAllPending', async () => {
                 }
             } catch (error) {
                 console.error(`Error processing queue item ${item.queue_id}:`, error);
+
+                // Update queue status to failed with error message
+                try {
+                    const updateFailed = db.prepare(`
+                        UPDATE recording_queue
+                        SET status = 'failed', error_message = ?, processed_at = datetime('now')
+                        WHERE queue_id = ?
+                    `);
+                    updateFailed.run(error.message || 'Unknown error', item.queue_id);
+                } catch (dbError) {
+                    console.error('Failed to update queue item status:', dbError);
+                }
+
                 results.failed++;
                 results.errors.push({
                     queueId: item.queue_id,
-                    error: error.message
+                    error: error.message || 'Unknown error',
+                    timestamp: new Date().toISOString()
                 });
             }
         }
@@ -1358,9 +1373,92 @@ ipcMain.handle('llm:processAllPending', async () => {
     }
 });
 
+// ===========================================
+// IPC Handlers - STT (Speech-to-Text)
+// ===========================================
+
+/**
+ * Get list of available STT engines
+ */
+ipcMain.handle('stt:getAvailableEngines', async () => {
+    try {
+        const engines = sttService.constructor.getAvailableEngines();
+        return {
+            success: true,
+            engines: engines
+        };
+    } catch (error) {
+        console.error('Error getting STT engines:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Initialize STT engine with config
+ */
+ipcMain.handle('stt:initializeEngine', async (event, { engine, config }) => {
+    try {
+        const db = databaseService.getDatabase();
+
+        // Save STT settings to database
+        const updateEngine = db.prepare(`
+            INSERT INTO app_settings (setting_key, setting_value)
+            VALUES ('stt_engine', ?)
+            ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value
+        `);
+        updateEngine.run(engine);
+
+        const updateConfig = db.prepare(`
+            INSERT INTO app_settings (setting_key, setting_value)
+            VALUES ('stt_config', ?)
+            ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value
+        `);
+        updateConfig.run(JSON.stringify(config));
+
+        // Initialize STT service
+        await anthropicService.initializeSTT(engine, config);
+
+        return { success: true };
+    } catch (error) {
+        console.error('Error initializing STT engine:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Initialize STT service with stored settings
+ */
+async function initializeSTTService() {
+    try {
+        const db = databaseService.getDatabase();
+
+        // Get STT settings
+        const getEngine = db.prepare('SELECT setting_value FROM app_settings WHERE setting_key = ?');
+        const engineResult = getEngine.get('stt_engine');
+        const configResult = getEngine.get('stt_config');
+
+        if (engineResult && engineResult.setting_value) {
+            const engine = engineResult.setting_value;
+            const config = configResult ? JSON.parse(configResult.setting_value) : {};
+
+            await anthropicService.initializeSTT(engine, config);
+            console.log(`STT service initialized with engine: ${engine}`);
+        }
+    } catch (error) {
+        console.error('Failed to initialize STT service:', error);
+    }
+}
+
 console.log('Main process initialized');
 
-// Initialize Anthropic service on startup
+// Initialize services on startup
 app.whenReady().then(() => {
     initializeAnthropicService();
+    initializeSTTService();
 });

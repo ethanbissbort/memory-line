@@ -222,6 +222,8 @@ INSERT OR IGNORE INTO app_settings (setting_key, setting_value) VALUES
     ('llm_model', 'claude-sonnet-4-20250514'),
     ('llm_max_tokens', '4000'),
     ('llm_temperature', '0.3'),
+    ('stt_engine', 'mock'),
+    ('stt_config', '{}'),
     ('rag_auto_run_enabled', 'false'),
     ('rag_schedule', 'weekly'),
     ('rag_similarity_threshold', '0.75'),

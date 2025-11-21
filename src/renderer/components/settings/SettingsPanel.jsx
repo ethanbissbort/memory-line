@@ -11,6 +11,9 @@ function SettingsPanel() {
     const [apiKey, setApiKey] = useState('');
     const [hasApiKey, setHasApiKey] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [availableEngines, setAvailableEngines] = useState([]);
+    const [selectedEngine, setSelectedEngine] = useState('mock');
+    const [engineConfig, setEngineConfig] = useState({});
 
     useEffect(() => {
         // Check if API key is already set
@@ -25,6 +28,31 @@ function SettingsPanel() {
             }
         };
         checkApiKey();
+
+        // Load available STT engines
+        const loadSTTEngines = async () => {
+            try {
+                const result = await window.electronAPI.stt.getAvailableEngines();
+                if (result.success) {
+                    setAvailableEngines(result.engines);
+                }
+            } catch (error) {
+                console.error('Error loading STT engines:', error);
+            }
+        };
+        loadSTTEngines();
+
+        // Set current STT engine from settings
+        if (settings.stt_engine) {
+            setSelectedEngine(settings.stt_engine);
+        }
+        if (settings.stt_config) {
+            try {
+                setEngineConfig(JSON.parse(settings.stt_config));
+            } catch (error) {
+                console.error('Error parsing STT config:', error);
+            }
+        }
     }, []);
 
     const handleSettingChange = async (key, value) => {
@@ -55,6 +83,24 @@ function SettingsPanel() {
             } catch (error) {
                 alert('Failed to optimize database: ' + error.message);
             }
+        }
+    };
+
+    const handleInitializeSTTEngine = async () => {
+        setIsSaving(true);
+        try {
+            const result = await window.electronAPI.stt.initializeEngine(selectedEngine, engineConfig);
+            if (result.success) {
+                alert('STT engine initialized successfully!');
+                await updateSetting('stt_engine', selectedEngine);
+                await updateSetting('stt_config', JSON.stringify(engineConfig));
+            } else {
+                alert('Failed to initialize STT engine: ' + result.error);
+            }
+        } catch (error) {
+            alert('Failed to initialize STT engine: ' + error.message);
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -112,6 +158,132 @@ function SettingsPanel() {
                             High quality recommended for best speech-to-text results
                         </p>
                     </div>
+                </div>
+
+                {/* STT Settings */}
+                <div className="settings-section">
+                    <h3>Speech-to-Text Engine</h3>
+
+                    <div className="setting-item">
+                        <label>STT Engine</label>
+                        <select
+                            value={selectedEngine}
+                            onChange={(e) => {
+                                setSelectedEngine(e.target.value);
+                                setEngineConfig({}); // Reset config when changing engine
+                            }}
+                        >
+                            {availableEngines.map(engine => (
+                                <option key={engine.id} value={engine.id}>
+                                    {engine.name} ({engine.cost}, {engine.type})
+                                </option>
+                            ))}
+                        </select>
+                        <p className="setting-hint">
+                            {availableEngines.find(e => e.id === selectedEngine)?.description || ''}
+                        </p>
+                    </div>
+
+                    {/* Engine-specific configuration */}
+                    {selectedEngine === 'whisper-api' && (
+                        <div className="setting-item">
+                            <label>OpenAI API Key</label>
+                            <input
+                                type="password"
+                                placeholder="sk-..."
+                                value={engineConfig.apiKey || ''}
+                                onChange={(e) => setEngineConfig({...engineConfig, apiKey: e.target.value})}
+                            />
+                        </div>
+                    )}
+
+                    {selectedEngine === 'whisper-local' && (
+                        <div className="setting-item">
+                            <label>Model Size</label>
+                            <select
+                                value={engineConfig.model || 'base'}
+                                onChange={(e) => setEngineConfig({...engineConfig, model: e.target.value})}
+                            >
+                                <option value="tiny">Tiny (39MB)</option>
+                                <option value="base">Base (74MB)</option>
+                                <option value="small">Small (244MB)</option>
+                                <option value="medium">Medium (769MB)</option>
+                                <option value="large">Large (1.5GB)</option>
+                            </select>
+                        </div>
+                    )}
+
+                    {selectedEngine === 'vosk' && (
+                        <div className="setting-item">
+                            <label>Model Path</label>
+                            <input
+                                type="text"
+                                placeholder="/path/to/vosk/model"
+                                value={engineConfig.modelPath || ''}
+                                onChange={(e) => setEngineConfig({...engineConfig, modelPath: e.target.value})}
+                            />
+                            <p className="setting-hint">
+                                Download models from: https://alphacephei.com/vosk/models
+                            </p>
+                        </div>
+                    )}
+
+                    {selectedEngine === 'google' && (
+                        <div className="setting-item">
+                            <label>Google Cloud Key File Path</label>
+                            <input
+                                type="text"
+                                placeholder="/path/to/credentials.json"
+                                value={engineConfig.keyFilePath || ''}
+                                onChange={(e) => setEngineConfig({...engineConfig, keyFilePath: e.target.value})}
+                            />
+                        </div>
+                    )}
+
+                    {selectedEngine === 'deepgram' && (
+                        <div className="setting-item">
+                            <label>Deepgram API Key</label>
+                            <input
+                                type="password"
+                                placeholder="api-key"
+                                value={engineConfig.apiKey || ''}
+                                onChange={(e) => setEngineConfig({...engineConfig, apiKey: e.target.value})}
+                            />
+                        </div>
+                    )}
+
+                    {selectedEngine === 'assemblyai' && (
+                        <div className="setting-item">
+                            <label>AssemblyAI API Key</label>
+                            <input
+                                type="password"
+                                placeholder="api-key"
+                                value={engineConfig.apiKey || ''}
+                                onChange={(e) => setEngineConfig({...engineConfig, apiKey: e.target.value})}
+                            />
+                        </div>
+                    )}
+
+                    <div className="setting-item">
+                        <button
+                            className="button primary"
+                            onClick={handleInitializeSTTEngine}
+                            disabled={isSaving}
+                        >
+                            {isSaving ? 'Initializing...' : 'Initialize STT Engine'}
+                        </button>
+                        <p className="setting-hint">
+                            Click to save and initialize the selected STT engine
+                        </p>
+                    </div>
+
+                    {availableEngines.find(e => e.id === selectedEngine)?.setup && (
+                        <div className="setting-item">
+                            <p className="setting-hint">
+                                <strong>Setup:</strong> {availableEngines.find(e => e.id === selectedEngine)?.setup}
+                            </p>
+                        </div>
+                    )}
                 </div>
 
                 {/* LLM Settings */}
