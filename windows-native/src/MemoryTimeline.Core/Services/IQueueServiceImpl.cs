@@ -11,7 +11,7 @@ namespace MemoryTimeline.Core.Services;
 public class QueueService : IQueueService
 {
     private readonly IRecordingQueueRepository _queueRepository;
-    private readonly ISpeechToTextService _sttService;
+    private readonly IEventExtractionService _extractionService;
     private readonly ILogger<QueueService> _logger;
     private readonly SemaphoreSlim _processingSemaphore = new(1, 1);
 
@@ -20,11 +20,11 @@ public class QueueService : IQueueService
 
     public QueueService(
         IRecordingQueueRepository queueRepository,
-        ISpeechToTextService sttService,
+        IEventExtractionService extractionService,
         ILogger<QueueService> logger)
     {
         _queueRepository = queueRepository;
-        _sttService = sttService;
+        _extractionService = extractionService;
         _logger = logger;
     }
 
@@ -279,20 +279,20 @@ public class QueueService : IQueueService
         {
             try
             {
-                RaiseProgressChanged(item.QueueId, 10, "Transcribing audio...");
+                // Process recording: transcribe + extract events
+                var progress = new Progress<(int percentage, string message)>(p =>
+                {
+                    RaiseProgressChanged(item.QueueId, p.percentage, p.message);
+                });
 
-                // Transcribe audio using STT service
-                var transcription = await _sttService.TranscribeAsync(item.AudioFilePath);
+                var eventCount = await _extractionService.ProcessRecordingAsync(item.QueueId, progress);
 
-                RaiseProgressChanged(item.QueueId, 50, "Processing transcription...");
-
-                // TODO: In Phase 4, add LLM event extraction here
-
-                RaiseProgressChanged(item.QueueId, 100, "Completed");
+                RaiseProgressChanged(item.QueueId, 100, $"Completed - {eventCount} events extracted");
 
                 await UpdateQueueItemStatusAsync(item.QueueId, QueueStatus.Completed);
 
-                _logger.LogInformation("Successfully processed queue item: {QueueId}", item.QueueId);
+                _logger.LogInformation("Successfully processed queue item: {QueueId} - {EventCount} events",
+                    item.QueueId, eventCount);
                 return;
             }
             catch (Exception ex)

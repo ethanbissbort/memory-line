@@ -48,8 +48,9 @@ public partial class App : Application
                 services.AddScoped<IQueueService, QueueService>();
                 services.AddScoped<ISpeechToTextService, WindowsSpeechRecognitionService>();
 
-                // TODO: Phase 4: LLM services (not yet implemented)
-                // services.AddScoped<ILlmService, LlmService>();
+                // Phase 4: LLM & Event Extraction services
+                services.AddHttpClient<ILlmService, AnthropicClaudeService>();
+                services.AddScoped<IEventExtractionService, EventExtractionService>();
 
                 // TODO: Phase 5: RAG & Embedding services (not yet implemented)
                 // services.AddScoped<IEmbeddingService, EmbeddingService>();
