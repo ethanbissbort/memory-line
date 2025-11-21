@@ -52,13 +52,16 @@ public partial class App : Application
                 services.AddHttpClient<ILlmService, AnthropicClaudeService>();
                 services.AddScoped<IEventExtractionService, EventExtractionService>();
 
-                // TODO: Phase 5: RAG & Embedding services (not yet implemented)
-                // services.AddScoped<IEmbeddingService, EmbeddingService>();
-                // services.AddScoped<IRagService, RagService>();
+                // Phase 5: RAG & Embedding services
+                services.AddHttpClient<IEmbeddingService, OpenAIEmbeddingService>();
+                services.AddScoped<IRagService, RagService>();
 
-                // TODO: Phase 7: Import/Export services (not yet implemented)
-                // services.AddScoped<IExportService, ExportService>();
-                // services.AddScoped<IImportService, ImportService>();
+                // Phase 6: Export/Import & Windows Integration services
+                services.AddScoped<IExportService, ExportService>();
+                services.AddScoped<IImportService, ImportService>();
+                services.AddSingleton<INotificationService, NotificationService>();
+                services.AddSingleton<IWindowsTimelineService, WindowsTimelineService>();
+                services.AddSingleton<IJumpListService, JumpListService>();
 
                 // Register app services
                 services.AddSingleton<INavigationService, NavigationService>();

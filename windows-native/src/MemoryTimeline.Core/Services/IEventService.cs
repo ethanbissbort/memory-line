@@ -58,12 +58,20 @@ public interface IEventService
 public class EventService : IEventService
 {
     private readonly IEventRepository _eventRepository;
+    private readonly IEmbeddingService? _embeddingService;
+    private readonly Data.AppDbContext _dbContext;
     private readonly ILogger<EventService> _logger;
 
-    public EventService(IEventRepository eventRepository, ILogger<EventService> logger)
+    public EventService(
+        IEventRepository eventRepository,
+        Data.AppDbContext dbContext,
+        ILogger<EventService> logger,
+        IEmbeddingService? embeddingService = null)
     {
         _eventRepository = eventRepository;
+        _dbContext = dbContext;
         _logger = logger;
+        _embeddingService = embeddingService;
     }
 
     // CRUD operations
@@ -80,6 +88,9 @@ public class EventService : IEventService
 
             var createdEvent = await _eventRepository.AddAsync(eventData);
             _logger.LogInformation("Event created: {EventId} - {Title}", createdEvent.EventId, createdEvent.Title);
+
+            // Generate embedding asynchronously (fire and forget)
+            _ = Task.Run(async () => await GenerateEmbeddingForEventAsync(createdEvent));
 
             return createdEvent;
         }
@@ -556,6 +567,48 @@ public class EventService : IEventService
             !EventCategory.AllCategories.Contains(eventData.Category))
         {
             throw new ArgumentException($"Invalid category: {eventData.Category}", nameof(eventData.Category));
+        }
+    }
+
+    private async Task GenerateEmbeddingForEventAsync(Event eventData)
+    {
+        if (_embeddingService == null)
+        {
+            _logger.LogDebug("Embedding service not available, skipping embedding generation for event {EventId}", eventData.EventId);
+            return;
+        }
+
+        try
+        {
+            _logger.LogInformation("Generating embedding for event {EventId}", eventData.EventId);
+
+            // Create text representation of event
+            var text = string.IsNullOrWhiteSpace(eventData.Description)
+                ? eventData.Title
+                : $"{eventData.Title}. {eventData.Description}";
+
+            // Generate embedding
+            var embedding = await _embeddingService.GenerateEmbeddingAsync(text);
+
+            // Save embedding to database
+            var eventEmbedding = new EventEmbedding
+            {
+                EventEmbeddingId = Guid.NewGuid().ToString(),
+                EventId = eventData.EventId,
+                Embedding = System.Text.Json.JsonSerializer.Serialize(embedding),
+                Model = _embeddingService.ModelName,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _dbContext.EventEmbeddings.Add(eventEmbedding);
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("Embedding generated and saved for event {EventId}", eventData.EventId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating embedding for event {EventId}", eventData.EventId);
+            // Don't throw - embedding generation is non-critical
         }
     }
 }

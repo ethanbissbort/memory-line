@@ -20,6 +20,7 @@ public class EventRepository : IEventRepository
     {
         return await _context.Events
             .Include(e => e.Era)
+            .AsNoTracking() // Read-only optimization
             .OrderByDescending(e => e.StartDate)
             .ToListAsync();
     }
@@ -49,6 +50,7 @@ public class EventRepository : IEventRepository
     {
         return await _context.Events
             .Include(e => e.Era)
+            .AsNoTracking() // Read-only optimization
             .Where(predicate)
             .OrderByDescending(e => e.StartDate)
             .ToListAsync();
@@ -102,6 +104,7 @@ public class EventRepository : IEventRepository
     {
         return await _context.Events
             .Include(e => e.Era)
+            .AsNoTracking() // Read-only optimization
             .Where(e => e.StartDate >= startDate && e.StartDate <= endDate)
             .OrderBy(e => e.StartDate)
             .ToListAsync();
@@ -111,6 +114,7 @@ public class EventRepository : IEventRepository
     {
         return await _context.Events
             .Include(e => e.Era)
+            .AsNoTracking() // Read-only optimization
             .Where(e => e.Category == category)
             .OrderByDescending(e => e.StartDate)
             .ToListAsync();
@@ -120,6 +124,7 @@ public class EventRepository : IEventRepository
     {
         return await _context.Events
             .Include(e => e.Era)
+            .AsNoTracking() // Read-only optimization
             .Where(e => e.EraId == eraId)
             .OrderBy(e => e.StartDate)
             .ToListAsync();
@@ -132,6 +137,7 @@ public class EventRepository : IEventRepository
         var term = $"%{searchTerm}%";
         return await _context.Events
             .Include(e => e.Era)
+            .AsNoTracking() // Read-only optimization
             .Where(e => EF.Functions.Like(e.Title, term) ||
                        EF.Functions.Like(e.Description ?? "", term) ||
                        EF.Functions.Like(e.RawTranscript ?? "", term))
@@ -146,7 +152,10 @@ public class EventRepository : IEventRepository
         DateTime? endDate = null,
         string? category = null)
     {
-        var query = _context.Events.Include(e => e.Era).AsQueryable();
+        var query = _context.Events
+            .Include(e => e.Era)
+            .AsNoTracking() // Read-only optimization
+            .AsQueryable();
 
         if (startDate.HasValue)
             query = query.Where(e => e.StartDate >= startDate.Value);
