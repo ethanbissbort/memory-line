@@ -99,6 +99,34 @@ contextBridge.exposeInMainWorld('electronAPI', {
             ipcRenderer.invoke('stt:getAvailableEngines'),
         initializeEngine: (engine, config) =>
             ipcRenderer.invoke('stt:initializeEngine', { engine, config })
+    },
+
+    // Embedding operations
+    embedding: {
+        initialize: (provider, model, apiKey) =>
+            ipcRenderer.invoke('embedding:initialize', { provider, model, apiKey }),
+        generateForEvent: (eventId) =>
+            ipcRenderer.invoke('embedding:generateForEvent', eventId),
+        generateAll: () =>
+            ipcRenderer.invoke('embedding:generateAll'),
+        findSimilar: (eventId, threshold, limit) =>
+            ipcRenderer.invoke('embedding:findSimilar', { eventId, threshold, limit }),
+        clearAll: () =>
+            ipcRenderer.invoke('embedding:clearAll')
+    },
+
+    // RAG (Retrieval-Augmented Generation) operations
+    rag: {
+        analyzeEvent: (eventId, threshold) =>
+            ipcRenderer.invoke('rag:analyzeEvent', { eventId, threshold }),
+        analyzeTimeline: (threshold) =>
+            ipcRenderer.invoke('rag:analyzeTimeline', { threshold }),
+        getCrossReferences: (eventId) =>
+            ipcRenderer.invoke('rag:getCrossReferences', eventId),
+        detectPatterns: () =>
+            ipcRenderer.invoke('rag:detectPatterns'),
+        suggestTags: (eventId, limit) =>
+            ipcRenderer.invoke('rag:suggestTags', { eventId, limit })
     }
 });
 

@@ -9,8 +9,12 @@ const fs = require('fs');
 const databaseService = require('../database/database');
 const anthropicService = require('./services/anthropicService');
 const sttService = require('./services/sttService');
+const EmbeddingService = require('./services/embeddingService');
+const RAGService = require('./services/ragService');
 
 let mainWindow = null;
+let embeddingService = null;
+let ragService = null;
 
 /**
  * Create the main application window
@@ -56,6 +60,11 @@ function initializeApp() {
     try {
         // Initialize database
         databaseService.initialize();
+
+        // Initialize embedding and RAG services
+        const db = databaseService.getDatabase();
+        embeddingService = new EmbeddingService(db);
+        ragService = new RAGService(db, embeddingService);
 
         // Create assets directory if it doesn't exist
         const assetsPath = path.join(app.getPath('userData'), 'assets');
@@ -1455,10 +1464,233 @@ async function initializeSTTService() {
     }
 }
 
+// ===========================================
+// IPC Handlers - Embeddings
+// ===========================================
+
+/**
+ * Initialize embedding service with provider config
+ */
+ipcMain.handle('embedding:initialize', async (event, { provider, model, apiKey }) => {
+    try {
+        await embeddingService.initialize(provider, model, apiKey);
+
+        // Save settings to database
+        const db = databaseService.getDatabase();
+        const updateSetting = db.prepare(`
+            INSERT INTO app_settings (setting_key, setting_value)
+            VALUES (?, ?)
+            ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value
+        `);
+
+        updateSetting.run('embedding_provider', provider);
+        updateSetting.run('embedding_model', model);
+        if (apiKey) {
+            updateSetting.run('embedding_api_key', apiKey);
+        }
+
+        return { success: true };
+    } catch (error) {
+        console.error('Error initializing embedding service:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Generate embedding for a specific event
+ */
+ipcMain.handle('embedding:generateForEvent', async (event, eventId) => {
+    try {
+        const db = databaseService.getDatabase();
+        const getEvent = db.prepare('SELECT * FROM events WHERE event_id = ?');
+        const eventData = getEvent.get(eventId);
+
+        if (!eventData) {
+            return {
+                success: false,
+                error: 'Event not found'
+            };
+        }
+
+        const result = await embeddingService.generateEventEmbedding(eventId, eventData);
+        return result;
+    } catch (error) {
+        console.error('Error generating event embedding:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Generate embeddings for all events without embeddings
+ */
+ipcMain.handle('embedding:generateAll', async () => {
+    try {
+        const result = await embeddingService.generateAllMissingEmbeddings();
+        return result;
+    } catch (error) {
+        console.error('Error generating all embeddings:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Find similar events to a given event
+ */
+ipcMain.handle('embedding:findSimilar', async (event, { eventId, threshold = 0.75, limit = 10 }) => {
+    try {
+        const result = await embeddingService.findSimilarEvents(eventId, threshold, limit);
+        return result;
+    } catch (error) {
+        console.error('Error finding similar events:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Clear all embeddings
+ */
+ipcMain.handle('embedding:clearAll', async () => {
+    try {
+        embeddingService.clearAllEmbeddings();
+        return { success: true };
+    } catch (error) {
+        console.error('Error clearing embeddings:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+// ===========================================
+// IPC Handlers - RAG Cross-Referencing
+// ===========================================
+
+/**
+ * Analyze cross-references for a specific event
+ */
+ipcMain.handle('rag:analyzeEvent', async (event, { eventId, threshold = 0.75 }) => {
+    try {
+        const result = await ragService.analyzeEventCrossReferences(eventId, threshold);
+        return result;
+    } catch (error) {
+        console.error('Error analyzing event:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Analyze entire timeline for cross-references
+ */
+ipcMain.handle('rag:analyzeTimeline', async (event, { threshold = 0.75 }) => {
+    try {
+        const result = await ragService.analyzeFullTimeline(threshold);
+        return result;
+    } catch (error) {
+        console.error('Error analyzing timeline:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Get cross-references for an event
+ */
+ipcMain.handle('rag:getCrossReferences', async (event, eventId) => {
+    try {
+        const crossRefs = ragService.getCrossReferences(eventId);
+        return {
+            success: true,
+            data: crossRefs
+        };
+    } catch (error) {
+        console.error('Error getting cross-references:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Detect patterns in timeline
+ */
+ipcMain.handle('rag:detectPatterns', async () => {
+    try {
+        const result = await ragService.detectPatterns();
+        return result;
+    } catch (error) {
+        console.error('Error detecting patterns:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Suggest tags for an event
+ */
+ipcMain.handle('rag:suggestTags', async (event, { eventId, limit = 5 }) => {
+    try {
+        const result = await ragService.suggestTags(eventId, limit);
+        return result;
+    } catch (error) {
+        console.error('Error suggesting tags:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Initialize embedding service with stored settings
+ */
+async function initializeEmbeddingService() {
+    try {
+        const db = databaseService.getDatabase();
+        const getSetting = db.prepare('SELECT setting_value FROM app_settings WHERE setting_key = ?');
+
+        const providerResult = getSetting.get('embedding_provider');
+        const modelResult = getSetting.get('embedding_model');
+        const apiKeyResult = getSetting.get('embedding_api_key');
+
+        if (providerResult && providerResult.setting_value && modelResult && modelResult.setting_value) {
+            const provider = providerResult.setting_value;
+            const model = modelResult.setting_value;
+            const apiKey = apiKeyResult ? apiKeyResult.setting_value : null;
+
+            await embeddingService.initialize(provider, model, apiKey);
+            console.log(`Embedding service initialized with ${provider}/${model}`);
+        }
+    } catch (error) {
+        console.error('Failed to initialize embedding service:', error);
+    }
+}
+
 console.log('Main process initialized');
 
 // Initialize services on startup
 app.whenReady().then(() => {
     initializeAnthropicService();
     initializeSTTService();
+    initializeEmbeddingService();
 });

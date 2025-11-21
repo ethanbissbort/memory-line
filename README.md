@@ -39,15 +39,22 @@ A modern desktop application that functions as a personal memory and event timel
 - **Process Queue button with API key validation**
 - **Retry logic with exponential backoff for API calls**
 - **Enhanced error handling with detailed error messages**
+- **Vector embedding generation with multiple provider support (OpenAI, Voyage AI, Cohere, Local)**
+- **Semantic similarity search for finding related events**
+- **RAG-powered cross-reference analysis with LLM-determined relationships**
+- **Automatic pattern detection (recurring categories, temporal clusters, era transitions)**
+- **Smart tag suggestions based on similar events**
+- **Cross-reference panel showing connections, similar events, and suggested tags**
+- **RAG configuration UI in Settings with embedding provider selection**
 
-✅ **Completed**: Phases 1-4 complete! Professional timeline visualization with advanced controls!
+✅ **Completed**: Phases 1-5 complete! RAG cross-referencing with embedding-based similarity search!
 
-📋 **Planned (Phases 5-6)**:
-- RAG-based cross-referencing and pattern detection
-- Enhanced search and filtering
+📋 **Planned (Phase 6)**:
+- Enhanced search and filtering with facets
 - Export functionality (JSON, CSV, PDF)
 - Batch audio import
 - Performance optimizations for 1000+ events
+- Advanced visualizations (graphs, charts)
 
 ## Technology Stack
 
@@ -327,22 +334,67 @@ The app includes robust error handling:
 
 ## RAG Cross-Referencing
 
-The RAG (Retrieval-Augmented Generation) system analyzes your entire timeline to find connections:
+The RAG (Retrieval-Augmented Generation) system analyzes your entire timeline to find connections using vector embeddings and LLM analysis.
 
-### Features (Planned)
+### Features
 
 - **Causal relationships**: Event A led to Event B
 - **Thematic connections**: Similar themes or topics
 - **Temporal patterns**: Recurring events or cycles
 - **Person/location links**: Shared people or places
-- **Tag suggestions**: Context-aware tagging based on entire timeline
+- **Tag suggestions**: Context-aware tagging based on similar events
+- **Semantic similarity**: Find related events using embedding-based search
+
+### Setup
+
+1. **Configure Embedding Provider** (Settings → RAG Settings):
+   - Choose provider: OpenAI, Voyage AI, Cohere, or Local
+   - Select model (e.g., text-embedding-ada-002 for OpenAI)
+   - Enter API key (if using cloud provider)
+   - Click "Initialize Embedding Service"
+
+2. **Generate Embeddings**:
+   - Click "Generate All Embeddings" to process all events
+   - Or enable "Auto-generate embeddings for new events"
+   - Embeddings are vector representations of event text
+
+3. **Analyze Timeline**:
+   - Click "Analyze Timeline for Cross-References" to discover connections
+   - Set similarity threshold (0.5-0.95) - higher = more strict
+   - LLM will analyze similar events and determine relationships
+
+### Using Cross-References
+
+When viewing an event's details, the Cross-Reference Panel shows:
+
+**Connections Tab**:
+- Discovered relationships between events
+- Relationship types: causal, thematic, temporal, person, location
+- Confidence scores and explanations
+
+**Similar Events Tab**:
+- Events with similar content (based on embeddings)
+- Similarity scores (cosine similarity)
+- Quick preview of event details
+
+**Suggested Tags Tab**:
+- Tags commonly used on similar events
+- Confidence scores based on frequency
+- One-click tag addition
+
+### Pattern Detection
+
+Click "Detect Patterns" to find:
+- **Recurring Categories**: Event types that appear frequently
+- **Temporal Clusters**: Time periods with high event density
+- **Era Transitions**: Milestone events near era boundaries
 
 ### Privacy & Control
 
 - **Explicit user consent required** - Never runs automatically without permission
-- **Schedulable** - Set weekly/monthly automatic analysis (opt-in)
 - **Manual trigger** - Run on-demand with confirmation dialog
 - **Transparent** - Shows confidence scores and reasoning
+- **Local storage** - Embeddings and cross-references stored in local SQLite database
 
 ## Data Privacy
 
@@ -411,11 +463,15 @@ For large timelines (110+ years of data), the app uses:
 - Duration events shown differently from point events
 - Keyboard hints displayed in timeline info panel
 
-### Phase 5: RAG Cross-Referencing 📋 (PLANNED)
-- Embedding generation
-- RAG system implementation
-- Cross-reference UI
-- Tag suggestion system
+### Phase 5: RAG Cross-Referencing ✅ (COMPLETED)
+- Vector embedding generation with multiple providers (OpenAI, Voyage, Cohere, Local)
+- Cosine similarity calculation for semantic event matching
+- RAG-powered cross-reference analysis using LLM
+- Cross-reference UI panel with connections, similar events, and tag suggestions
+- Pattern detection system (recurring categories, temporal clusters, era transitions)
+- Smart tag suggestion based on similar events
+- RAG configuration in Settings panel
+- Database schema for embeddings and cross-references
 
 ### Phase 6: Polish & Optimization 📋 (PLANNED)
 - Performance optimization for 1000+ events
@@ -533,5 +589,5 @@ For issues, questions, or suggestions:
 ---
 
 **Version**: 1.0.0-alpha
-**Status**: Alpha - Phases 1-4 complete! Advanced timeline visualization with professional UI, LLM integration, multi-engine STT support, and interactive event displays.
+**Status**: Alpha - Phases 1-5 complete! Advanced timeline visualization with RAG-powered cross-referencing, embedding-based similarity search, pattern detection, and smart tag suggestions.
 **Last Updated**: 2025-11-21
