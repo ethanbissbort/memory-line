@@ -147,6 +147,21 @@ CREATE INDEX IF NOT EXISTS idx_cross_refs_event1 ON cross_references(event_id_1)
 CREATE INDEX IF NOT EXISTS idx_cross_refs_event2 ON cross_references(event_id_2);
 CREATE INDEX IF NOT EXISTS idx_cross_refs_type ON cross_references(relationship_type);
 
+-- Event_Embeddings Table: Store vector embeddings for semantic similarity search
+CREATE TABLE IF NOT EXISTS event_embeddings (
+    embedding_id TEXT PRIMARY KEY,
+    event_id TEXT NOT NULL UNIQUE,
+    embedding_vector TEXT NOT NULL, -- JSON array of floats
+    embedding_provider TEXT NOT NULL, -- e.g., 'openai', 'voyage', 'cohere', 'local'
+    embedding_model TEXT NOT NULL, -- e.g., 'text-embedding-ada-002', 'voyage-2'
+    embedding_dimension INTEGER NOT NULL, -- e.g., 1536, 1024
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (event_id) REFERENCES events(event_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_embeddings_event ON event_embeddings(event_id);
+CREATE INDEX IF NOT EXISTS idx_embeddings_provider ON event_embeddings(embedding_provider);
+
 -- People Table: Track important people mentioned in events
 CREATE TABLE IF NOT EXISTS people (
     person_id TEXT PRIMARY KEY,
@@ -213,6 +228,10 @@ CREATE TABLE IF NOT EXISTS schema_version (
 INSERT OR IGNORE INTO schema_version (version, description)
 VALUES (1, 'Initial schema creation');
 
+-- Insert Phase 5 schema update
+INSERT OR IGNORE INTO schema_version (version, description)
+VALUES (2, 'Phase 5: Added event_embeddings table for RAG cross-referencing');
+
 -- Insert default settings
 INSERT OR IGNORE INTO app_settings (setting_key, setting_value) VALUES
     ('theme', 'light'),
@@ -222,8 +241,14 @@ INSERT OR IGNORE INTO app_settings (setting_key, setting_value) VALUES
     ('llm_model', 'claude-sonnet-4-20250514'),
     ('llm_max_tokens', '4000'),
     ('llm_temperature', '0.3'),
+    ('stt_engine', 'mock'),
+    ('stt_config', '{}'),
     ('rag_auto_run_enabled', 'false'),
     ('rag_schedule', 'weekly'),
     ('rag_similarity_threshold', '0.75'),
+    ('embedding_provider', 'openai'),
+    ('embedding_model', 'text-embedding-ada-002'),
+    ('embedding_api_key', ''),
+    ('auto_generate_embeddings', 'true'),
     ('send_transcripts_only', 'true'),
     ('require_confirmation', 'true');

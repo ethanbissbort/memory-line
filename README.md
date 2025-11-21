@@ -6,14 +6,18 @@ A modern desktop application that functions as a personal memory and event timel
 
 ### Core Functionality
 
-✅ **Implemented (Phases 1-3)**:
+✅ **Implemented (Phases 1-4 Complete!)**:
 - SQLite database with comprehensive schema for events, eras, tags, people, and locations
 - Full-text search support for events
 - Database service layer with migrations support
 - Electron app shell with secure IPC communication
 - React-based user interface with Zustand state management
-- Timeline visualization with zoom/pan controls (year/month/week/day views)
-- Era-based organization with color-coded background bands
+- **Advanced timeline visualization with zoom/pan controls (year/month/week/day views)**
+- **Intelligent date markers and labels that adapt to zoom level**
+- **Enhanced event bubbles with category icons and hover tooltips**
+- **Smooth transitions and animations for zoom changes**
+- **Keyboard shortcuts for navigation (←/→ navigate, +/- zoom, T for today)**
+- Era-based organization with enhanced gradient backgrounds
 - Event CRUD operations (Create, Read, Update, Delete)
 - Event details modal with editing capabilities
 - Settings panel for app configuration
@@ -26,21 +30,31 @@ A modern desktop application that functions as a personal memory and event timel
 - **Anthropic API integration with secure key storage**
 - **LLM-powered event extraction from transcripts**
 - **Structured prompt engineering for accurate data extraction**
-- **Mock transcription service (ready for STT integration)**
+- **Multi-engine STT service with 9 engine options (local and remote)**
+- **STT engine selection UI in Settings with per-engine configuration**
+- **Event edit modal for modifying extracted data before approval**
 - **Batch processing of queue items**
 - **Review queue with extracted event details (title, dates, description, category, tags, people, locations, confidence scores)**
-- **Approve/reject workflow that creates timeline events with full relationships**
+- **Approve/edit/reject workflow that creates timeline events with full relationships**
 - **Process Queue button with API key validation**
+- **Retry logic with exponential backoff for API calls**
+- **Enhanced error handling with detailed error messages**
+- **Vector embedding generation with multiple provider support (OpenAI, Voyage AI, Cohere, Local)**
+- **Semantic similarity search for finding related events**
+- **RAG-powered cross-reference analysis with LLM-determined relationships**
+- **Automatic pattern detection (recurring categories, temporal clusters, era transitions)**
+- **Smart tag suggestions based on similar events**
+- **Cross-reference panel showing connections, similar events, and suggested tags**
+- **RAG configuration UI in Settings with embedding provider selection**
 
-✅ **Completed**: All core functionality through Phase 3!
+✅ **Completed**: Phases 1-5 complete! RAG cross-referencing with embedding-based similarity search!
 
-📋 **Planned (Phases 4-6)**:
-- RAG-based cross-referencing and pattern detection
-- Advanced timeline features (date markers, event grouping)
-- Enhanced search and filtering
+📋 **Planned (Phase 6)**:
+- Enhanced search and filtering with facets
 - Export functionality (JSON, CSV, PDF)
 - Batch audio import
 - Performance optimizations for 1000+ events
+- Advanced visualizations (graphs, charts)
 
 ## Technology Stack
 
@@ -248,24 +262,139 @@ The system uses a carefully crafted prompt that instructs Claude to:
 - Include confidence scores
 - Handle ambiguity gracefully
 
+### Event Editing
+
+Before approving extracted events, you can edit them:
+1. Click "Edit" on any event in the Review Queue
+2. Modify any field (title, dates, description, category, tags, people, locations)
+3. Add or remove tags, people, and locations
+4. Save changes to approve and add to timeline
+5. Or approve without editing for quick workflow
+
+## Speech-to-Text (STT) Configuration
+
+The app supports multiple STT engines for audio transcription. Configure your preferred engine in Settings → Speech-to-Text Engine.
+
+### Available Engines
+
+**Local (Free) Engines:**
+- **Mock (Demo)** - Returns demo transcript for testing
+- **Whisper.cpp (Recommended)** - OpenAI Whisper running locally
+  - Cost: Free
+  - Accuracy: Excellent
+  - Setup: `npm install whisper-node`
+  - Models: tiny (39MB), base (74MB), small (244MB), medium (769MB), large (1.5GB)
+- **Vosk** - Lightweight offline recognition
+  - Cost: Free
+  - Accuracy: Good
+  - Setup: `npm install vosk` + download model from https://alphacephei.com/vosk/models
+  - Models: Small (50MB), Large (1.8GB)
+
+**Remote (Paid) Engines:**
+- **OpenAI Whisper API (Recommended for ease)** - Cloud version
+  - Cost: $0.006/minute
+  - Accuracy: Excellent
+  - Setup: API key from https://platform.openai.com/api-keys
+- **Google Cloud Speech-to-Text**
+  - Cost: $0.006-0.024/15 seconds
+  - Accuracy: Excellent
+  - Setup: Google Cloud account + credentials.json
+  - Features: 120+ languages, punctuation, real-time
+- **Deepgram**
+  - Cost: $0.0125/minute
+  - Accuracy: Very good
+  - Setup: API key from https://deepgram.com/
+- **AssemblyAI**
+  - Cost: $0.00025/second ($0.015/minute)
+  - Accuracy: Very good
+  - Setup: API key from https://www.assemblyai.com/
+
+### Configuring STT Engine
+
+1. Open Settings → Speech-to-Text Engine
+2. Select your preferred engine
+3. Enter engine-specific configuration:
+   - **Whisper API**: OpenAI API key
+   - **Whisper Local**: Model size (base recommended)
+   - **Vosk**: Path to downloaded model
+   - **Google Cloud**: Path to credentials.json
+   - **Deepgram/AssemblyAI**: API key
+4. Click "Initialize STT Engine"
+5. The engine will be used for all future transcriptions
+
+### Error Handling & Retry Logic
+
+The app includes robust error handling:
+- **Automatic retries** with exponential backoff for failed API calls
+- **Up to 3 retries** for LLM extraction (1s, 2s, 4s delays)
+- **Up to 2 retries** for STT transcription (2s, 4s delays)
+- **Detailed error messages** showing what failed and why
+- **Database tracking** of failed items with timestamps
+- **No retry** on authentication errors (401) or invalid requests (400)
+
 ## RAG Cross-Referencing
 
-The RAG (Retrieval-Augmented Generation) system analyzes your entire timeline to find connections:
+The RAG (Retrieval-Augmented Generation) system analyzes your entire timeline to find connections using vector embeddings and LLM analysis.
 
-### Features (Planned)
+### Features
 
 - **Causal relationships**: Event A led to Event B
 - **Thematic connections**: Similar themes or topics
 - **Temporal patterns**: Recurring events or cycles
 - **Person/location links**: Shared people or places
-- **Tag suggestions**: Context-aware tagging based on entire timeline
+- **Tag suggestions**: Context-aware tagging based on similar events
+- **Semantic similarity**: Find related events using embedding-based search
+
+### Setup
+
+1. **Configure Embedding Provider** (Settings → RAG Settings):
+   - Choose provider: OpenAI, Voyage AI, Cohere, or Local
+   - Select model (e.g., text-embedding-ada-002 for OpenAI)
+   - Enter API key (if using cloud provider)
+   - Click "Initialize Embedding Service"
+
+2. **Generate Embeddings**:
+   - Click "Generate All Embeddings" to process all events
+   - Or enable "Auto-generate embeddings for new events"
+   - Embeddings are vector representations of event text
+
+3. **Analyze Timeline**:
+   - Click "Analyze Timeline for Cross-References" to discover connections
+   - Set similarity threshold (0.5-0.95) - higher = more strict
+   - LLM will analyze similar events and determine relationships
+
+### Using Cross-References
+
+When viewing an event's details, the Cross-Reference Panel shows:
+
+**Connections Tab**:
+- Discovered relationships between events
+- Relationship types: causal, thematic, temporal, person, location
+- Confidence scores and explanations
+
+**Similar Events Tab**:
+- Events with similar content (based on embeddings)
+- Similarity scores (cosine similarity)
+- Quick preview of event details
+
+**Suggested Tags Tab**:
+- Tags commonly used on similar events
+- Confidence scores based on frequency
+- One-click tag addition
+
+### Pattern Detection
+
+Click "Detect Patterns" to find:
+- **Recurring Categories**: Event types that appear frequently
+- **Temporal Clusters**: Time periods with high event density
+- **Era Transitions**: Milestone events near era boundaries
 
 ### Privacy & Control
 
 - **Explicit user consent required** - Never runs automatically without permission
-- **Schedulable** - Set weekly/monthly automatic analysis (opt-in)
 - **Manual trigger** - Run on-demand with confirmation dialog
 - **Transparent** - Shows confidence scores and reasoning
+- **Local storage** - Embeddings and cross-references stored in local SQLite database
 
 ## Data Privacy
 
@@ -324,17 +453,25 @@ For large timelines (110+ years of data), the app uses:
 - Automatic pending event creation
 - Full approval workflow to timeline
 
-### Phase 4: Timeline Visualization Enhancement 📋 (PLANNED)
-- Advanced zoom/pan controls
-- Event bubble improvements
-- Date markers and labels
-- Era visualization enhancements
+### Phase 4: Timeline Visualization Enhancement ✅ (COMPLETED)
+- Advanced zoom/pan controls with smooth transitions
+- Enhanced event bubbles with category icons and interactive hover tooltips
+- Intelligent date markers and labels that adapt to zoom level
+- Era visualization with enhanced gradients and backdrop effects
+- Keyboard shortcuts for navigation (←/→, +/-, T)
+- Responsive sizing based on zoom level
+- Duration events shown differently from point events
+- Keyboard hints displayed in timeline info panel
 
-### Phase 5: RAG Cross-Referencing 📋 (PLANNED)
-- Embedding generation
-- RAG system implementation
-- Cross-reference UI
-- Tag suggestion system
+### Phase 5: RAG Cross-Referencing ✅ (COMPLETED)
+- Vector embedding generation with multiple providers (OpenAI, Voyage, Cohere, Local)
+- Cosine similarity calculation for semantic event matching
+- RAG-powered cross-reference analysis using LLM
+- Cross-reference UI panel with connections, similar events, and tag suggestions
+- Pattern detection system (recurring categories, temporal clusters, era transitions)
+- Smart tag suggestion based on similar events
+- RAG configuration in Settings panel
+- Database schema for embeddings and cross-references
 
 ### Phase 6: Polish & Optimization 📋 (PLANNED)
 - Performance optimization for 1000+ events
@@ -452,5 +589,5 @@ For issues, questions, or suggestions:
 ---
 
 **Version**: 1.0.0-alpha
-**Status**: Alpha - Core functionality implemented, LLM features in progress
+**Status**: Alpha - Phases 1-5 complete! Advanced timeline visualization with RAG-powered cross-referencing, embedding-based similarity search, pattern detection, and smart tag suggestions.
 **Last Updated**: 2025-11-21

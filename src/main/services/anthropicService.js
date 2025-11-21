@@ -5,11 +5,43 @@
 
 const Anthropic = require('@anthropic-ai/sdk');
 const fs = require('fs');
+const sttService = require('./sttService');
+
+/**
+ * Retry utility function with exponential backoff
+ * @param {Function} fn - The async function to retry
+ * @param {number} maxRetries - Maximum number of retry attempts (default: 3)
+ * @param {number} initialDelay - Initial delay in ms (default: 1000)
+ * @returns {Promise} Result of the function call
+ */
+async function retryWithBackoff(fn, maxRetries = 3, initialDelay = 1000) {
+    let lastError;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            return await fn();
+        } catch (error) {
+            lastError = error;
+
+            // Don't retry on certain errors (authentication, invalid request, etc.)
+            if (error.status && (error.status === 401 || error.status === 400)) {
+                throw error;
+            }
+
+            if (attempt < maxRetries) {
+                const delay = initialDelay * Math.pow(2, attempt);
+                console.log(`Attempt ${attempt + 1} failed, retrying in ${delay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
+    }
+    throw lastError;
+}
 
 class AnthropicService {
     constructor() {
         this.client = null;
         this.apiKey = null;
+        this.sttInitialized = false;
     }
 
     /**
@@ -30,6 +62,22 @@ class AnthropicService {
     }
 
     /**
+     * Initialize STT service with engine and config
+     * @param {string} engine - STT engine name
+     * @param {Object} config - Engine-specific configuration
+     */
+    async initializeSTT(engine, config = {}) {
+        try {
+            await sttService.initialize(engine, config);
+            this.sttInitialized = true;
+            console.log(`STT service initialized with engine: ${engine}`);
+        } catch (error) {
+            console.error('Failed to initialize STT service:', error);
+            throw error;
+        }
+    }
+
+    /**
      * Check if the service is initialized
      * @returns {boolean}
      */
@@ -38,37 +86,29 @@ class AnthropicService {
     }
 
     /**
-     * Transcribe audio file to text
-     * Note: Anthropic doesn't natively support audio transcription yet.
-     * This is a placeholder that would need to integrate with a speech-to-text service
-     * like Whisper API, Google Speech-to-Text, or Azure Speech.
-     *
-     * For now, this returns a mock transcription to demonstrate the workflow.
-     *
+     * Transcribe audio file to text using configured STT service
      * @param {string} audioFilePath - Path to audio file
      * @returns {Promise<string>} Transcribed text
      */
     async transcribeAudio(audioFilePath) {
-        // TODO: Integrate with actual speech-to-text service
-        // Options:
-        // 1. OpenAI Whisper API
-        // 2. Google Cloud Speech-to-Text
-        // 3. Azure Speech Service
-        // 4. AWS Transcribe
-
-        // For demonstration, return a mock transcription
         console.log(`Transcribing audio file: ${audioFilePath}`);
 
-        // Mock transcription - in real implementation, call STT service
-        return `[MOCK TRANSCRIPTION - Phase 3 Demo]
-This is a memory from my college years, specifically around 2015 to 2019.
-I was attending Stanford University studying Computer Science.
-It was an incredible time of learning and growth.
-I made lifelong friends like Sarah Chen and Mike Rodriguez.
-We spent countless hours in the Gates Computer Science building working on projects together.
-One of my favorite memories was when we won the hackathon in spring 2017 with our AI project.
-That really solidified my interest in machine learning and AI.
-The experience at Stanford shaped who I am today and led me to my current career in tech.`;
+        try {
+            // Use retry logic for transcription (network-based STT services might fail)
+            const result = await retryWithBackoff(async () => {
+                return await sttService.transcribe(audioFilePath);
+            }, 2, 2000); // 2 retries with 2s initial delay for STT
+
+            if (!result.success) {
+                throw new Error(result.error || 'Transcription failed');
+            }
+
+            return result.transcript;
+        } catch (error) {
+            console.error('Transcription error:', error);
+            // If STT fails, provide a helpful error message
+            throw new Error(`STT transcription failed: ${error.message}`);
+        }
     }
 
     /**
@@ -84,14 +124,17 @@ The experience at Stanford shaped who I am today and led me to my current career
         const prompt = this._buildExtractionPrompt(transcript);
 
         try {
-            const response = await this.client.messages.create({
-                model: 'claude-sonnet-4-20250514',
-                max_tokens: 4000,
-                temperature: 0.3,
-                messages: [{
-                    role: 'user',
-                    content: prompt
-                }]
+            // Use retry logic for API call
+            const response = await retryWithBackoff(async () => {
+                return await this.client.messages.create({
+                    model: 'claude-sonnet-4-20250514',
+                    max_tokens: 4000,
+                    temperature: 0.3,
+                    messages: [{
+                        role: 'user',
+                        content: prompt
+                    }]
+                });
             });
 
             // Extract JSON from response

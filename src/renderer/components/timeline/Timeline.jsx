@@ -3,13 +3,14 @@
  * Main timeline visualization with zoom/pan controls
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useTimelineStore } from '../../store/timelineStore';
 import TimelineControls from './TimelineControls';
 import TimelineCanvas from './TimelineCanvas';
 import EventBubble from './EventBubble';
 import EraBackground from './EraBackground';
-import { calculateDatePosition, getDateRangeForZoom } from '../../utils/timelineUtils';
+import { calculateDatePosition, getDateRangeForZoom, generateDateMarkers, formatDateForZoom } from '../../utils/timelineUtils';
+import { parseISO } from 'date-fns';
 
 function Timeline({ onEventClick }) {
     const timelineRef = useRef(null);
@@ -43,6 +44,14 @@ function Timeline({ onEventClick }) {
     useEffect(() => {
         const { start, end } = getDateRangeForZoom(currentViewDate, zoomLevel);
         loadEvents(start, end);
+    }, [currentViewDate, zoomLevel]);
+
+    // Generate date markers for timeline axis
+    const dateMarkers = useMemo(() => {
+        const { start, end } = getDateRangeForZoom(currentViewDate, zoomLevel);
+        const startDate = parseISO(start);
+        const endDate = parseISO(end);
+        return generateDateMarkers(startDate, endDate, zoomLevel);
     }, [currentViewDate, zoomLevel]);
 
     const handleZoomIn = () => {
@@ -125,6 +134,45 @@ function Timeline({ onEventClick }) {
         setIsDragging(false);
     };
 
+    // Keyboard shortcuts for navigation
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            // Only handle if not typing in an input
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                return;
+            }
+
+            switch (e.key) {
+                case 'ArrowLeft':
+                    e.preventDefault();
+                    handlePrevious();
+                    break;
+                case 'ArrowRight':
+                    e.preventDefault();
+                    handleNext();
+                    break;
+                case '+':
+                case '=':
+                    e.preventDefault();
+                    handleZoomIn();
+                    break;
+                case '-':
+                case '_':
+                    e.preventDefault();
+                    handleZoomOut();
+                    break;
+                case 't':
+                case 'T':
+                    e.preventDefault();
+                    handleToday();
+                    break;
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [zoomLevel, currentViewDate]);
+
     return (
         <div className="timeline-container">
             <TimelineControls
@@ -162,7 +210,22 @@ function Timeline({ onEventClick }) {
                 {/* Timeline axis */}
                 <div className="timeline-axis" style={{ transform: `translateX(${panOffset}px)` }}>
                     <div className="axis-line"></div>
-                    {/* TODO: Add date markers based on zoom level */}
+                    {/* Date markers */}
+                    {dateMarkers.map((markerDate, index) => {
+                        const position = calculateDatePosition(markerDate, currentViewDate, zoomLevel, timelineWidth);
+                        return (
+                            <div
+                                key={index}
+                                className="date-marker"
+                                style={{ left: `${position}px` }}
+                            >
+                                <div className="marker-tick"></div>
+                                <div className="marker-label">
+                                    {formatDateForZoom(markerDate, zoomLevel)}
+                                </div>
+                            </div>
+                        );
+                    })}
                 </div>
 
                 {/* Event bubbles */}
@@ -181,8 +244,17 @@ function Timeline({ onEventClick }) {
             </div>
 
             <div className="timeline-info">
-                <span>Showing {filteredEvents.length} events</span>
-                <span>Zoom: {zoomLevel}</span>
+                <div className="info-left">
+                    <span>Showing {filteredEvents.length} events</span>
+                    <span className="zoom-indicator">Zoom: {zoomLevel}</span>
+                </div>
+                <div className="info-right">
+                    <span className="keyboard-hints">
+                        <kbd>←</kbd><kbd>→</kbd> Navigate
+                        <kbd>+</kbd><kbd>-</kbd> Zoom
+                        <kbd>T</kbd> Today
+                    </span>
+                </div>
             </div>
         </div>
     );
