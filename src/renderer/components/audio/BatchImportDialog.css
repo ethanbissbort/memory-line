@@ -1,0 +1,471 @@
+.batch-import-dialog {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dialog-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+}
+
+.dialog-content {
+  position: relative;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  width: 90%;
+  max-width: 800px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem 2rem;
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  background: var(--bg-secondary, #f9fafb);
+}
+
+.dialog-header h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text-primary, #111827);
+}
+
+.dialog-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2rem;
+}
+
+.file-selection {
+  margin-bottom: 2rem;
+}
+
+.selection-buttons {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.select-btn,
+.clear-btn {
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.select-btn {
+  background: var(--primary-color, #3b82f6);
+  color: white;
+  border: none;
+}
+
+.select-btn:hover:not(:disabled) {
+  background: var(--primary-hover, #2563eb);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.select-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.select-btn span {
+  font-size: 1.25rem;
+}
+
+.clear-btn {
+  background: white;
+  border: 1px solid var(--border-color, #e5e7eb);
+  color: var(--text-secondary, #6b7280);
+}
+
+.clear-btn:hover {
+  background: var(--error-color, #ef4444);
+  color: white;
+  border-color: var(--error-color, #ef4444);
+}
+
+.files-list {
+  border: 2px dashed var(--border-color, #e5e7eb);
+  border-radius: 8px;
+  min-height: 200px;
+  background: var(--bg-secondary, #f9fafb);
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  text-align: center;
+  color: var(--text-secondary, #6b7280);
+}
+
+.empty-state p {
+  margin: 0.25rem 0;
+}
+
+.empty-state p:first-child {
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.empty-hint {
+  font-size: 0.875rem;
+  opacity: 0.8;
+}
+
+.file-items {
+  padding: 1rem;
+}
+
+.files-header {
+  padding: 0.75rem 1rem;
+  background: white;
+  border-radius: 6px;
+  margin-bottom: 0.75rem;
+}
+
+.files-count {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary, #111827);
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: white;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 6px;
+  margin-bottom: 0.5rem;
+  transition: all 0.2s;
+}
+
+.file-item:hover {
+  border-color: var(--primary-color, #3b82f6);
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
+}
+
+.file-icon {
+  font-size: 1.5rem;
+}
+
+.file-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.file-name {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--text-primary, #111827);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-size {
+  font-size: 0.8125rem;
+  color: var(--text-secondary, #6b7280);
+  margin-top: 0.25rem;
+}
+
+.remove-file-btn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: var(--text-secondary, #6b7280);
+  cursor: pointer;
+  padding: 0.25rem;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.remove-file-btn:hover {
+  background: var(--error-bg, #fee2e2);
+  color: var(--error-color, #ef4444);
+}
+
+.import-options {
+  background: var(--bg-secondary, #f9fafb);
+  border-radius: 8px;
+  padding: 1.5rem;
+}
+
+.import-options h3 {
+  margin: 0 0 1.5rem 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--text-primary, #111827);
+}
+
+.option-group {
+  margin-bottom: 1.25rem;
+}
+
+.option-group label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary, #374151);
+  margin-bottom: 0.5rem;
+}
+
+.option-input {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 6px;
+  font-size: 0.9375rem;
+  transition: all 0.2s;
+  background: white;
+}
+
+.option-input:focus {
+  outline: none;
+  border-color: var(--primary-color, #3b82f6);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.checkbox-group label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.checkbox-group input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.checkbox-group span {
+  font-size: 0.9375rem;
+  font-weight: 500;
+}
+
+.import-progress {
+  padding: 2rem 0;
+}
+
+.import-progress h3 {
+  margin: 0 0 1.5rem 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  text-align: center;
+  color: var(--text-primary, #111827);
+}
+
+.progress-bar {
+  width: 100%;
+  height: 12px;
+  background: var(--progress-bg, #e5e7eb);
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 1.5rem;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary-color, #3b82f6), var(--primary-hover, #2563eb));
+  border-radius: 6px;
+  transition: width 0.3s ease;
+}
+
+.progress-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.stat {
+  background: var(--bg-secondary, #f9fafb);
+  padding: 1rem;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.stat-label {
+  display: block;
+  font-size: 0.8125rem;
+  color: var(--text-secondary, #6b7280);
+  margin-bottom: 0.5rem;
+}
+
+.stat-value {
+  display: block;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary, #111827);
+}
+
+.stat-value.success {
+  color: var(--success-color, #10b981);
+}
+
+.stat-value.error {
+  color: var(--error-color, #ef4444);
+}
+
+.progress-files {
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--bg-secondary, #f9fafb);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.progress-file {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: white;
+  border-radius: 6px;
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.progress-file.completed {
+  border-left: 3px solid var(--success-color, #10b981);
+}
+
+.progress-file.failed {
+  border-left: 3px solid var(--error-color, #ef4444);
+}
+
+.progress-file.processing {
+  border-left: 3px solid var(--primary-color, #3b82f6);
+}
+
+.file-status-icon {
+  font-size: 1rem;
+}
+
+.progress-file .file-name {
+  flex: 1;
+  color: var(--text-primary, #111827);
+  font-weight: 500;
+}
+
+.file-error {
+  font-size: 0.75rem;
+  color: var(--error-color, #ef4444);
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  padding: 1.5rem 2rem;
+  border-top: 1px solid var(--border-color, #e5e7eb);
+  background: var(--bg-secondary, #f9fafb);
+}
+
+.cancel-btn,
+.import-btn,
+.cancel-import-btn {
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cancel-btn {
+  background: white;
+  border: 1px solid var(--border-color, #e5e7eb);
+  color: var(--text-secondary, #6b7280);
+}
+
+.cancel-btn:hover {
+  background: var(--hover-bg, #f3f4f6);
+  border-color: var(--text-secondary, #6b7280);
+}
+
+.import-btn {
+  background: var(--primary-color, #3b82f6);
+  color: white;
+  border: none;
+}
+
+.import-btn:hover:not(:disabled) {
+  background: var(--primary-hover, #2563eb);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.import-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.cancel-import-btn {
+  background: var(--error-color, #ef4444);
+  color: white;
+  border: none;
+}
+
+.cancel-import-btn:hover {
+  background: var(--error-hover, #dc2626);
+}
+
+/* Scrollbar styling */
+.dialog-body::-webkit-scrollbar,
+.progress-files::-webkit-scrollbar {
+  width: 8px;
+}
+
+.dialog-body::-webkit-scrollbar-track,
+.progress-files::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dialog-body::-webkit-scrollbar-thumb,
+.progress-files::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb, #d1d5db);
+  border-radius: 4px;
+}
+
+.dialog-body::-webkit-scrollbar-thumb:hover,
+.progress-files::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover, #9ca3af);
+}
