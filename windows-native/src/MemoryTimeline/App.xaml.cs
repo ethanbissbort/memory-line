@@ -35,17 +35,30 @@ public partial class App : Application
                 // Register repositories
                 services.AddScoped<IEventRepository, EventRepository>();
                 services.AddScoped<IEraRepository, EraRepository>();
+                services.AddScoped<IRecordingQueueRepository, RecordingQueueRepository>();
 
                 // Register core services
                 services.AddSingleton<ISettingsService, SettingsService>();
                 services.AddScoped<IEventService, EventService>();
-                services.AddScoped<IAudioService, AudioService>();
-                services.AddScoped<ISpeechToTextService, SpeechToTextService>();
-                services.AddScoped<ILlmService, LlmService>();
-                services.AddScoped<IEmbeddingService, EmbeddingService>();
-                services.AddScoped<IRagService, RagService>();
-                services.AddScoped<IExportService, ExportService>();
-                services.AddScoped<IImportService, ImportService>();
+                services.AddScoped<ITimelineService, TimelineService>();
+
+                // Phase 3: Audio & Queue services
+                services.AddSingleton<IAudioRecordingService, AudioRecordingService>();
+                services.AddSingleton<IAudioPlaybackService, AudioPlaybackService>();
+                services.AddScoped<IQueueService, QueueService>();
+                services.AddScoped<ISpeechToTextService, WindowsSpeechRecognitionService>();
+
+                // Phase 4: LLM & Event Extraction services
+                services.AddHttpClient<ILlmService, AnthropicClaudeService>();
+                services.AddScoped<IEventExtractionService, EventExtractionService>();
+
+                // TODO: Phase 5: RAG & Embedding services (not yet implemented)
+                // services.AddScoped<IEmbeddingService, EmbeddingService>();
+                // services.AddScoped<IRagService, RagService>();
+
+                // TODO: Phase 7: Import/Export services (not yet implemented)
+                // services.AddScoped<IExportService, ExportService>();
+                // services.AddScoped<IImportService, ImportService>();
 
                 // Register app services
                 services.AddSingleton<INavigationService, NavigationService>();

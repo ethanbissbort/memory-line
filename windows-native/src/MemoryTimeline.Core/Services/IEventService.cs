@@ -22,6 +22,7 @@ public interface IEventService
     Task<IEnumerable<Event>> GetEventsByCategoryAsync(string category);
     Task<IEnumerable<Event>> GetEventsByEraAsync(string eraId);
     Task<IEnumerable<Event>> SearchEventsAsync(string searchTerm);
+    Task<IEnumerable<Event>> GetRecentEventsAsync(int count);
 
     // Pagination
     Task<(IEnumerable<Event> Events, int TotalCount)> GetPagedEventsAsync(
@@ -228,6 +229,23 @@ public class EventService : IEventService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error searching events: {SearchTerm}", searchTerm);
+            throw;
+        }
+    }
+
+    public async Task<IEnumerable<Event>> GetRecentEventsAsync(int count)
+    {
+        try
+        {
+            var allEvents = await _eventRepository.GetAllAsync();
+            return allEvents
+                .OrderByDescending(e => e.CreatedAt)
+                .Take(count)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting recent events");
             throw;
         }
     }
