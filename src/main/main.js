@@ -13,12 +13,18 @@ const EmbeddingService = require('./services/embeddingService');
 const RAGService = require('./services/ragService');
 const ExportService = require('./services/exportService');
 const PerformanceService = require('./services/performanceService');
+const SearchService = require('./services/searchService');
+const BatchImportService = require('./services/batchImportService');
+const VisualizationService = require('./services/visualizationService');
 
 let mainWindow = null;
 let embeddingService = null;
 let ragService = null;
 let exportService = null;
 let performanceService = null;
+let searchService = null;
+let batchImportService = null;
+let visualizationService = null;
 
 /**
  * Create the main application window
@@ -71,6 +77,9 @@ function initializeApp() {
         ragService = new RAGService(db, embeddingService);
         exportService = new ExportService(db);
         performanceService = new PerformanceService(db);
+        searchService = new SearchService(db);
+        batchImportService = new BatchImportService(db);
+        visualizationService = new VisualizationService(db);
 
         // Optimize database indices on startup
         performanceService.optimizeIndices();
@@ -1884,6 +1893,351 @@ ipcMain.handle('performance:optimize', async () => {
             success: false,
             error: error.message
         };
+    }
+});
+
+// ===========================================
+// IPC Handlers - Search Service
+// ===========================================
+
+/**
+ * Perform faceted search
+ */
+ipcMain.handle('search:search', async (event, options) => {
+    try {
+        const result = searchService.search(options);
+        return result;
+    } catch (error) {
+        console.error('Error performing search:', error);
+        return {
+            events: [],
+            pagination: {},
+            facets: {},
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Get search suggestions
+ */
+ipcMain.handle('search:getSuggestions', async (event, query) => {
+    try {
+        const suggestions = searchService.getSuggestions(query);
+        return suggestions;
+    } catch (error) {
+        console.error('Error getting suggestions:', error);
+        return [];
+    }
+});
+
+/**
+ * Save a search
+ */
+ipcMain.handle('search:saveSearch', async (event, name, options) => {
+    try {
+        const result = searchService.saveSearch(name, options);
+        return result;
+    } catch (error) {
+        console.error('Error saving search:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Get saved searches
+ */
+ipcMain.handle('search:getSavedSearches', async () => {
+    try {
+        const searches = searchService.getSavedSearches();
+        return searches;
+    } catch (error) {
+        console.error('Error getting saved searches:', error);
+        return [];
+    }
+});
+
+/**
+ * Delete saved search
+ */
+ipcMain.handle('search:deleteSavedSearch', async (event, key) => {
+    try {
+        const result = searchService.deleteSavedSearch(key);
+        return result;
+    } catch (error) {
+        console.error('Error deleting saved search:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+// ===========================================
+// IPC Handlers - Batch Import Service
+// ===========================================
+
+/**
+ * Start batch import
+ */
+ipcMain.handle('batchImport:start', async (event, filePaths, options) => {
+    try {
+        const result = batchImportService.startBatchImport(filePaths, options);
+        return result;
+    } catch (error) {
+        console.error('Error starting batch import:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Process batch import
+ */
+ipcMain.handle('batchImport:process', async (event, sessionId) => {
+    try {
+        const result = await batchImportService.processBatchImport(sessionId, (progress) => {
+            // Send progress updates to renderer
+            if (mainWindow) {
+                mainWindow.webContents.send('batchImport:progress', progress);
+            }
+        });
+        return result;
+    } catch (error) {
+        console.error('Error processing batch import:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Get import status
+ */
+ipcMain.handle('batchImport:getStatus', async (event, sessionId) => {
+    try {
+        const status = batchImportService.getImportStatus(sessionId);
+        return status;
+    } catch (error) {
+        console.error('Error getting import status:', error);
+        return null;
+    }
+});
+
+/**
+ * Cancel batch import
+ */
+ipcMain.handle('batchImport:cancel', async (event, sessionId) => {
+    try {
+        const result = batchImportService.cancelBatchImport(sessionId);
+        return result;
+    } catch (error) {
+        console.error('Error canceling import:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Scan directory for audio files
+ */
+ipcMain.handle('batchImport:scanDirectory', async (event, directoryPath, options) => {
+    try {
+        const result = batchImportService.scanDirectory(directoryPath, options);
+        return result;
+    } catch (error) {
+        console.error('Error scanning directory:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Get active import sessions
+ */
+ipcMain.handle('batchImport:getActiveSessions', async () => {
+    try {
+        const sessions = batchImportService.getActiveSessions();
+        return sessions;
+    } catch (error) {
+        console.error('Error getting active sessions:', error);
+        return [];
+    }
+});
+
+// ===========================================
+// IPC Handlers - Visualization/Analytics Service
+// ===========================================
+
+/**
+ * Get summary statistics
+ */
+ipcMain.handle('analytics:getSummaryStatistics', async () => {
+    try {
+        const stats = visualizationService.getSummaryStatistics();
+        return stats;
+    } catch (error) {
+        console.error('Error getting summary statistics:', error);
+        return null;
+    }
+});
+
+/**
+ * Get category distribution
+ */
+ipcMain.handle('analytics:getCategoryDistribution', async () => {
+    try {
+        const distribution = visualizationService.getCategoryDistribution();
+        return distribution;
+    } catch (error) {
+        console.error('Error getting category distribution:', error);
+        return [];
+    }
+});
+
+/**
+ * Get timeline density
+ */
+ipcMain.handle('analytics:getTimelineDensity', async (event, groupBy, startDate, endDate) => {
+    try {
+        const density = visualizationService.getTimelineDensity(groupBy, startDate, endDate);
+        return density;
+    } catch (error) {
+        console.error('Error getting timeline density:', error);
+        return [];
+    }
+});
+
+/**
+ * Get tag cloud data
+ */
+ipcMain.handle('analytics:getTagCloud', async (event, limit) => {
+    try {
+        const tagCloud = visualizationService.getTagCloud(limit);
+        return tagCloud;
+    } catch (error) {
+        console.error('Error getting tag cloud:', error);
+        return [];
+    }
+});
+
+/**
+ * Get people network
+ */
+ipcMain.handle('analytics:getPeopleNetwork', async () => {
+    try {
+        const network = visualizationService.getPeopleNetwork();
+        return network;
+    } catch (error) {
+        console.error('Error getting people network:', error);
+        return { nodes: [], edges: [] };
+    }
+});
+
+/**
+ * Get location heatmap
+ */
+ipcMain.handle('analytics:getLocationHeatmap', async () => {
+    try {
+        const heatmap = visualizationService.getLocationHeatmap();
+        return heatmap;
+    } catch (error) {
+        console.error('Error getting location heatmap:', error);
+        return [];
+    }
+});
+
+/**
+ * Get era statistics
+ */
+ipcMain.handle('analytics:getEraStatistics', async () => {
+    try {
+        const eraStats = visualizationService.getEraStatistics();
+        return eraStats;
+    } catch (error) {
+        console.error('Error getting era statistics:', error);
+        return [];
+    }
+});
+
+/**
+ * Get activity heatmap
+ */
+ipcMain.handle('analytics:getActivityHeatmap', async () => {
+    try {
+        const heatmap = visualizationService.getActivityHeatmap();
+        return heatmap;
+    } catch (error) {
+        console.error('Error getting activity heatmap:', error);
+        return { raw: [], matrix: [], labels: {} };
+    }
+});
+
+/**
+ * Get trend analysis
+ */
+ipcMain.handle('analytics:getTrendAnalysis', async (event, groupBy) => {
+    try {
+        const trend = visualizationService.getTrendAnalysis(groupBy);
+        return trend;
+    } catch (error) {
+        console.error('Error getting trend analysis:', error);
+        return { data: [], trend: null };
+    }
+});
+
+/**
+ * Compare time periods
+ */
+ipcMain.handle('analytics:compareTimePeriods', async (event, period1Start, period1End, period2Start, period2End) => {
+    try {
+        const comparison = visualizationService.compareTimePeriods(period1Start, period1End, period2Start, period2End);
+        return comparison;
+    } catch (error) {
+        console.error('Error comparing time periods:', error);
+        return null;
+    }
+});
+
+// ===========================================
+// IPC Handlers - Dialog Operations
+// ===========================================
+
+/**
+ * Open file dialog
+ */
+ipcMain.handle('dialog:openFiles', async (event, options) => {
+    try {
+        const result = await dialog.showOpenDialog(mainWindow, options);
+        return result.filePaths;
+    } catch (error) {
+        console.error('Error opening file dialog:', error);
+        return [];
+    }
+});
+
+/**
+ * Open directory dialog
+ */
+ipcMain.handle('dialog:openDirectory', async () => {
+    try {
+        const result = await dialog.showOpenDialog(mainWindow, {
+            properties: ['openDirectory']
+        });
+        return result.filePaths[0];
+    } catch (error) {
+        console.error('Error opening directory dialog:', error);
+        return null;
     }
 });
 
