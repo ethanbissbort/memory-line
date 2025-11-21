@@ -3,6 +3,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import ErrorBoundary from './components/common/ErrorBoundary';
 import Timeline from './components/timeline/Timeline';
 import Sidebar from './components/common/Sidebar';
 import Header from './components/common/Header';
@@ -62,38 +63,40 @@ function App() {
     }
 
     return (
-        <div className="app">
-            <Header activePanel={activePanel} setActivePanel={setActivePanel} />
+        <ErrorBoundary>
+            <div className="app">
+                <Header activePanel={activePanel} setActivePanel={setActivePanel} />
 
-            <div className="app-content">
-                <Sidebar activePanel={activePanel} setActivePanel={setActivePanel} />
+                <div className="app-content">
+                    <Sidebar activePanel={activePanel} setActivePanel={setActivePanel} />
 
-                <main className="main-content">
-                    {activePanel === 'timeline' && (
-                        <Timeline onEventClick={handleEventClick} />
-                    )}
+                    <main className="main-content">
+                        {activePanel === 'timeline' && (
+                            <Timeline onEventClick={handleEventClick} />
+                        )}
 
-                    {activePanel === 'recorder' && (
-                        <AudioRecorder />
-                    )}
+                        {activePanel === 'recorder' && (
+                            <AudioRecorder />
+                        )}
 
-                    {activePanel === 'queue' && (
-                        <QueuePanel />
-                    )}
+                        {activePanel === 'queue' && (
+                            <QueuePanel />
+                        )}
 
-                    {activePanel === 'settings' && (
-                        <SettingsPanel />
-                    )}
-                </main>
+                        {activePanel === 'settings' && (
+                            <SettingsPanel />
+                        )}
+                    </main>
+                </div>
+
+                {selectedEvent && (
+                    <EventDetailsModal
+                        event={selectedEvent}
+                        onClose={handleCloseEventModal}
+                    />
+                )}
             </div>
-
-            {selectedEvent && (
-                <EventDetailsModal
-                    event={selectedEvent}
-                    onClose={handleCloseEventModal}
-                />
-            )}
-        </div>
+        </ErrorBoundary>
     );
 }
 
