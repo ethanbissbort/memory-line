@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using MemoryTimeline.Core.DTOs;
 using MemoryTimeline.Data.Models;
 using MemoryTimeline.Data.Repositories;
+using MemoryTimeline.Services;
 
 namespace MemoryTimeline.Core.Services;
 
@@ -12,6 +13,7 @@ public class QueueService : IQueueService
 {
     private readonly IRecordingQueueRepository _queueRepository;
     private readonly IEventExtractionService _extractionService;
+    private readonly INotificationService? _notificationService;
     private readonly ILogger<QueueService> _logger;
     private readonly SemaphoreSlim _processingSemaphore = new(1, 1);
 
@@ -21,11 +23,13 @@ public class QueueService : IQueueService
     public QueueService(
         IRecordingQueueRepository queueRepository,
         IEventExtractionService extractionService,
-        ILogger<QueueService> logger)
+        ILogger<QueueService> logger,
+        INotificationService? notificationService = null)
     {
         _queueRepository = queueRepository;
         _extractionService = extractionService;
         _logger = logger;
+        _notificationService = notificationService;
     }
 
     /// <summary>
@@ -169,7 +173,15 @@ public class QueueService : IQueueService
                 return;
             }
 
-            await ProcessQueueItemAsync(nextItem);
+            var result = await ProcessQueueItemAsync(nextItem);
+
+            // Show notification for single item processing
+            if (_notificationService != null && result.success)
+            {
+                await _notificationService.ShowSuccessAsync(
+                    "Processing Complete",
+                    $"Extracted {result.eventCount} event{(result.eventCount != 1 ? "s" : "")}");
+            }
         }
         finally
         {
@@ -191,14 +203,30 @@ public class QueueService : IQueueService
         try
         {
             var pendingItems = await _queueRepository.GetByStatusAsync(QueueStatus.Pending);
-            _logger.LogInformation("Processing {Count} pending items", pendingItems.Count());
+            var pendingCount = pendingItems.Count();
+            _logger.LogInformation("Processing {Count} pending items", pendingCount);
+
+            var successCount = 0;
+            var totalEvents = 0;
 
             foreach (var item in pendingItems)
             {
-                await ProcessQueueItemAsync(item);
+                var result = await ProcessQueueItemAsync(item);
+                if (result.success)
+                {
+                    successCount++;
+                    totalEvents += result.eventCount;
+                }
             }
 
-            _logger.LogInformation("Finished processing all pending items");
+            _logger.LogInformation("Finished processing all pending items: {Success}/{Total} succeeded",
+                successCount, pendingCount);
+
+            // Show completion notification
+            if (_notificationService != null && successCount > 0)
+            {
+                await _notificationService.ShowProcessingCompleteAsync(successCount, totalEvents);
+            }
         }
         finally
         {
@@ -266,7 +294,8 @@ public class QueueService : IQueueService
     /// <summary>
     /// Processes a single queue item with retry logic.
     /// </summary>
-    private async Task ProcessQueueItemAsync(RecordingQueue item)
+    /// <returns>Tuple of (success, eventCount)</returns>
+    private async Task<(bool success, int eventCount)> ProcessQueueItemAsync(RecordingQueue item)
     {
         const int maxRetries = 3;
         const int baseDelayMs = 1000;
@@ -293,7 +322,8 @@ public class QueueService : IQueueService
 
                 _logger.LogInformation("Successfully processed queue item: {QueueId} - {EventCount} events",
                     item.QueueId, eventCount);
-                return;
+
+                return (true, eventCount);
             }
             catch (Exception ex)
             {
@@ -313,9 +343,19 @@ public class QueueService : IQueueService
                     await UpdateQueueItemStatusAsync(item.QueueId, QueueStatus.Failed, ex.Message);
                     _logger.LogError("Failed to process queue item {QueueId} after {MaxRetries} attempts",
                         item.QueueId, maxRetries);
+
+                    // Show error notification
+                    if (_notificationService != null)
+                    {
+                        await _notificationService.ShowErrorAsync(
+                            "Processing Failed",
+                            $"Failed to process recording after {maxRetries} attempts");
+                    }
                 }
             }
         }
+
+        return (false, 0);
     }
 
     private void RaiseStatusChanged(string queueId, string oldStatus, string newStatus, string? errorMessage = null)

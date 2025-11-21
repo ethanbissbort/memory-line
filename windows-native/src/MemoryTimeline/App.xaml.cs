@@ -56,9 +56,12 @@ public partial class App : Application
                 services.AddHttpClient<IEmbeddingService, OpenAIEmbeddingService>();
                 services.AddScoped<IRagService, RagService>();
 
-                // TODO: Phase 7: Import/Export services (not yet implemented)
-                // services.AddScoped<IExportService, ExportService>();
-                // services.AddScoped<IImportService, ImportService>();
+                // Phase 6: Export/Import & Windows Integration services
+                services.AddScoped<IExportService, ExportService>();
+                services.AddScoped<IImportService, ImportService>();
+                services.AddSingleton<INotificationService, NotificationService>();
+                services.AddSingleton<IWindowsTimelineService, WindowsTimelineService>();
+                services.AddSingleton<IJumpListService, JumpListService>();
 
                 // Register app services
                 services.AddSingleton<INavigationService, NavigationService>();
