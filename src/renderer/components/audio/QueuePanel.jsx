@@ -4,27 +4,138 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { format, parseISO } from 'date-fns';
 
 function QueuePanel() {
     const [activeTab, setActiveTab] = useState('outgoing'); // outgoing or review
     const [outgoingQueue, setOutgoingQueue] = useState([]);
     const [reviewQueue, setReviewQueue] = useState([]);
+    const [audioUrls, setAudioUrls] = useState({});
+    const [isLoading, setIsLoading] = useState(false);
 
     useEffect(() => {
         loadQueues();
     }, []);
 
     const loadQueues = async () => {
-        // TODO: Load from database
-        console.log('Loading queues...');
+        setIsLoading(true);
+        try {
+            // Load outgoing queue
+            const outgoingResult = await window.electronAPI.queue.getAll();
+            if (outgoingResult.success) {
+                setOutgoingQueue(outgoingResult.data);
+
+                // Load audio files for playback
+                const urls = {};
+                for (const item of outgoingResult.data) {
+                    const audioResult = await window.electronAPI.audio.getFile(item.audio_file_path);
+                    if (audioResult.success) {
+                        urls[item.queue_id] = audioResult.data;
+                    }
+                }
+                setAudioUrls(urls);
+            }
+
+            // Load review queue
+            const reviewResult = await window.electronAPI.pending.getAll('pending_review');
+            if (reviewResult.success) {
+                setReviewQueue(reviewResult.data);
+            }
+        } catch (error) {
+            console.error('Error loading queues:', error);
+            alert('Failed to load queues: ' + error.message);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleRemoveFromQueue = async (queueId) => {
+        if (!confirm('Are you sure you want to remove this recording from the queue?')) {
+            return;
+        }
+
+        try {
+            const result = await window.electronAPI.queue.remove(queueId);
+            if (result.success) {
+                loadQueues(); // Reload queues
+            } else {
+                alert('Failed to remove item: ' + result.error);
+            }
+        } catch (error) {
+            console.error('Error removing from queue:', error);
+            alert('Failed to remove item: ' + error.message);
+        }
+    };
+
+    const handleApprove = async (pendingId, extractedData) => {
+        try {
+            const result = await window.electronAPI.pending.approve(pendingId, extractedData);
+            if (result.success) {
+                alert('Event approved and added to timeline!');
+                loadQueues(); // Reload queues
+            } else {
+                alert('Failed to approve event: ' + result.error);
+            }
+        } catch (error) {
+            console.error('Error approving event:', error);
+            alert('Failed to approve event: ' + error.message);
+        }
+    };
+
+    const handleReject = async (pendingId) => {
+        if (!confirm('Are you sure you want to reject this event? This cannot be undone.')) {
+            return;
+        }
+
+        try {
+            const result = await window.electronAPI.pending.reject(pendingId);
+            if (result.success) {
+                alert('Event rejected');
+                loadQueues(); // Reload queues
+            } else {
+                alert('Failed to reject event: ' + result.error);
+            }
+        } catch (error) {
+            console.error('Error rejecting event:', error);
+            alert('Failed to reject event: ' + error.message);
+        }
+    };
+
+    const formatFileSize = (bytes) => {
+        if (!bytes) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    };
+
+    const formatDuration = (seconds) => {
+        if (!seconds) return '0:00';
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
+
+    const getStatusBadgeClass = (status) => {
+        switch (status) {
+            case 'pending': return 'status-badge pending';
+            case 'processing': return 'status-badge processing';
+            case 'completed': return 'status-badge completed';
+            case 'failed': return 'status-badge failed';
+            default: return 'status-badge';
+        }
     };
 
     return (
         <div className="queue-panel">
             <div className="queue-header">
                 <h2>Processing Queue</h2>
-                <button className="button secondary" onClick={loadQueues}>
-                    Refresh
+                <button
+                    className="button secondary"
+                    onClick={loadQueues}
+                    disabled={isLoading}
+                >
+                    {isLoading ? 'Loading...' : 'Refresh'}
                 </button>
             </div>
 
@@ -55,11 +166,45 @@ function QueuePanel() {
                             <div className="queue-list">
                                 {outgoingQueue.map(item => (
                                     <div key={item.queue_id} className="queue-item">
-                                        <div className="queue-item-info">
-                                            <span className="filename">{item.audio_file_path}</span>
-                                            <span className="status">{item.status}</span>
+                                        <div className="queue-item-header">
+                                            <div className="queue-item-info">
+                                                <strong>Recording</strong>
+                                                <span className="timestamp">
+                                                    {item.created_at && format(parseISO(item.created_at), 'MMM d, yyyy h:mm a')}
+                                                </span>
+                                            </div>
+                                            <span className={getStatusBadgeClass(item.status)}>
+                                                {item.status}
+                                            </span>
                                         </div>
-                                        <audio controls src={item.audio_file_path} />
+
+                                        <div className="queue-item-metadata">
+                                            <span>Duration: {formatDuration(item.duration_seconds)}</span>
+                                            <span>Size: {formatFileSize(item.file_size_bytes)}</span>
+                                        </div>
+
+                                        {audioUrls[item.queue_id] && (
+                                            <audio
+                                                controls
+                                                src={audioUrls[item.queue_id]}
+                                                className="queue-audio-player"
+                                            />
+                                        )}
+
+                                        {item.error_message && (
+                                            <div className="error-message">
+                                                Error: {item.error_message}
+                                            </div>
+                                        )}
+
+                                        <div className="queue-item-actions">
+                                            <button
+                                                className="button danger small"
+                                                onClick={() => handleRemoveFromQueue(item.queue_id)}
+                                            >
+                                                Remove
+                                            </button>
+                                        </div>
                                     </div>
                                 ))}
                             </div>
@@ -78,17 +223,94 @@ function QueuePanel() {
                             <div className="review-list">
                                 {reviewQueue.map(item => (
                                     <div key={item.pending_id} className="review-item">
-                                        <div className="review-audio">
-                                            <audio controls src={item.audio_file_path} />
+                                        <div className="review-header">
+                                            <h3>Extracted Event</h3>
+                                            <span className="timestamp">
+                                                {item.created_at && format(parseISO(item.created_at), 'MMM d, yyyy h:mm a')}
+                                            </span>
                                         </div>
+
+                                        {item.audio_file_path && audioUrls[item.pending_id] && (
+                                            <div className="review-audio">
+                                                <audio controls src={audioUrls[item.pending_id]} />
+                                            </div>
+                                        )}
+
                                         <div className="review-data">
-                                            <h4>Extracted Event Data</h4>
-                                            {/* TODO: Display extracted data */}
+                                            {item.extracted_data && (
+                                                <div className="extracted-fields">
+                                                    <div className="field">
+                                                        <label>Title:</label>
+                                                        <span>{item.extracted_data.title}</span>
+                                                    </div>
+                                                    <div className="field">
+                                                        <label>Start Date:</label>
+                                                        <span>{item.extracted_data.start_date}</span>
+                                                    </div>
+                                                    {item.extracted_data.end_date && (
+                                                        <div className="field">
+                                                            <label>End Date:</label>
+                                                            <span>{item.extracted_data.end_date}</span>
+                                                        </div>
+                                                    )}
+                                                    {item.extracted_data.description && (
+                                                        <div className="field">
+                                                            <label>Description:</label>
+                                                            <p>{item.extracted_data.description}</p>
+                                                        </div>
+                                                    )}
+                                                    {item.extracted_data.category && (
+                                                        <div className="field">
+                                                            <label>Category:</label>
+                                                            <span>{item.extracted_data.category}</span>
+                                                        </div>
+                                                    )}
+                                                    {item.extracted_data.suggested_tags && item.extracted_data.suggested_tags.length > 0 && (
+                                                        <div className="field">
+                                                            <label>Suggested Tags:</label>
+                                                            <div className="tag-list">
+                                                                {item.extracted_data.suggested_tags.map((tag, idx) => (
+                                                                    <span key={idx} className="tag">{tag}</span>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                    {item.extracted_data.confidence && (
+                                                        <div className="field">
+                                                            <label>Confidence:</label>
+                                                            <span>{Math.round(item.extracted_data.confidence * 100)}%</span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+
+                                            {item.transcript && (
+                                                <div className="transcript-section">
+                                                    <label>Transcript:</label>
+                                                    <p className="transcript">{item.transcript}</p>
+                                                </div>
+                                            )}
                                         </div>
+
                                         <div className="review-actions">
-                                            <button className="button danger">Reject</button>
-                                            <button className="button secondary">Edit</button>
-                                            <button className="button primary">Approve</button>
+                                            <button
+                                                className="button danger"
+                                                onClick={() => handleReject(item.pending_id)}
+                                            >
+                                                Reject
+                                            </button>
+                                            <button
+                                                className="button secondary"
+                                                onClick={() => alert('Edit functionality coming in Phase 3!')}
+                                            >
+                                                Edit
+                                            </button>
+                                            <button
+                                                className="button primary"
+                                                onClick={() => handleApprove(item.pending_id, null)}
+                                            >
+                                                Approve
+                                            </button>
                                         </div>
                                     </div>
                                 ))}

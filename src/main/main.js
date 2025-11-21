@@ -668,4 +668,416 @@ ipcMain.handle('settings:update', async (event, { key, value }) => {
     }
 });
 
+// ===========================================
+// IPC Handlers - Audio & Recording Queue
+// ===========================================
+
+/**
+ * Save audio blob to file system
+ */
+ipcMain.handle('audio:save', async (event, { audioData, duration }) => {
+    try {
+        const { v4: uuidv4 } = require('uuid');
+
+        // Generate unique filename
+        const audioId = uuidv4();
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const filename = `recording-${timestamp}-${audioId}.wav`;
+
+        // Get audio directory path
+        const audioPath = path.join(app.getPath('userData'), 'assets', 'audio');
+
+        // Ensure directory exists
+        if (!fs.existsSync(audioPath)) {
+            fs.mkdirSync(audioPath, { recursive: true });
+        }
+
+        const filePath = path.join(audioPath, filename);
+
+        // Convert base64 to buffer and save
+        const buffer = Buffer.from(audioData.split(',')[1], 'base64');
+        fs.writeFileSync(filePath, buffer);
+
+        const stats = fs.statSync(filePath);
+
+        return {
+            success: true,
+            data: {
+                filePath: filePath,
+                filename: filename,
+                fileSize: stats.size,
+                duration: duration
+            }
+        };
+    } catch (error) {
+        console.error('Error saving audio file:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Add audio file to recording queue
+ */
+ipcMain.handle('queue:add', async (event, { filePath, duration, fileSize }) => {
+    try {
+        const db = databaseService.getDatabase();
+        const { v4: uuidv4 } = require('uuid');
+
+        const queueId = uuidv4();
+
+        const stmt = db.prepare(`
+            INSERT INTO recording_queue (
+                queue_id, audio_file_path, duration_seconds, file_size_bytes, status
+            ) VALUES (?, ?, ?, ?, 'pending')
+        `);
+
+        stmt.run(queueId, filePath, duration, fileSize);
+
+        return {
+            success: true,
+            data: { queue_id: queueId }
+        };
+    } catch (error) {
+        console.error('Error adding to queue:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Get recording queue items
+ */
+ipcMain.handle('queue:getAll', async (event, { status = null } = {}) => {
+    try {
+        const db = databaseService.getDatabase();
+
+        let query = 'SELECT * FROM recording_queue';
+        const params = [];
+
+        if (status) {
+            query += ' WHERE status = ?';
+            params.push(status);
+        }
+
+        query += ' ORDER BY created_at DESC';
+
+        const stmt = db.prepare(query);
+        const items = stmt.all(...params);
+
+        return {
+            success: true,
+            data: items
+        };
+    } catch (error) {
+        console.error('Error getting queue items:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Update queue item status
+ */
+ipcMain.handle('queue:updateStatus', async (event, { queueId, status, errorMessage = null }) => {
+    try {
+        const db = databaseService.getDatabase();
+
+        const stmt = db.prepare(`
+            UPDATE recording_queue
+            SET status = ?,
+                processed_at = CASE WHEN ? IN ('completed', 'failed') THEN datetime('now') ELSE processed_at END,
+                error_message = ?
+            WHERE queue_id = ?
+        `);
+
+        stmt.run(status, status, errorMessage, queueId);
+
+        return { success: true };
+    } catch (error) {
+        console.error('Error updating queue status:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Remove item from queue
+ */
+ipcMain.handle('queue:remove', async (event, queueId) => {
+    try {
+        const db = databaseService.getDatabase();
+
+        // Get file path before deleting from database
+        const getStmt = db.prepare('SELECT audio_file_path FROM recording_queue WHERE queue_id = ?');
+        const item = getStmt.get(queueId);
+
+        if (item && item.audio_file_path) {
+            // Delete audio file if it exists
+            if (fs.existsSync(item.audio_file_path)) {
+                fs.unlinkSync(item.audio_file_path);
+            }
+        }
+
+        // Delete from database
+        const deleteStmt = db.prepare('DELETE FROM recording_queue WHERE queue_id = ?');
+        deleteStmt.run(queueId);
+
+        return { success: true };
+    } catch (error) {
+        console.error('Error removing from queue:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Get pending events for review
+ */
+ipcMain.handle('pending:getAll', async (event, { status = 'pending_review' } = {}) => {
+    try {
+        const db = databaseService.getDatabase();
+
+        const stmt = db.prepare(`
+            SELECT * FROM pending_events
+            WHERE status = ?
+            ORDER BY created_at DESC
+        `);
+
+        const items = stmt.all(status);
+
+        // Parse extracted_data JSON
+        items.forEach(item => {
+            if (item.extracted_data) {
+                item.extracted_data = JSON.parse(item.extracted_data);
+            }
+        });
+
+        return {
+            success: true,
+            data: items
+        };
+    } catch (error) {
+        console.error('Error getting pending events:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Approve pending event and create actual event
+ */
+ipcMain.handle('pending:approve', async (event, { pendingId, editedData = null }) => {
+    try {
+        const db = databaseService.getDatabase();
+        const { v4: uuidv4 } = require('uuid');
+
+        // Get pending event
+        const getPending = db.prepare('SELECT * FROM pending_events WHERE pending_id = ?');
+        const pendingEvent = getPending.get(pendingId);
+
+        if (!pendingEvent) {
+            return {
+                success: false,
+                error: 'Pending event not found'
+            };
+        }
+
+        // Use edited data if provided, otherwise use extracted data
+        const eventData = editedData || JSON.parse(pendingEvent.extracted_data);
+
+        // Create the event
+        const eventId = uuidv4();
+
+        const transaction = db.transaction(() => {
+            // Insert event
+            const insertEvent = db.prepare(`
+                INSERT INTO events (
+                    event_id, title, start_date, end_date, description,
+                    category, audio_file_path, raw_transcript, extraction_metadata
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+
+            insertEvent.run(
+                eventId,
+                eventData.title,
+                eventData.start_date,
+                eventData.end_date || null,
+                eventData.description || null,
+                eventData.category || 'other',
+                pendingEvent.audio_file_path,
+                pendingEvent.transcript,
+                JSON.stringify({ confidence: eventData.confidence || 1.0 })
+            );
+
+            // Insert tags if provided
+            if (eventData.suggested_tags && eventData.suggested_tags.length > 0) {
+                const insertTag = db.prepare(`
+                    INSERT OR IGNORE INTO tags (tag_id, tag_name) VALUES (?, ?)
+                `);
+                const linkTag = db.prepare(`
+                    INSERT INTO event_tags (event_id, tag_id, is_manual, confidence_score)
+                    VALUES (?, ?, 0, ?)
+                `);
+
+                eventData.suggested_tags.forEach(tagName => {
+                    const tagId = uuidv4();
+                    insertTag.run(tagId, tagName);
+                    const existingTag = db.prepare('SELECT tag_id FROM tags WHERE tag_name = ?').get(tagName);
+                    linkTag.run(eventId, existingTag.tag_id, eventData.confidence || 0.8);
+                });
+            }
+
+            // Insert people if provided
+            if (eventData.key_people && eventData.key_people.length > 0) {
+                const insertPerson = db.prepare(`
+                    INSERT OR IGNORE INTO people (person_id, name) VALUES (?, ?)
+                `);
+                const linkPerson = db.prepare(`
+                    INSERT INTO event_people (event_id, person_id) VALUES (?, ?)
+                `);
+
+                eventData.key_people.forEach(personName => {
+                    const personId = uuidv4();
+                    insertPerson.run(personId, personName);
+                    const existingPerson = db.prepare('SELECT person_id FROM people WHERE name = ?').get(personName);
+                    linkPerson.run(eventId, existingPerson.person_id);
+                });
+            }
+
+            // Insert locations if provided
+            if (eventData.locations && eventData.locations.length > 0) {
+                const insertLocation = db.prepare(`
+                    INSERT OR IGNORE INTO locations (location_id, name) VALUES (?, ?)
+                `);
+                const linkLocation = db.prepare(`
+                    INSERT INTO event_locations (event_id, location_id) VALUES (?, ?)
+                `);
+
+                eventData.locations.forEach(locationName => {
+                    const locationId = uuidv4();
+                    insertLocation.run(locationId, locationName);
+                    const existingLocation = db.prepare('SELECT location_id FROM locations WHERE name = ?').get(locationName);
+                    linkLocation.run(eventId, existingLocation.location_id);
+                });
+            }
+
+            // Update pending event status
+            const updatePending = db.prepare(`
+                UPDATE pending_events
+                SET status = 'approved', reviewed_at = datetime('now')
+                WHERE pending_id = ?
+            `);
+            updatePending.run(pendingId);
+
+            // Update queue status
+            if (pendingEvent.queue_id) {
+                const updateQueue = db.prepare(`
+                    UPDATE recording_queue
+                    SET status = 'completed'
+                    WHERE queue_id = ?
+                `);
+                updateQueue.run(pendingEvent.queue_id);
+            }
+        });
+
+        transaction();
+
+        return {
+            success: true,
+            data: { event_id: eventId }
+        };
+    } catch (error) {
+        console.error('Error approving pending event:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Reject pending event
+ */
+ipcMain.handle('pending:reject', async (event, pendingId) => {
+    try {
+        const db = databaseService.getDatabase();
+
+        // Get pending event
+        const getPending = db.prepare('SELECT queue_id FROM pending_events WHERE pending_id = ?');
+        const pendingEvent = getPending.get(pendingId);
+
+        const transaction = db.transaction(() => {
+            // Update pending event status
+            const updatePending = db.prepare(`
+                UPDATE pending_events
+                SET status = 'rejected', reviewed_at = datetime('now')
+                WHERE pending_id = ?
+            `);
+            updatePending.run(pendingId);
+
+            // Update queue status to failed
+            if (pendingEvent && pendingEvent.queue_id) {
+                const updateQueue = db.prepare(`
+                    UPDATE recording_queue
+                    SET status = 'failed', error_message = 'Rejected by user'
+                    WHERE queue_id = ?
+                `);
+                updateQueue.run(pendingEvent.queue_id);
+            }
+        });
+
+        transaction();
+
+        return { success: true };
+    } catch (error) {
+        console.error('Error rejecting pending event:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Get audio file as data URL for playback
+ */
+ipcMain.handle('audio:getFile', async (event, filePath) => {
+    try {
+        if (!fs.existsSync(filePath)) {
+            return {
+                success: false,
+                error: 'Audio file not found'
+            };
+        }
+
+        const buffer = fs.readFileSync(filePath);
+        const base64 = buffer.toString('base64');
+        const dataUrl = `data:audio/wav;base64,${base64}`;
+
+        return {
+            success: true,
+            data: dataUrl
+        };
+    } catch (error) {
+        console.error('Error reading audio file:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
 console.log('Main process initialized');

@@ -6,7 +6,7 @@ A modern desktop application that functions as a personal memory and event timel
 
 ### Core Functionality
 
-✅ **Implemented (Phase 1)**:
+✅ **Implemented (Phases 1-2)**:
 - SQLite database with comprehensive schema for events, eras, tags, people, and locations
 - Full-text search support for events
 - Database service layer with migrations support
@@ -18,13 +18,18 @@ A modern desktop application that functions as a personal memory and event timel
 - Event details modal with editing capabilities
 - Settings panel for app configuration
 - Database backup and optimization tools
+- Audio recording with pause/resume/cancel controls
+- File management with automatic save to user data directory
+- Recording queue system with database persistence
+- Audio playback from queue with metadata display (duration, file size, timestamps)
+- Remove/cancel functionality for queue items
+- Review queue interface for pending events
+- Approve/reject workflow for extracted events (ready for Phase 3 LLM integration)
 
-🚧 **In Progress (Phases 2-3)**:
-- Audio recording with MediaRecorder API
-- Queue management system for processing recordings
+🚧 **In Progress (Phase 3)**:
 - Anthropic API integration for event extraction
 - Speech-to-text transcription
-- Review workflow for LLM-extracted events
+- Review workflow enhancement for editing extracted events before approval
 
 📋 **Planned (Phases 4-6)**:
 - RAG-based cross-referencing and pattern detection
@@ -295,10 +300,13 @@ For large timelines (110+ years of data), the app uses:
 - Era management foundation
 - Settings system
 
-### Phase 2: Audio & Recording 🚧 (IN PROGRESS)
-- Audio recording functionality
-- Queue system implementation
-- File management
+### Phase 2: Audio & Recording ✅ (COMPLETED)
+- Audio recording functionality with MediaRecorder API
+- Queue system implementation with database integration
+- File management with auto-save to user data directory
+- Audio playback from queue
+- Remove/cancel queue items
+- Review queue with approve/reject functionality
 
 ### Phase 3: LLM Integration - Extraction 📋 (PLANNED)
 - Anthropic API integration
@@ -324,6 +332,42 @@ For large timelines (110+ years of data), the app uses:
 - Export functionality
 - Documentation
 - Installer creation
+
+### Phase 7: Native Windows Implementation 📋 (PLANNED)
+- **Native Windows App Branch**: Create separate implementation using Windows-native technologies
+- **Touch & Pen Support**:
+  - Windows Ink integration for handwritten notes and annotations
+  - Touch gesture support for timeline navigation (pinch-to-zoom, swipe)
+  - Pen pressure sensitivity for drawing on timeline
+  - Palm rejection and hover states
+- **Performance Optimizations**:
+  - DirectX-based timeline rendering for smooth 60fps
+  - Windows Composition APIs for fluid animations
+  - Hardware-accelerated graphics pipeline
+  - Memory-mapped file I/O for large databases
+- **NPU/AI Acceleration Stubs**:
+  - Windows ML (WinML) integration layer for NPU detection
+  - DirectML adapter for neural processing units
+  - Stub implementations for:
+    - Local speech-to-text transcription (when NPU available)
+    - On-device embedding generation for RAG
+    - Local sentiment analysis and event categorization
+    - Real-time audio preprocessing and enhancement
+  - Fallback to CPU/GPU when NPU unavailable
+  - Configuration to prefer local NPU vs cloud LLM
+- **Windows-Specific Features**:
+  - Timeline integration with Windows Timeline API
+  - Cortana voice command support
+  - Windows Hello authentication
+  - OneDrive backup integration (optional)
+  - Notification system integration
+  - Jump list support for recent events
+- **Tech Stack Considerations**:
+  - UWP (Universal Windows Platform) or WinUI 3
+  - C#/.NET 8 with MAUI for cross-device support
+  - Windows App SDK for modern APIs
+  - ONNX Runtime for NPU model inference
+  - System.Numerics.Tensors for ML operations
 
 ## Future Enhancements
 

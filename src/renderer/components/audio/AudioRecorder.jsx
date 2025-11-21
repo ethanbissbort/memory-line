@@ -11,10 +11,12 @@ function AudioRecorder() {
     const [recordingTime, setRecordingTime] = useState(0);
     const [audioURL, setAudioURL] = useState(null);
     const [audioLevel, setAudioLevel] = useState(0);
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const mediaRecorderRef = useRef(null);
     const audioChunksRef = useRef([]);
     const timerRef = useRef(null);
+    const audioBlobRef = useRef(null);
 
     const startRecording = async () => {
         try {
@@ -30,6 +32,7 @@ function AudioRecorder() {
             mediaRecorderRef.current.onstop = () => {
                 const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
                 const url = URL.createObjectURL(audioBlob);
+                audioBlobRef.current = audioBlob;
                 setAudioURL(url);
                 stream.getTracks().forEach(track => track.stop());
             };
@@ -91,12 +94,57 @@ function AudioRecorder() {
     };
 
     const submitToQueue = async () => {
-        if (!audioURL) return;
+        if (!audioBlobRef.current) return;
 
-        // TODO: Save audio file and add to processing queue
-        alert('Audio submitted to queue! (Implementation pending)');
-        setAudioURL(null);
-        setRecordingTime(0);
+        setIsSubmitting(true);
+
+        try {
+            // Convert blob to base64 data URL
+            const reader = new FileReader();
+
+            reader.onloadend = async () => {
+                const audioData = reader.result;
+
+                // Save audio file via Electron IPC
+                const saveResult = await window.electronAPI.audio.save(audioData, recordingTime);
+
+                if (!saveResult.success) {
+                    throw new Error(saveResult.error);
+                }
+
+                // Add to recording queue
+                const queueResult = await window.electronAPI.queue.add(
+                    saveResult.data.filePath,
+                    saveResult.data.duration,
+                    saveResult.data.fileSize
+                );
+
+                if (!queueResult.success) {
+                    throw new Error(queueResult.error);
+                }
+
+                // Success!
+                alert(`Recording saved successfully!\nFile: ${saveResult.data.filename}\nAdded to processing queue.`);
+
+                // Clean up
+                URL.revokeObjectURL(audioURL);
+                setAudioURL(null);
+                setRecordingTime(0);
+                audioBlobRef.current = null;
+                setIsSubmitting(false);
+            };
+
+            reader.onerror = () => {
+                throw new Error('Failed to read audio file');
+            };
+
+            reader.readAsDataURL(audioBlobRef.current);
+
+        } catch (error) {
+            console.error('Error submitting to queue:', error);
+            alert(`Failed to submit recording: ${error.message}`);
+            setIsSubmitting(false);
+        }
     };
 
     const formatTime = (seconds) => {
@@ -188,8 +236,9 @@ function AudioRecorder() {
                             <button
                                 className="button primary"
                                 onClick={submitToQueue}
+                                disabled={isSubmitting}
                             >
-                                Submit to Queue
+                                {isSubmitting ? 'Submitting...' : 'Submit to Queue'}
                             </button>
                         </div>
                     </div>

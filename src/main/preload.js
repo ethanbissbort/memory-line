@@ -49,6 +49,36 @@ contextBridge.exposeInMainWorld('electronAPI', {
             ipcRenderer.invoke('settings:getAll'),
         update: (key, value) =>
             ipcRenderer.invoke('settings:update', { key, value })
+    },
+
+    // Audio operations
+    audio: {
+        save: (audioData, duration) =>
+            ipcRenderer.invoke('audio:save', { audioData, duration }),
+        getFile: (filePath) =>
+            ipcRenderer.invoke('audio:getFile', filePath)
+    },
+
+    // Recording queue operations
+    queue: {
+        add: (filePath, duration, fileSize) =>
+            ipcRenderer.invoke('queue:add', { filePath, duration, fileSize }),
+        getAll: (status) =>
+            ipcRenderer.invoke('queue:getAll', { status }),
+        updateStatus: (queueId, status, errorMessage) =>
+            ipcRenderer.invoke('queue:updateStatus', { queueId, status, errorMessage }),
+        remove: (queueId) =>
+            ipcRenderer.invoke('queue:remove', queueId)
+    },
+
+    // Pending events operations
+    pending: {
+        getAll: (status) =>
+            ipcRenderer.invoke('pending:getAll', { status }),
+        approve: (pendingId, editedData) =>
+            ipcRenderer.invoke('pending:approve', { pendingId, editedData }),
+        reject: (pendingId) =>
+            ipcRenderer.invoke('pending:reject', pendingId)
     }
 });
 
