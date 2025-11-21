@@ -52,9 +52,9 @@ public partial class App : Application
                 services.AddHttpClient<ILlmService, AnthropicClaudeService>();
                 services.AddScoped<IEventExtractionService, EventExtractionService>();
 
-                // TODO: Phase 5: RAG & Embedding services (not yet implemented)
-                // services.AddScoped<IEmbeddingService, EmbeddingService>();
-                // services.AddScoped<IRagService, RagService>();
+                // Phase 5: RAG & Embedding services
+                services.AddHttpClient<IEmbeddingService, OpenAIEmbeddingService>();
+                services.AddScoped<IRagService, RagService>();
 
                 // TODO: Phase 7: Import/Export services (not yet implemented)
                 // services.AddScoped<IExportService, ExportService>();
