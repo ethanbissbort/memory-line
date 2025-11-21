@@ -1,0 +1,108 @@
+/* Error Boundary Styles */
+
+.error-boundary {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 2rem;
+}
+
+.error-boundary-content {
+    background: white;
+    border-radius: 12px;
+    padding: 3rem;
+    max-width: 600px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.error-boundary-content h1 {
+    color: #e74c3c;
+    margin: 0 0 1rem 0;
+    font-size: 2rem;
+}
+
+.error-message {
+    color: #555;
+    font-size: 1.1rem;
+    margin-bottom: 1.5rem;
+}
+
+.error-details {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 1rem;
+    margin: 1.5rem 0;
+}
+
+.error-details summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: #495057;
+    user-select: none;
+}
+
+.error-details summary:hover {
+    color: #212529;
+}
+
+.error-stack {
+    margin-top: 1rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: #6c757d;
+    overflow-x: auto;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.error-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 2rem;
+}
+
+.error-actions .button {
+    flex: 1;
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: 6px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.error-actions .button.primary {
+    background: #3498db;
+    color: white;
+}
+
+.error-actions .button.primary:hover {
+    background: #2980b9;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
+}
+
+.error-actions .button.secondary {
+    background: #95a5a6;
+    color: white;
+}
+
+.error-actions .button.secondary:hover {
+    background: #7f8c8d;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(127, 140, 141, 0.3);
+}
+
+.error-warning {
+    margin-top: 1.5rem;
+    padding: 0.75rem;
+    background: #fff3cd;
+    border: 1px solid #ffc107;
+    border-radius: 6px;
+    color: #856404;
+    font-size: 0.9rem;
+}

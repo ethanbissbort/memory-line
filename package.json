@@ -12,7 +12,15 @@
     "dev:electron": "cross-env NODE_ENV=development electron .",
     "build": "webpack --config webpack.renderer.config.js",
     "lint": "eslint src --ext .js,.jsx",
-    "test": "jest"
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:services": "jest tests/services",
+    "test:verbose": "jest --verbose",
+    "test:seed": "node tests/fixtures/databaseSeeder.js",
+    "test:generate-data": "node tests/fixtures/generateSampleData.js",
+    "test:all": "npm run lint && npm run test:coverage",
+    "test:performance": "node tests/performance/performanceTest.js"
   },
   "keywords": [
     "timeline",

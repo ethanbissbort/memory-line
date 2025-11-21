@@ -11,10 +11,14 @@ const anthropicService = require('./services/anthropicService');
 const sttService = require('./services/sttService');
 const EmbeddingService = require('./services/embeddingService');
 const RAGService = require('./services/ragService');
+const ExportService = require('./services/exportService');
+const PerformanceService = require('./services/performanceService');
 
 let mainWindow = null;
 let embeddingService = null;
 let ragService = null;
+let exportService = null;
+let performanceService = null;
 
 /**
  * Create the main application window
@@ -61,10 +65,15 @@ function initializeApp() {
         // Initialize database
         databaseService.initialize();
 
-        // Initialize embedding and RAG services
+        // Initialize services
         const db = databaseService.getDatabase();
         embeddingService = new EmbeddingService(db);
         ragService = new RAGService(db, embeddingService);
+        exportService = new ExportService(db);
+        performanceService = new PerformanceService(db);
+
+        // Optimize database indices on startup
+        performanceService.optimizeIndices();
 
         // Create assets directory if it doesn't exist
         const assetsPath = path.join(app.getPath('userData'), 'assets');
@@ -1685,6 +1694,198 @@ async function initializeEmbeddingService() {
         console.error('Failed to initialize embedding service:', error);
     }
 }
+
+// ===========================================
+// IPC Handlers - Export & Performance
+// ===========================================
+
+/**
+ * Export timeline to JSON
+ */
+ipcMain.handle('export:toJSON', async () => {
+    try {
+        const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
+            title: 'Export Timeline to JSON',
+            defaultPath: `memory-timeline-${new Date().toISOString().split('T')[0]}.json`,
+            filters: [
+                { name: 'JSON Files', extensions: ['json'] },
+                { name: 'All Files', extensions: ['*'] }
+            ]
+        });
+
+        if (canceled || !filePath) {
+            return { success: false, canceled: true };
+        }
+
+        const result = exportService.exportToJSON(filePath);
+        return result;
+    } catch (error) {
+        console.error('Error exporting to JSON:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Export timeline to CSV
+ */
+ipcMain.handle('export:toCSV', async () => {
+    try {
+        const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
+            title: 'Export Timeline to CSV',
+            defaultPath: `memory-timeline-${new Date().toISOString().split('T')[0]}.csv`,
+            filters: [
+                { name: 'CSV Files', extensions: ['csv'] },
+                { name: 'All Files', extensions: ['*'] }
+            ]
+        });
+
+        if (canceled || !filePath) {
+            return { success: false, canceled: true };
+        }
+
+        const result = exportService.exportToCSV(filePath);
+        return result;
+    } catch (error) {
+        console.error('Error exporting to CSV:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Export timeline to Markdown
+ */
+ipcMain.handle('export:toMarkdown', async () => {
+    try {
+        const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
+            title: 'Export Timeline to Markdown',
+            defaultPath: `memory-timeline-${new Date().toISOString().split('T')[0]}.md`,
+            filters: [
+                { name: 'Markdown Files', extensions: ['md'] },
+                { name: 'All Files', extensions: ['*'] }
+            ]
+        });
+
+        if (canceled || !filePath) {
+            return { success: false, canceled: true };
+        }
+
+        const result = exportService.exportToMarkdown(filePath);
+        return result;
+    } catch (error) {
+        console.error('Error exporting to Markdown:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Import timeline from JSON
+ */
+ipcMain.handle('import:fromJSON', async () => {
+    try {
+        const { filePaths, canceled } = await dialog.showOpenDialog(mainWindow, {
+            title: 'Import Timeline from JSON',
+            filters: [
+                { name: 'JSON Files', extensions: ['json'] },
+                { name: 'All Files', extensions: ['*'] }
+            ],
+            properties: ['openFile']
+        });
+
+        if (canceled || !filePaths || filePaths.length === 0) {
+            return { success: false, canceled: true };
+        }
+
+        const result = exportService.importFromJSON(filePaths[0]);
+        return result;
+    } catch (error) {
+        console.error('Error importing from JSON:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Get events with pagination (performance optimized)
+ */
+ipcMain.handle('performance:getEventsPaginated', async (event, options) => {
+    try {
+        const result = performanceService.getEventsPaginated(options);
+        return {
+            success: true,
+            data: result
+        };
+    } catch (error) {
+        console.error('Error getting paginated events:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Clear performance cache
+ */
+ipcMain.handle('performance:clearCache', async () => {
+    try {
+        performanceService.clearCache();
+        return { success: true };
+    } catch (error) {
+        console.error('Error clearing cache:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Get database statistics
+ */
+ipcMain.handle('performance:getStats', async () => {
+    try {
+        const stats = performanceService.getDatabaseStats();
+        return {
+            success: true,
+            data: stats
+        };
+    } catch (error) {
+        console.error('Error getting performance stats:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
+
+/**
+ * Optimize database
+ */
+ipcMain.handle('performance:optimize', async () => {
+    try {
+        performanceService.optimizeIndices();
+        databaseService.vacuum();
+        performanceService.clearCache();
+        return { success: true };
+    } catch (error) {
+        console.error('Error optimizing database:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+});
 
 console.log('Main process initialized');
 
