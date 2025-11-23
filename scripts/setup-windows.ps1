@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Verify and install dependencies for Memory Timeline Application on Windows 11
 
