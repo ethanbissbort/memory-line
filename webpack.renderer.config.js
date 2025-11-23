@@ -14,7 +14,8 @@ module.exports = {
     resolve: {
         extensions: ['.js', '.jsx', '.json'],
         fallback: {
-            "buffer": require.resolve("buffer/"),
+            "path": false,
+            "fs": false,
             "process": require.resolve("process/browser")
         }
     },
@@ -42,11 +43,10 @@ module.exports = {
             filename: 'index.html'
         }),
         new webpack.ProvidePlugin({
-            Buffer: ['buffer', 'Buffer'],
-            process: 'process/browser'
+            process: 'process/browser',
         }),
         new webpack.DefinePlugin({
-            'global': 'globalThis'
+            'global': 'window',
         })
     ],
     devServer: {
