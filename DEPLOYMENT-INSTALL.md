@@ -67,7 +67,7 @@ Memory Timeline is an Electron-based desktop application for creating personal m
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/memory-timeline.git
+git clone https://github.com/ethanbissbort/memory-timeline.git
 cd memory-timeline
 ```
 
