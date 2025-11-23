@@ -1,4 +1,5 @@
 const path = require('path');
+const webpack = require('webpack');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 
 module.exports = {
@@ -11,7 +12,11 @@ module.exports = {
         filename: 'renderer.js'
     },
     resolve: {
-        extensions: ['.js', '.jsx', '.json']
+        extensions: ['.js', '.jsx', '.json'],
+        fallback: {
+            "buffer": require.resolve("buffer/"),
+            "process": require.resolve("process/browser")
+        }
     },
     module: {
         rules: [
@@ -35,6 +40,13 @@ module.exports = {
         new HtmlWebpackPlugin({
             template: './public/index.html',
             filename: 'index.html'
+        }),
+        new webpack.ProvidePlugin({
+            Buffer: ['buffer', 'Buffer'],
+            process: 'process/browser'
+        }),
+        new webpack.DefinePlugin({
+            'global': 'globalThis'
         })
     ],
     devServer: {
