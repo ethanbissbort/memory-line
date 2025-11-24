@@ -2,7 +2,16 @@
 
 This directory contains automated dependency verification and installation scripts for the Memory Timeline Application.
 
-## Available Scripts
+> **IMPORTANT NOTE:** This directory contains setup scripts for the **legacy Electron/Node.js version** of Memory Timeline.
+>
+> If you're working with the **native Windows version** (.NET + WinUI 3), please use the scripts in:
+> - **`windows-native/scripts/Setup-Dependencies.ps1`** - For native Windows setup
+> - **`windows-native/scripts/Verify-Installation.ps1`** - For verification
+> - See [`windows-native/scripts/README.md`](../windows-native/scripts/README.md) for detailed documentation
+>
+> For migration guidance, see [`MIGRATION-TO-NATIVE-WIN.md`](../MIGRATION-TO-NATIVE-WIN.md)
+
+## Available Scripts (Electron/Node.js Version)
 
 ### Windows 11 - `setup-windows.ps1`
 
@@ -275,5 +284,5 @@ For issues or questions:
 
 ---
 
-**Last Updated**: 2025-11-23
-**Compatible With**: Windows 11, Ubuntu 24.04 LTS
+**Last Updated**: 2025-11-24
+**Compatible With**: Windows 11, Ubuntu 24.04 LTS (Electron/Node.js version)

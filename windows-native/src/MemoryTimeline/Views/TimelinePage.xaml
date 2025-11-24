@@ -1,0 +1,256 @@
+<Page
+    x:Class="MemoryTimeline.Views.TimelinePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:viewmodels="using:MemoryTimeline.ViewModels"
+    xmlns:dto="using:MemoryTimeline.Core.DTOs"
+    mc:Ignorable="d"
+    Loaded="Page_Loaded"
+    SizeChanged="Page_SizeChanged">
+
+    <Page.DataContext>
+        <viewmodels:TimelineViewModel x:Name="ViewModel"/>
+    </Page.DataContext>
+
+    <Page.Resources>
+        <!-- Event Template -->
+        <DataTemplate x:Key="EventItemTemplate" x:DataType="dto:TimelineEventDto">
+            <Border Background="{x:Bind CategoryColor, Mode=OneWay}"
+                    BorderBrush="#40FFFFFF"
+                    BorderThickness="1"
+                    CornerRadius="4"
+                    Padding="8,4"
+                    ToolTipService.ToolTip="{x:Bind Title, Mode=OneWay}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <FontIcon Glyph="{x:Bind CategoryIcon, Mode=OneWay}"
+                              FontSize="16"
+                              Foreground="White"/>
+                    <TextBlock Text="{x:Bind Title, Mode=OneWay}"
+                               Foreground="White"
+                               FontSize="12"
+                               VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis"
+                               MaxWidth="200"/>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+
+        <!-- Era Background Template -->
+        <DataTemplate x:Key="EraItemTemplate" x:DataType="dto:TimelineEraDto">
+            <Rectangle Fill="{x:Bind BackgroundColor, Mode=OneWay}"
+                       Opacity="0.3"
+                       ToolTipService.ToolTip="{x:Bind Name, Mode=OneWay}"/>
+        </DataTemplate>
+    </Page.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Top Toolbar -->
+        <Grid Grid.Row="0"
+              Background="{ThemeResource LayerFillColorDefaultBrush}"
+              Padding="16,8"
+              BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+              BorderThickness="0,0,0,1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Zoom Controls -->
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                <TextBlock Text="Zoom:"
+                           VerticalAlignment="Center"
+                           Margin="0,0,8,0"/>
+
+                <Button Content="Year"
+                        Command="{x:Bind ViewModel.SetZoomLevelCommand}"
+                        CommandParameter="Year"
+                        MinWidth="60"
+                        Style="{StaticResource AccentButtonStyle}">
+                    <Button.Resources>
+                        <SolidColorBrush x:Key="ButtonBackground" Color="{ThemeResource SystemAccentColor}" Opacity="{x:Bind ViewModel.IsYearZoom, Mode=OneWay}"/>
+                    </Button.Resources>
+                </Button>
+
+                <Button Content="Month"
+                        Command="{x:Bind ViewModel.SetZoomLevelCommand}"
+                        CommandParameter="Month"
+                        MinWidth="60"
+                        Style="{StaticResource AccentButtonStyle}">
+                    <Button.Resources>
+                        <SolidColorBrush x:Key="ButtonBackground" Color="{ThemeResource SystemAccentColor}" Opacity="{x:Bind ViewModel.IsMonthZoom, Mode=OneWay}"/>
+                    </Button.Resources>
+                </Button>
+
+                <Button Content="Week"
+                        Command="{x:Bind ViewModel.SetZoomLevelCommand}"
+                        CommandParameter="Week"
+                        MinWidth="60"
+                        Style="{StaticResource AccentButtonStyle}">
+                    <Button.Resources>
+                        <SolidColorBrush x:Key="ButtonBackground" Color="{ThemeResource SystemAccentColor}" Opacity="{x:Bind ViewModel.IsWeekZoom, Mode=OneWay}"/>
+                    </Button.Resources>
+                </Button>
+
+                <Button Content="Day"
+                        Command="{x:Bind ViewModel.SetZoomLevelCommand}"
+                        CommandParameter="Day"
+                        MinWidth="60"
+                        Style="{StaticResource AccentButtonStyle}">
+                    <Button.Resources>
+                        <SolidColorBrush x:Key="ButtonBackground" Color="{ThemeResource SystemAccentColor}" Opacity="{x:Bind ViewModel.IsDayZoom, Mode=OneWay}"/>
+                    </Button.Resources>
+                </Button>
+
+                <AppBarSeparator Margin="8,0"/>
+
+                <Button Command="{x:Bind ViewModel.ZoomInCommand}"
+                        ToolTipService.ToolTip="Zoom In">
+                    <FontIcon Glyph="&#xE710;"/>
+                </Button>
+
+                <Button Command="{x:Bind ViewModel.ZoomOutCommand}"
+                        ToolTipService.ToolTip="Zoom Out">
+                    <FontIcon Glyph="&#xE71F;"/>
+                </Button>
+            </StackPanel>
+
+            <!-- Navigation Controls -->
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+                <Button Content="Go to Today"
+                        Command="{x:Bind ViewModel.GoToTodayCommand}">
+                    <Button.KeyboardAccelerators>
+                        <KeyboardAccelerator Key="T" Modifiers="Control"/>
+                    </Button.KeyboardAccelerators>
+                </Button>
+
+                <Button Command="{x:Bind ViewModel.RefreshCommand}"
+                        ToolTipService.ToolTip="Refresh">
+                    <FontIcon Glyph="&#xE72C;"/>
+                </Button>
+            </StackPanel>
+        </Grid>
+
+        <!-- Timeline Canvas Area -->
+        <Grid Grid.Row="1" Background="{ThemeResource LayerFillColorDefaultBrush}">
+            <ScrollViewer x:Name="TimelineScrollViewer"
+                          HorizontalScrollBarVisibility="Auto"
+                          VerticalScrollBarVisibility="Auto"
+                          ZoomMode="Disabled"
+                          PointerPressed="TimelineScrollViewer_PointerPressed"
+                          PointerMoved="TimelineScrollViewer_PointerMoved"
+                          PointerReleased="TimelineScrollViewer_PointerReleased"
+                          PointerWheelChanged="TimelineScrollViewer_PointerWheelChanged">
+
+                <Canvas x:Name="TimelineCanvas"
+                        Width="10000"
+                        Height="2000"
+                        Background="{ThemeResource LayerFillColorDefaultBrush}">
+
+                    <!-- Era Backgrounds Layer -->
+                    <ItemsControl x:Name="ErasItemsControl"
+                                  ItemsSource="{x:Bind ViewModel.Eras, Mode=OneWay}"
+                                  ItemTemplate="{StaticResource EraItemTemplate}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <Canvas/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemContainerStyle>
+                            <Style TargetType="ContentPresenter">
+                                <Setter Property="Canvas.Left" Value="{Binding PixelX}"/>
+                                <Setter Property="Canvas.Top" Value="0"/>
+                                <Setter Property="Width" Value="{Binding Width}"/>
+                                <Setter Property="Height" Value="2000"/>
+                            </Style>
+                        </ItemsControl.ItemContainerStyle>
+                    </ItemsControl>
+
+                    <!-- Timeline Axis -->
+                    <Line X1="0" Y1="80" X2="10000" Y2="80"
+                          Stroke="{ThemeResource DividerStrokeColorDefaultBrush}"
+                          StrokeThickness="2"/>
+
+                    <!-- Events Layer -->
+                    <ItemsControl x:Name="EventsItemsControl"
+                                  ItemsSource="{x:Bind ViewModel.Events, Mode=OneWay}"
+                                  ItemTemplate="{StaticResource EventItemTemplate}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <Canvas/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemContainerStyle>
+                            <Style TargetType="ContentPresenter">
+                                <Setter Property="Canvas.Left" Value="{Binding PixelX}"/>
+                                <Setter Property="Canvas.Top" Value="{Binding PixelY}"/>
+                            </Style>
+                        </ItemsControl.ItemContainerStyle>
+                    </ItemsControl>
+
+                    <!-- Today Marker -->
+                    <Line x:Name="TodayMarker"
+                          Y1="0" Y2="2000"
+                          Stroke="#FF4444"
+                          StrokeThickness="2"
+                          StrokeDashArray="4,4"
+                          Visibility="Collapsed"/>
+                </Canvas>
+            </ScrollViewer>
+
+            <!-- Loading Overlay -->
+            <Grid x:Name="LoadingOverlay"
+                  Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                  Opacity="0.8"
+                  Visibility="{x:Bind ViewModel.IsLoading, Mode=OneWay}">
+                <StackPanel HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           Spacing="16">
+                    <ProgressRing IsActive="True" Width="60" Height="60"/>
+                    <TextBlock Text="{x:Bind ViewModel.StatusText, Mode=OneWay}"
+                              FontSize="16"
+                              HorizontalAlignment="Center"/>
+                </StackPanel>
+            </Grid>
+        </Grid>
+
+        <!-- Status Bar -->
+        <Grid Grid.Row="2"
+              Background="{ThemeResource LayerFillColorDefaultBrush}"
+              Padding="16,8"
+              BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+              BorderThickness="0,1,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Grid.Column="0"
+                       Text="{x:Bind ViewModel.StatusText, Mode=OneWay}"
+                       VerticalAlignment="Center"
+                       FontSize="12"/>
+
+            <StackPanel Grid.Column="1"
+                       Orientation="Horizontal"
+                       Spacing="16">
+                <TextBlock VerticalAlignment="Center" FontSize="12">
+                    <Run Text="Events: "/>
+                    <Run Text="{x:Bind ViewModel.Events.Count, Mode=OneWay}" FontWeight="SemiBold"/>
+                </TextBlock>
+
+                <TextBlock VerticalAlignment="Center" FontSize="12">
+                    <Run Text="Zoom: "/>
+                    <Run Text="{x:Bind ViewModel.CurrentZoomLevelDisplay, Mode=OneWay}" FontWeight="SemiBold"/>
+                </TextBlock>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Page>
