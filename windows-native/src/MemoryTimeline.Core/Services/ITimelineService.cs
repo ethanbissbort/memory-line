@@ -105,10 +105,7 @@ public class TimelineService : ITimelineService
     {
         try
         {
-            var pixelsPerDay = ZoomConfig.GetPixelsPerDay(zoomLevel);
-            var timeSpan = ZoomConfig.GetDefaultTimeSpan(zoomLevel);
-
-            // If no events, use current date as center
+            // If no center date provided, calculate from events
             if (centerDate == DateTime.MinValue)
             {
                 var earliest = await GetEarliestEventDateAsync();
@@ -124,18 +121,11 @@ public class TimelineService : ITimelineService
                 }
             }
 
-            var startDate = centerDate.AddDays(-timeSpan.TotalDays / 2);
-            var endDate = centerDate.AddDays(timeSpan.TotalDays / 2);
+            // Use the new TimelineViewport.CreateCentered method
+            var viewport = TimelineViewport.CreateCentered(centerDate, zoomLevel, viewportWidth);
+            viewport.ViewportHeight = viewportHeight;
 
-            return new TimelineViewport
-            {
-                StartDate = startDate,
-                EndDate = endDate,
-                ZoomLevel = zoomLevel,
-                PixelsPerDay = pixelsPerDay,
-                ViewportWidth = viewportWidth,
-                ViewportHeight = viewportHeight
-            };
+            return viewport;
         }
         catch (Exception ex)
         {
@@ -151,17 +141,20 @@ public class TimelineService : ITimelineService
     {
         try
         {
-            var newZoomLevel = currentViewport.ZoomLevel switch
+            if (!TimelineScale.CanZoomIn(currentViewport.ZoomLevel))
             {
-                ZoomLevel.Year => ZoomLevel.Month,
-                ZoomLevel.Month => ZoomLevel.Week,
-                ZoomLevel.Week => ZoomLevel.Day,
-                ZoomLevel.Day => ZoomLevel.Day, // Max zoom
-                _ => ZoomLevel.Month
-            };
+                _logger.LogDebug("Already at maximum zoom level");
+                return currentViewport;
+            }
 
-            var center = centerDate ?? currentViewport.StartDate.AddDays(currentViewport.TotalDays / 2.0);
-            return await CreateViewportAsync(newZoomLevel, center, currentViewport.ViewportWidth, currentViewport.ViewportHeight);
+            var newZoomLevel = TimelineScale.ZoomIn(currentViewport.ZoomLevel);
+            var center = centerDate ?? currentViewport.CenterDate;
+
+            return await CreateViewportAsync(
+                newZoomLevel,
+                center,
+                (int)currentViewport.ViewportWidth,
+                (int)currentViewport.ViewportHeight);
         }
         catch (Exception ex)
         {
@@ -177,17 +170,20 @@ public class TimelineService : ITimelineService
     {
         try
         {
-            var newZoomLevel = currentViewport.ZoomLevel switch
+            if (!TimelineScale.CanZoomOut(currentViewport.ZoomLevel))
             {
-                ZoomLevel.Day => ZoomLevel.Week,
-                ZoomLevel.Week => ZoomLevel.Month,
-                ZoomLevel.Month => ZoomLevel.Year,
-                ZoomLevel.Year => ZoomLevel.Year, // Min zoom
-                _ => ZoomLevel.Month
-            };
+                _logger.LogDebug("Already at minimum zoom level");
+                return currentViewport;
+            }
 
-            var center = centerDate ?? currentViewport.StartDate.AddDays(currentViewport.TotalDays / 2.0);
-            return await CreateViewportAsync(newZoomLevel, center, currentViewport.ViewportWidth, currentViewport.ViewportHeight);
+            var newZoomLevel = TimelineScale.ZoomOut(currentViewport.ZoomLevel);
+            var center = centerDate ?? currentViewport.CenterDate;
+
+            return await CreateViewportAsync(
+                newZoomLevel,
+                center,
+                (int)currentViewport.ViewportWidth,
+                (int)currentViewport.ViewportHeight);
         }
         catch (Exception ex)
         {
@@ -199,23 +195,26 @@ public class TimelineService : ITimelineService
     /// <summary>
     /// Pans the viewport by pixel offset.
     /// </summary>
-    public async Task<TimelineViewport> PanAsync(TimelineViewport currentViewport, double pixelOffset)
+    public Task<TimelineViewport> PanAsync(TimelineViewport currentViewport, double pixelOffset)
     {
         try
         {
-            var daysOffset = pixelOffset / currentViewport.PixelsPerDay;
-            var newStartDate = currentViewport.StartDate.AddDays(-daysOffset);
-            var newEndDate = currentViewport.EndDate.AddDays(-daysOffset);
-
-            return new TimelineViewport
+            // Create a copy and pan it
+            var newViewport = new TimelineViewport
             {
-                StartDate = newStartDate,
-                EndDate = newEndDate,
+                StartDate = currentViewport.StartDate,
+                EndDate = currentViewport.EndDate,
+                CenterDate = currentViewport.CenterDate,
                 ZoomLevel = currentViewport.ZoomLevel,
                 PixelsPerDay = currentViewport.PixelsPerDay,
                 ViewportWidth = currentViewport.ViewportWidth,
-                ViewportHeight = currentViewport.ViewportHeight
+                ViewportHeight = currentViewport.ViewportHeight,
+                ScrollPosition = currentViewport.ScrollPosition
             };
+
+            newViewport.Pan(pixelOffset);
+
+            return Task.FromResult(newViewport);
         }
         catch (Exception ex)
         {
@@ -263,30 +262,38 @@ public class TimelineService : ITimelineService
     /// </summary>
     public void CalculateEventPositions(IEnumerable<TimelineEventDto> events, TimelineViewport viewport)
     {
-        const double eventHeight = 40;
-        const double eventSpacing = 10;
+        const double trackHeight = 35.0;
+        const double topOffset = 60.0; // Offset from top for timeline axis
+
+        foreach (var evt in events.OrderBy(e => e.StartDate))
+        {
+            // Calculate horizontal position
+            evt.PixelX = TimelineScale.GetPixelPosition(
+                evt.StartDate,
+                viewport.StartDate,
+                viewport.ZoomLevel);
+
+            // Calculate width based on duration
+            evt.Width = TimelineScale.GetEventWidth(
+                evt.StartDate,
+                evt.EndDate,
+                viewport.ZoomLevel);
+
+            // Standard event height
+            evt.Height = 24.0;
+
+            // Check visibility
+            evt.IsVisible = viewport.IsEventVisible(evt.StartDate, evt.EndDate);
+        }
+
+        // Use EventLayoutEngine for overlap detection and vertical positioning
         var tracks = new List<List<TimelineEventDto>>();
 
         foreach (var evt in events.OrderBy(e => e.StartDate))
         {
-            evt.PixelX = viewport.DateToPixel(evt.StartDate);
-            evt.IsVisible = viewport.IsDateVisible(evt.StartDate);
-
-            if (evt.IsDurationEvent && evt.EndDate.HasValue)
-            {
-                var endPixel = viewport.DateToPixel(evt.EndDate.Value);
-                evt.Width = Math.Max(20, endPixel - evt.PixelX);
-            }
-            else
-            {
-                evt.Width = 20; // Point event width
-            }
-
-            evt.Height = eventHeight;
-
-            // Find a track for this event (simple algorithm)
-            var track = FindAvailableTrack(tracks, evt);
-            evt.PixelY = track * (eventHeight + eventSpacing) + 100; // Offset from top
+            // Find a track for this event
+            var trackIndex = FindAvailableTrack(tracks, evt);
+            evt.PixelY = trackIndex * trackHeight + topOffset;
         }
     }
 
@@ -297,12 +304,19 @@ public class TimelineService : ITimelineService
     {
         foreach (var era in eras)
         {
-            era.PixelX = viewport.DateToPixel(era.StartDate);
-            era.IsVisible = true;
+            era.PixelX = TimelineScale.GetPixelPosition(
+                era.StartDate,
+                viewport.StartDate,
+                viewport.ZoomLevel);
 
             var endDate = era.EndDate ?? viewport.EndDate;
-            var endPixel = viewport.DateToPixel(endDate);
+            var endPixel = TimelineScale.GetPixelPosition(
+                endDate,
+                viewport.StartDate,
+                viewport.ZoomLevel);
+
             era.Width = Math.Max(0, endPixel - era.PixelX);
+            era.IsVisible = viewport.IsEventVisible(era.StartDate, era.EndDate);
         }
     }
 
