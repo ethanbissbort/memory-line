@@ -1,0 +1,87 @@
+<UserControl
+    x:Class="MemoryTimeline.Controls.EventBubble"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    d:DesignHeight="24"
+    d:DesignWidth="100">
+
+    <Grid x:Name="RootGrid"
+          PointerEntered="RootGrid_PointerEntered"
+          PointerExited="RootGrid_PointerExited">
+
+        <!-- Event bubble background -->
+        <Border x:Name="EventBorder"
+                Background="{x:Bind CategoryBrush, Mode=OneWay}"
+                BorderBrush="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                BorderThickness="0"
+                CornerRadius="12"
+                Padding="8,4"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch">
+
+            <Border.Shadow>
+                <ThemeShadow/>
+            </Border.Shadow>
+
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Category icon -->
+                <FontIcon x:Name="CategoryIcon"
+                         Glyph="{x:Bind CategoryGlyph, Mode=OneWay}"
+                         FontSize="14"
+                         Foreground="White"
+                         VerticalAlignment="Center"
+                         Margin="0,0,4,0"/>
+
+                <!-- Event title -->
+                <TextBlock x:Name="TitleText"
+                          Grid.Column="1"
+                          Text="{x:Bind Event.Title, Mode=OneWay}"
+                          FontSize="12"
+                          Foreground="White"
+                          FontWeight="SemiBold"
+                          VerticalAlignment="Center"
+                          TextTrimming="CharacterEllipsis"
+                          MaxLines="1"/>
+            </Grid>
+        </Border>
+
+        <!-- Tooltip with event details -->
+        <ToolTipService.ToolTip>
+            <ToolTip>
+                <StackPanel Spacing="4" MaxWidth="300">
+                    <TextBlock Text="{x:Bind Event.Title, Mode=OneWay}"
+                              FontWeight="SemiBold"
+                              FontSize="14"
+                              TextWrapping="Wrap"/>
+
+                    <TextBlock FontSize="12" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}">
+                        <Run Text="{x:Bind FormatDate(Event.StartDate), Mode=OneWay}"/>
+                        <Run x:Name="EndDateRun"
+                             Text="{x:Bind FormatEndDate(Event.EndDate), Mode=OneWay}"
+                             x:Load="{x:Bind Event.IsDurationEvent, Mode=OneWay}"/>
+                    </TextBlock>
+
+                    <TextBlock Text="{x:Bind Event.Description, Mode=OneWay}"
+                              FontSize="12"
+                              TextWrapping="Wrap"
+                              MaxLines="5"
+                              TextTrimming="CharacterEllipsis"
+                              Visibility="{x:Bind Event.Description, Mode=OneWay, Converter={StaticResource NullToVisibilityConverter}}"/>
+
+                    <TextBlock Text="{x:Bind Event.Category, Mode=OneWay}"
+                              FontSize="11"
+                              Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                              FontStyle="Italic"/>
+                </StackPanel>
+            </ToolTip>
+        </ToolTipService.ToolTip>
+    </Grid>
+</UserControl>
