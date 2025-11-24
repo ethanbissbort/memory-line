@@ -32,13 +32,17 @@
                      HorizontalScrollMode="Enabled"
                      VerticalScrollMode="Enabled"
                      ZoomMode="Disabled"
-                     ManipulationMode="TranslateX,TranslateY"
+                     ManipulationMode="TranslateX,TranslateY,Scale,TranslateInertia"
                      ViewChanged="TimelineScrollViewer_ViewChanged">
 
             <Grid x:Name="TimelineCanvas"
                   Width="10000"
                   Height="1000"
-                  Background="Transparent">
+                  Background="Transparent"
+                  ManipulationMode="TranslateX,TranslateY,Scale,TranslateInertia"
+                  ManipulationDelta="TimelineCanvas_ManipulationDelta"
+                  ManipulationCompleted="TimelineCanvas_ManipulationCompleted"
+                  DoubleTapped="TimelineCanvas_DoubleTapped">
 
                 <!-- Era background layer -->
                 <ItemsControl x:Name="ErasLayer"

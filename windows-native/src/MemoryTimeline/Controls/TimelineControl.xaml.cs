@@ -14,6 +14,9 @@ public sealed partial class TimelineControl : UserControl
     private TimelineViewModel? _viewModel;
     private double _lastScrollPosition;
     private bool _isScrolling;
+    private double _lastScale = 1.0;
+    private Windows.Foundation.Point _lastManipulationPosition;
+    private bool _isManipulating;
 
     /// <summary>
     /// Gets or sets the ViewModel for the timeline.
@@ -223,4 +226,116 @@ public sealed partial class TimelineControl : UserControl
             _viewModel?.SelectEventCommand.Execute(eventDto);
         }
     }
+
+    #region Touch Gesture Handlers
+
+    /// <summary>
+    /// Handles pinch-to-zoom and touch panning gestures.
+    /// </summary>
+    private async void TimelineCanvas_ManipulationDelta(object sender, ManipulationDeltaRoutedEventArgs e)
+    {
+        if (_viewModel == null || _isManipulating)
+            return;
+
+        _isManipulating = true;
+
+        try
+        {
+            // Handle pinch-to-zoom
+            if (e.Delta.Scale != 1.0)
+            {
+                var scaleDelta = e.Delta.Scale;
+                var cumulativeScale = e.Cumulative.Scale;
+
+                // Determine zoom direction
+                if (scaleDelta > 1.0 && _viewModel.CanZoomIn)
+                {
+                    // Zoom in - scale > 1.0 means pinch out
+                    await _viewModel.ZoomInAsync();
+                    _lastScale = cumulativeScale;
+                }
+                else if (scaleDelta < 1.0 && _viewModel.CanZoomOut)
+                {
+                    // Zoom out - scale < 1.0 means pinch in
+                    await _viewModel.ZoomOutAsync();
+                    _lastScale = cumulativeScale;
+                }
+            }
+
+            // Handle touch panning
+            if (e.Delta.Translation.X != 0 || e.Delta.Translation.Y != 0)
+            {
+                // Pan the timeline based on touch movement
+                var panDelta = e.Delta.Translation.X;
+                if (Math.Abs(panDelta) > 2)
+                {
+                    await _viewModel.PanAsync(-panDelta);
+                }
+
+                _lastManipulationPosition = e.Position;
+            }
+        }
+        finally
+        {
+            _isManipulating = false;
+        }
+    }
+
+    /// <summary>
+    /// Handles momentum/inertia at the end of a manipulation gesture.
+    /// </summary>
+    private async void TimelineCanvas_ManipulationCompleted(object sender, ManipulationCompletedRoutedEventArgs e)
+    {
+        if (_viewModel == null)
+            return;
+
+        // Apply inertia/momentum for smooth deceleration
+        var velocityX = e.Velocities.Linear.X;
+
+        if (Math.Abs(velocityX) > 0.5)
+        {
+            // Calculate momentum pan distance based on velocity
+            var momentumDistance = velocityX * 50; // Scale factor for momentum
+
+            // Apply momentum pan
+            await _viewModel.PanAsync(-momentumDistance);
+        }
+
+        _lastScale = 1.0;
+        _lastManipulationPosition = default;
+    }
+
+    /// <summary>
+    /// Handles double-tap to zoom in on a specific location.
+    /// </summary>
+    private async void TimelineCanvas_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    {
+        if (_viewModel == null || !_viewModel.CanZoomIn)
+            return;
+
+        // Get the position where user double-tapped
+        var position = e.GetPosition(TimelineCanvas);
+
+        // Calculate the date at the tapped position
+        if (_viewModel.Viewport != null)
+        {
+            var viewport = _viewModel.Viewport;
+            var dateAtPosition = Core.Models.TimelineScale.GetDateFromPixelPosition(
+                position.X,
+                viewport.StartDate,
+                viewport.ZoomLevel);
+
+            // Zoom in centered on the tapped date
+            await _viewModel.ZoomInAsync();
+
+            // Pan to center the tapped location (optional - provides better UX)
+            var centerOffsetX = position.X - (ActualWidth / 2);
+            if (Math.Abs(centerOffsetX) > 50)
+            {
+                await _viewModel.PanAsync(-centerOffsetX);
+            }
+        }
+    }
+
+    #endregion
 }
