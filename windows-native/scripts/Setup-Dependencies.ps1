@@ -131,7 +131,8 @@ function Test-DotNetSDK {
 function Install-DotNetSDK {
     Write-Info "Installing .NET 8 SDK..."
 
-    $installerUrl = "https://dotnet.microsoft.com/download/dotnet/thank-you/sdk-8.0.100-windows-x64-installer"
+    # Direct download link for .NET 8.0 SDK (x64)
+    $installerUrl = "https://download.visualstudio.microsoft.com/download/pr/b280d97f-25a9-4ab7-a018-46a6c4142ca3/2e2cfa6e90682cf436b4d49e7e10d6e2/dotnet-sdk-8.0.101-win-x64.exe"
     $installerPath = "$env:TEMP\dotnet-sdk-8.0-installer.exe"
 
     try {

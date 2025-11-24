@@ -63,7 +63,7 @@ Add-ReportLine ""
 # 1. Windows Version
 Write-Host "Checking Windows Version..." -ForegroundColor Yellow
 $osVersion = [System.Environment]::OSVersion.Version
-$osName = (Get-WmiObject -Class Win32_OperatingSystem).Caption
+$osName = (Get-CimInstance -ClassName Win32_OperatingSystem).Caption
 
 if ($osVersion.Build -ge 22000) {
     Write-Pass "Windows 11 detected: $osName (Build $($osVersion.Build))"
@@ -331,7 +331,7 @@ if ($freeSpaceGB -ge 10) {
 }
 
 # CPU
-$processor = Get-WmiObject Win32_Processor | Select-Object -First 1
+$processor = Get-CimInstance -ClassName Win32_Processor | Select-Object -First 1
 Write-Info "CPU: $($processor.Name)"
 Add-ReportLine "[INFO] CPU: $($processor.Name)"
 
