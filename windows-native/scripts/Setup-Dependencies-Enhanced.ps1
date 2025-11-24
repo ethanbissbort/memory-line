@@ -65,7 +65,7 @@ param(
 #region Configuration
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'Continue'
-$VerbosePreference = 'Continue'
+# VerbosePreference is controlled by -Verbose parameter via [CmdletBinding()]
 
 # Version requirements
 $Script:Config = @{
@@ -1063,7 +1063,7 @@ function Show-Summary {
 
     $duration = (Get-Date) - $Script:Results.StartTime
 
-    Write-LogMessage -Message "Setup Duration: $($duration.ToString('mm\:ss'))" -Level Info
+    Write-LogMessage -Message "Setup Duration: $($duration.ToString('mm:ss'))" -Level Info
     Write-LogMessage -Message "" -Level Info
 
     if ($Script:Results.Required.Count -gt 0) {

@@ -250,6 +250,23 @@ dotnet build
 
 ---
 
+## Testing Script Syntax
+
+Before running the setup script, you can validate its syntax:
+
+```powershell
+.\Test-ScriptSyntax.ps1
+```
+
+This validation script checks for:
+- ✅ PowerShell tokenization
+- ✅ Balanced quotes and here-strings
+- ✅ Parse errors
+- ✅ File encoding
+- ✅ #Requires statement
+
+---
+
 ## Support
 
 If you encounter issues:
