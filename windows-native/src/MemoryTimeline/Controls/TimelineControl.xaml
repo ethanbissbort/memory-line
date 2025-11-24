@@ -99,6 +99,36 @@
             </Grid>
         </ScrollViewer>
 
+        <!-- Ink Canvas Layer (for stylus/pen annotations) -->
+        <InkCanvas x:Name="TimelineInkCanvas"
+                  Visibility="Collapsed"
+                  Canvas.ZIndex="50"/>
+
+        <!-- Ink Toolbar (for pen controls) -->
+        <InkToolbar x:Name="TimelineInkToolbar"
+                   TargetInkCanvas="{x:Bind TimelineInkCanvas}"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Top"
+                   Margin="0,20,0,0"
+                   Visibility="Collapsed"
+                   Canvas.ZIndex="150">
+            <InkToolbarCustomToolButton x:Name="InkToggleButton"
+                                       Click="InkToggleButton_Click"
+                                       ToolTipService.ToolTip="Toggle Ink Mode">
+                <SymbolIcon Symbol="Draw"/>
+            </InkToolbarCustomToolButton>
+            <InkToolbarCustomToolButton x:Name="InkClearButton"
+                                       Click="InkClearButton_Click"
+                                       ToolTipService.ToolTip="Clear All Ink">
+                <SymbolIcon Symbol="Delete"/>
+            </InkToolbarCustomToolButton>
+            <InkToolbarCustomToolButton x:Name="InkSaveButton"
+                                       Click="InkSaveButton_Click"
+                                       ToolTipService.ToolTip="Save Ink">
+                <SymbolIcon Symbol="Save"/>
+            </InkToolbarCustomToolButton>
+        </InkToolbar>
+
         <!-- Zoom controls overlay -->
         <StackPanel Orientation="Horizontal"
                    HorizontalAlignment="Right"
@@ -148,6 +178,14 @@
             <AppBarButton Icon="Refresh"
                          Label="Refresh"
                          Command="{x:Bind ViewModel.RefreshCommand}"/>
+
+            <AppBarSeparator/>
+
+            <AppBarToggleButton x:Name="InkModeToggle"
+                               Icon="Edit"
+                               Label="Ink Mode"
+                               Click="InkModeToggle_Click"
+                               ToolTipService.ToolTip="Enable pen/stylus annotations"/>
 
             <CommandBar.Content>
                 <TextBlock Text="{x:Bind ViewModel.StatusText, Mode=OneWay}"

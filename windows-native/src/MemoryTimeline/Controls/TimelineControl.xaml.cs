@@ -3,6 +3,10 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using MemoryTimeline.ViewModels;
 using MemoryTimeline.Core.DTOs;
+using Microsoft.UI.Input.Inking;
+using Windows.Storage;
+using Windows.Storage.Streams;
+using Windows.Storage.Pickers;
 
 namespace MemoryTimeline.Controls;
 
@@ -17,6 +21,8 @@ public sealed partial class TimelineControl : UserControl
     private double _lastScale = 1.0;
     private Windows.Foundation.Point _lastManipulationPosition;
     private bool _isManipulating;
+    private bool _isInkModeEnabled;
+    private InkPresenter? _inkPresenter;
 
     /// <summary>
     /// Gets or sets the ViewModel for the timeline.
@@ -36,6 +42,25 @@ public sealed partial class TimelineControl : UserControl
         InitializeComponent();
         Loaded += TimelineControl_Loaded;
         SizeChanged += TimelineControl_SizeChanged;
+
+        // Initialize ink presenter
+        if (TimelineInkCanvas != null)
+        {
+            _inkPresenter = TimelineInkCanvas.InkPresenter;
+            _inkPresenter.InputDeviceTypes = Windows.UI.Core.CoreInputDeviceTypes.Pen |
+                                             Windows.UI.Core.CoreInputDeviceTypes.Mouse |
+                                             Windows.UI.Core.CoreInputDeviceTypes.Touch;
+
+            // Configure default ink attributes
+            var inkAttributes = new InkDrawingAttributes
+            {
+                Color = Windows.UI.Color.FromArgb(255, 0, 120, 215), // Blue
+                Size = new Windows.Foundation.Size(2, 2),
+                IgnorePressure = false,
+                FitToCurve = true
+            };
+            _inkPresenter.UpdateDefaultDrawingAttributes(inkAttributes);
+        }
     }
 
     private async void TimelineControl_Loaded(object sender, RoutedEventArgs e)
@@ -335,6 +360,125 @@ public sealed partial class TimelineControl : UserControl
                 await _viewModel.PanAsync(-centerOffsetX);
             }
         }
+    }
+
+    #endregion
+
+    #region Windows Ink Handlers
+
+    /// <summary>
+    /// Toggles ink mode on/off.
+    /// </summary>
+    private void InkModeToggle_Click(object sender, RoutedEventArgs e)
+    {
+        _isInkModeEnabled = InkModeToggle.IsChecked == true;
+        ToggleInkMode(_isInkModeEnabled);
+    }
+
+    /// <summary>
+    /// Toggles ink mode from toolbar button.
+    /// </summary>
+    private void InkToggleButton_Click(object sender, RoutedEventArgs e)
+    {
+        _isInkModeEnabled = !_isInkModeEnabled;
+        InkModeToggle.IsChecked = _isInkModeEnabled;
+        ToggleInkMode(_isInkModeEnabled);
+    }
+
+    /// <summary>
+    /// Helper method to toggle ink mode visibility and interaction.
+    /// </summary>
+    private void ToggleInkMode(bool enabled)
+    {
+        TimelineInkCanvas.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+        TimelineInkToolbar.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+
+        // Disable timeline gestures when in ink mode
+        if (enabled)
+        {
+            TimelineCanvas.ManipulationMode = ManipulationModes.None;
+            TimelineScrollViewer.ManipulationMode = ManipulationModes.None;
+        }
+        else
+        {
+            TimelineCanvas.ManipulationMode = ManipulationModes.TranslateX | ManipulationModes.TranslateY |
+                                             ManipulationModes.Scale | ManipulationModes.TranslateInertia;
+            TimelineScrollViewer.ManipulationMode = ManipulationModes.TranslateX | ManipulationModes.TranslateY |
+                                                   ManipulationModes.Scale | ManipulationModes.TranslateInertia;
+        }
+    }
+
+    /// <summary>
+    /// Clears all ink strokes from the canvas.
+    /// </summary>
+    private void InkClearButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_inkPresenter != null)
+        {
+            var strokes = _inkPresenter.StrokeContainer.GetStrokes();
+            foreach (var stroke in strokes)
+            {
+                stroke.Selected = true;
+            }
+            _inkPresenter.StrokeContainer.DeleteSelected();
+        }
+    }
+
+    /// <summary>
+    /// Saves ink strokes to a file.
+    /// </summary>
+    private async void InkSaveButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_inkPresenter == null || _inkPresenter.StrokeContainer.GetStrokes().Count == 0)
+        {
+            await ShowMessageDialog("No Ink", "There are no ink strokes to save.");
+            return;
+        }
+
+        try
+        {
+            // Create file save picker
+            var savePicker = new FileSavePicker();
+
+            // Initialize with window handle (required for WinUI 3)
+            var window = (Application.Current as App)?.Window as MainWindow;
+            if (window != null)
+            {
+                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
+                WinRT.Interop.InitializeWithWindow.Initialize(savePicker, hwnd);
+            }
+
+            savePicker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
+            savePicker.FileTypeChoices.Add("Ink File", new List<string> { ".gif" });
+            savePicker.SuggestedFileName = $"timeline-ink-{DateTime.Now:yyyyMMdd-HHmmss}";
+
+            var file = await savePicker.PickSaveFileAsync();
+            if (file != null)
+            {
+                using var stream = await file.OpenAsync(FileAccessMode.ReadWrite);
+                await _inkPresenter.StrokeContainer.SaveAsync(stream);
+                await ShowMessageDialog("Success", $"Ink strokes saved to {file.Name}");
+            }
+        }
+        catch (Exception ex)
+        {
+            await ShowMessageDialog("Error", $"Failed to save ink strokes: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Shows a message dialog.
+    /// </summary>
+    private async Task ShowMessageDialog(string title, string content)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            Content = content,
+            CloseButtonText = "OK",
+            XamlRoot = XamlRoot
+        };
+        await dialog.ShowAsync();
     }
 
     #endregion
