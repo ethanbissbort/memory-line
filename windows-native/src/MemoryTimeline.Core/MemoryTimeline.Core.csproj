@@ -35,6 +35,12 @@
 
     <!-- Semantic Kernel for LLM orchestration -->
     <PackageReference Include="Microsoft.SemanticKernel" Version="1.0.1" />
+
+    <!-- MVVM Toolkit for commands and observables -->
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" />
+
+    <!-- WinUI for UI types (Visibility, etc.) -->
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.5.240311000" />
   </ItemGroup>
 
   <ItemGroup>

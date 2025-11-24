@@ -48,6 +48,17 @@ public partial class QueueViewModel : ObservableObject
     [ObservableProperty]
     private int _failedCount;
 
+    // Computed properties for UI bindings
+    public bool CanStartRecording => !IsRecording;
+    public bool IsIdle => !IsRecording && !IsProcessing;
+    public bool HasPendingItems => PendingCount > 0;
+    public bool IsQueueEmpty => QueueItems.Count == 0;
+    public string RecordingDuration => TimeSpan.FromSeconds(_recordingDuration).ToString(@"mm\:ss");
+    public string StatusMessage => StatusText;
+
+    // Commands for queue operations
+    public IRelayCommand ProcessQueueCommand => ProcessAllCommand;
+
     // Playback properties
     [ObservableProperty]
     private bool _isPlaying;
@@ -208,9 +219,15 @@ public partial class QueueViewModel : ObservableObject
             QueueItems.Clear();
             foreach (var item in items)
             {
+                // Initialize commands for each item
+                item.PlayCommand = new RelayCommand(() => _ = PlayItemAsync(item));
+                item.RetryCommand = new RelayCommand(() => _ = RetryItemAsync(item));
+                item.RemoveCommand = new RelayCommand(() => _ = RemoveItemAsync(item));
+
                 QueueItems.Add(item);
             }
 
+            OnPropertyChanged(nameof(IsQueueEmpty));
             await UpdateStatusCountsAsync();
         }
         catch (Exception ex)
@@ -280,6 +297,7 @@ public partial class QueueViewModel : ObservableObject
         {
             await _queueService.RemoveQueueItemAsync(item.QueueId);
             QueueItems.Remove(item);
+            OnPropertyChanged(nameof(IsQueueEmpty));
             await UpdateStatusCountsAsync();
 
             StatusText = "Item removed";
@@ -373,6 +391,36 @@ public partial class QueueViewModel : ObservableObject
     }
 
     private bool CanStopPlayback() => IsPlaying;
+
+    #endregion
+
+    #region Property Changed Handlers
+
+    partial void OnIsRecordingChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanStartRecording));
+        OnPropertyChanged(nameof(IsIdle));
+    }
+
+    partial void OnIsProcessingChanged(bool value)
+    {
+        OnPropertyChanged(nameof(IsIdle));
+    }
+
+    partial void OnPendingCountChanged(int value)
+    {
+        OnPropertyChanged(nameof(HasPendingItems));
+    }
+
+    partial void OnRecordingDurationChanged(double value)
+    {
+        OnPropertyChanged(nameof(RecordingDuration));
+    }
+
+    partial void OnStatusTextChanged(string value)
+    {
+        OnPropertyChanged(nameof(StatusMessage));
+    }
 
     #endregion
 

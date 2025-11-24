@@ -2,12 +2,262 @@
     x:Class="MemoryTimeline.Views.QueuePage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    mc:Ignorable="d">
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.microsoft.com/win/markup-compatibility/2006"
+    xmlns:dtos="using:MemoryTimeline.Core.DTOs"
+    mc:Ignorable="d"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
     <Grid>
-        <TextBlock Text="Queue View - TODO: Implement"
-                   HorizontalAlignment="Center"
-                   VerticalAlignment="Center"
-                   FontSize="24"/>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>   <!-- Recording Controls -->
+            <RowDefinition Height="*"/>       <!-- Queue List -->
+            <RowDefinition Height="Auto"/>   <!-- Status Bar -->
+        </Grid.RowDefinitions>
+
+        <!-- Recording Controls Panel -->
+        <Grid Grid.Row="0" Padding="16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+              BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Recording Buttons -->
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                <Button x:Name="RecordButton"
+                        Command="{x:Bind ViewModel.StartRecordingCommand, Mode=OneWay}"
+                        IsEnabled="{x:Bind ViewModel.CanStartRecording, Mode=OneWay}"
+                        Style="{StaticResource AccentButtonStyle}"
+                        Height="48" Width="120">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE7C8;" FontSize="20"/>
+                        <TextBlock Text="Record" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+
+                <Button x:Name="StopButton"
+                        Command="{x:Bind ViewModel.StopRecordingCommand, Mode=OneWay}"
+                        IsEnabled="{x:Bind ViewModel.IsRecording, Mode=OneWay}"
+                        Height="48" Width="120">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE71A;" FontSize="20"/>
+                        <TextBlock Text="Stop" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+
+                <Button x:Name="PauseButton"
+                        Command="{x:Bind ViewModel.PauseRecordingCommand, Mode=OneWay}"
+                        IsEnabled="{x:Bind ViewModel.CanPauseRecording, Mode=OneWay}"
+                        Height="48" Width="48">
+                    <FontIcon Glyph="&#xE769;" FontSize="20"/>
+                </Button>
+            </StackPanel>
+
+            <!-- Recording Status -->
+            <StackPanel Grid.Column="1" Margin="24,0,0,0" VerticalAlignment="Center">
+                <TextBlock x:Name="RecordingDurationText"
+                           Text="{x:Bind ViewModel.RecordingDuration, Mode=OneWay}"
+                           FontSize="28"
+                           FontWeight="SemiBold"
+                           Visibility="{x:Bind ViewModel.IsRecording, Mode=OneWay}"/>
+
+                <ProgressBar IsIndeterminate="True"
+                             Margin="0,8,0,0"
+                             Visibility="{x:Bind ViewModel.IsRecording, Mode=OneWay}"/>
+
+                <TextBlock Text="Ready to record"
+                           FontSize="16"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           Visibility="{x:Bind ViewModel.IsIdle, Mode=OneWay}"/>
+            </StackPanel>
+
+            <!-- Action Buttons -->
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+                <Button Command="{x:Bind ViewModel.ProcessQueueCommand, Mode=OneWay}"
+                        IsEnabled="{x:Bind ViewModel.HasPendingItems, Mode=OneWay}"
+                        Height="48">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE768;" FontSize="18"/>
+                        <TextBlock Text="Process All" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+
+                <Button Command="{x:Bind ViewModel.ClearCompletedCommand, Mode=OneWay}"
+                        Height="48">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE74D;" FontSize="18"/>
+                        <TextBlock Text="Clear" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+        </Grid>
+
+        <!-- Queue ListView -->
+        <ScrollViewer Grid.Row="1" Padding="16">
+            <StackPanel Spacing="8">
+                <TextBlock Text="Recording Queue"
+                           Style="{StaticResource SubtitleTextBlockStyle}"
+                           Margin="0,0,0,8"/>
+
+                <ListView x:Name="QueueListView"
+                          ItemsSource="{x:Bind ViewModel.QueueItems, Mode=OneWay}"
+                          SelectionMode="Single"
+                          SelectedItem="{x:Bind ViewModel.SelectedItem, Mode=TwoWay}">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="dtos:AudioRecordingDto">
+                            <Grid Padding="12"
+                                  Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                  BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                  BorderThickness="1"
+                                  CornerRadius="8"
+                                  Margin="0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Status Icon -->
+                                <FontIcon Grid.Column="0"
+                                          Glyph="{x:Bind StatusGlyph, Mode=OneWay}"
+                                          FontSize="32"
+                                          Margin="0,0,16,0"
+                                          Foreground="{x:Bind StatusColor, Mode=OneWay}"/>
+
+                                <!-- Info -->
+                                <StackPanel Grid.Column="1" Spacing="4">
+                                    <TextBlock Text="{x:Bind CreatedAt, Mode=OneWay}"
+                                               Style="{StaticResource BodyTextBlockStyle}"
+                                               FontWeight="SemiBold"/>
+
+                                    <TextBlock Text="{x:Bind StatusText, Mode=OneWay}"
+                                               Style="{StaticResource CaptionTextBlockStyle}"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+
+                                    <TextBlock Text="{x:Bind DurationText, Mode=OneWay}"
+                                               Style="{StaticResource CaptionTextBlockStyle}"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+
+                                    <ProgressBar Value="{x:Bind Progress, Mode=OneWay}"
+                                                 Maximum="100"
+                                                 Margin="0,4,0,0"
+                                                 Visibility="{x:Bind IsProcessing, Mode=OneWay}"/>
+
+                                    <TextBlock Text="{x:Bind ErrorMessage, Mode=OneWay}"
+                                               Style="{StaticResource CaptionTextBlockStyle}"
+                                               Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                               TextWrapping="Wrap"
+                                               Visibility="{x:Bind HasError, Mode=OneWay}"/>
+                                </StackPanel>
+
+                                <!-- Actions -->
+                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+                                    <Button Command="{x:Bind PlayCommand, Mode=OneWay}"
+                                            Visibility="{x:Bind CanPlay, Mode=OneWay}"
+                                            ToolTipService.ToolTip="Play audio"
+                                            Width="40" Height="40">
+                                        <FontIcon Glyph="&#xE768;" FontSize="16"/>
+                                    </Button>
+
+                                    <Button Command="{x:Bind RetryCommand, Mode=OneWay}"
+                                            Visibility="{x:Bind CanRetry, Mode=OneWay}"
+                                            ToolTipService.ToolTip="Retry processing"
+                                            Width="40" Height="40">
+                                        <FontIcon Glyph="&#xE72C;" FontSize="16"/>
+                                    </Button>
+
+                                    <Button Command="{x:Bind RemoveCommand, Mode=OneWay}"
+                                            ToolTipService.ToolTip="Remove from queue"
+                                            Width="40" Height="40">
+                                        <FontIcon Glyph="&#xE74D;" FontSize="16"/>
+                                    </Button>
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                            <Setter Property="Padding" Value="0"/>
+                            <Setter Property="Margin" Value="0"/>
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                </ListView>
+
+                <!-- Empty State -->
+                <StackPanel Spacing="12"
+                            Margin="0,48,0,0"
+                            Visibility="{x:Bind ViewModel.IsQueueEmpty, Mode=OneWay}">
+                    <FontIcon Glyph="&#xE8B7;"
+                              FontSize="48"
+                              Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                              HorizontalAlignment="Center"/>
+                    <TextBlock Text="No recordings in queue"
+                               Style="{StaticResource SubtitleTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Text="Press the Record button to start capturing audio"
+                               Style="{StaticResource BodyTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                               HorizontalAlignment="Center"/>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Status Bar -->
+        <Grid Grid.Row="2"
+              Padding="16,12"
+              Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+              BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+              BorderThickness="0,1,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Grid.Column="0"
+                       Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                       Style="{StaticResource CaptionTextBlockStyle}"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       VerticalAlignment="Center"/>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="16">
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                    <FontIcon Glyph="&#xE81C;" FontSize="14"
+                              Foreground="{ThemeResource SystemFillColorAttentionBrush}"/>
+                    <TextBlock Text="{x:Bind ViewModel.PendingCount, Mode=OneWay}"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock Text="Pending"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                    <FontIcon Glyph="&#xE73E;" FontSize="14"
+                              Foreground="{ThemeResource SystemFillColorSuccessBrush}"/>
+                    <TextBlock Text="{x:Bind ViewModel.CompletedCount, Mode=OneWay}"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock Text="Completed"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                    <FontIcon Glyph="&#xE783;" FontSize="14"
+                              Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
+                    <TextBlock Text="{x:Bind ViewModel.FailedCount, Mode=OneWay}"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock Text="Failed"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+            </StackPanel>
+        </Grid>
     </Grid>
 </Page>
