@@ -36,6 +36,13 @@ public partial class App : Application
                 services.AddScoped<IEventRepository, EventRepository>();
                 services.AddScoped<IEraRepository, EraRepository>();
                 services.AddScoped<IRecordingQueueRepository, RecordingQueueRepository>();
+                services.AddScoped<ITagRepository, TagRepository>();
+                services.AddScoped<IPersonRepository, PersonRepository>();
+                services.AddScoped<ILocationRepository, LocationRepository>();
+                services.AddScoped<ICrossReferenceRepository, CrossReferenceRepository>();
+                services.AddScoped<IEventEmbeddingRepository, EventEmbeddingRepository>();
+                services.AddScoped<IAppSettingRepository, AppSettingRepository>();
+                services.AddScoped<IPendingEventRepository, PendingEventRepository>();
 
                 // Register core services
                 services.AddSingleton<ISettingsService, SettingsService>();
