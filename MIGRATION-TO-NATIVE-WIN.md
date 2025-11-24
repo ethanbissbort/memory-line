@@ -241,6 +241,23 @@ View (XAML) ←→ ViewModel (C#) ←→ Model (C#) ←→ Database
 - Create branch structure
 - Prototype core technologies
 
+**Automated Setup:**
+
+For automated dependency installation, use the PowerShell setup scripts:
+
+```powershell
+# Navigate to the windows-native scripts directory
+cd windows-native\scripts
+
+# Run automated setup (requires Administrator)
+.\Setup-Dependencies.ps1 -Mode Development
+
+# Verify installation
+.\Verify-Installation.ps1 -Detailed
+```
+
+See [`windows-native/scripts/README.md`](windows-native/scripts/README.md) for detailed documentation.
+
 **Tasks:**
 - [ ] Install Visual Studio 2022 (17.8+) with:
   - [ ] .NET 8 SDK
@@ -775,6 +792,9 @@ View (XAML) ←→ ViewModel (C#) ←→ Model (C#) ←→ Database
   - [ ] .NET 8 SDK
   - [ ] Windows App SDK 1.5+
   - [ ] Git for Windows
+
+  **Automated Setup Available:**
+  Use `windows-native/scripts/Setup-Dependencies.ps1` to automatically install all required dependencies. See [`windows-native/scripts/README.md`](windows-native/scripts/README.md) for details.
 
 - [ ] **Documentation Review**
   - [ ] Read Electron codebase
@@ -1514,7 +1534,18 @@ The three branches (Electron, Windows Native, Apple Native) will be maintained i
 
 ---
 
+## Quick Links
+
+- **Setup Scripts**: [`windows-native/scripts/README.md`](windows-native/scripts/README.md)
+- **Windows README**: [`windows-native/README-WINDOWS.md`](windows-native/README-WINDOWS.md)
+- **Deployment Guide**: [`windows-native/DEPLOYMENT.md`](windows-native/DEPLOYMENT.md)
+- **Development Status**: [`windows-native/DEVELOPMENT-STATUS.md`](windows-native/DEVELOPMENT-STATUS.md)
+- **Testing Guide**: [`windows-native/TESTING.md`](windows-native/TESTING.md)
+
+---
+
 **Document Ownership:** Development Team
 **Review Cycle:** Quarterly
 **Next Review:** Q2 2026
+**Last Updated:** 2025-11-24
 

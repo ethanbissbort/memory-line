@@ -6,6 +6,23 @@
 
 This is the native Windows implementation of Memory Timeline, designed to provide superior performance and leverage Windows-specific features like NPU acceleration, Windows Ink, and native touch/pen support.
 
+## Quick Setup
+
+**For automated dependency installation**, use the PowerShell setup scripts:
+
+```powershell
+# Navigate to scripts directory
+cd windows-native\scripts
+
+# Run setup (requires Administrator)
+.\Setup-Dependencies.ps1 -Mode Development
+
+# Verify installation
+.\Verify-Installation.ps1 -Detailed
+```
+
+See [`windows-native/scripts/README.md`](./scripts/README.md) for detailed script documentation.
+
 ## Prerequisites
 
 ### Required Software
@@ -391,6 +408,6 @@ MIT License - See main repository `LICENSE` file.
 
 ---
 
-**Last Updated:** 2025-11-21
+**Last Updated:** 2025-11-24
 **Maintainer:** Development Team
 **Status:** Alpha - Active Development

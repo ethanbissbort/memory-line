@@ -240,10 +240,13 @@ For Memory Timeline issues:
 
 ## Version History
 
-- **1.0.0** (2024-11-21): Initial release
+- **1.0.1** (2025-11-24): Bug fixes
+  - Fixed .NET SDK installer URL (direct download instead of redirect)
+  - Replaced deprecated Get-WmiObject with Get-CimInstance
+- **1.0.0** (2025-11-21): Initial release
   - Setup-Dependencies.ps1: Automated dependency installation
   - Verify-Installation.ps1: Comprehensive verification
 
 ---
 
-**Last Updated**: 2024-11-21
+**Last Updated**: 2025-11-24
