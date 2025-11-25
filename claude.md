@@ -265,7 +265,19 @@ npm run build        # Build renderer
 npm run package      # Package Electron app
 ```
 
-## Important Notes for Claude Code
+## Important Notes for AI Assistants (Claude Code)
+
+### Current Development Context
+
+**Electron Version (Main Branch)**:
+- Status: Release Candidate (v1.0.0-rc1)
+- All 7 phases complete and production-ready
+- Focus: Bug fixes, minor enhancements, user feedback
+
+**Native Windows Version (windows-native Branch)**:
+- Status: 86% complete (Phases 0-6 done)
+- Next: Phase 7 (Testing & Deployment)
+- See MIGRATION-TO-NATIVE-WIN.md for implementation status
 
 ### When Editing Code
 
@@ -274,14 +286,19 @@ npm run package      # Package Electron app
 3. **No direct require() in renderer**: Use preload.js bridge
 4. **CSS organization**: One file per component, imported in JSX
 5. **Event handlers**: Prefix with `handle` (e.g., `handleRecordStart`)
+6. **Branch awareness**: Electron code in main branch, Windows native in windows-native branch
 
 ### When Adding Features
 
-1. **Start with database schema**: Does this need new tables/columns?
-2. **Design the data flow**: Main process (DB) → IPC → Renderer (UI)
-3. **Consider error states**: What if API fails? What if file doesn't exist?
-4. **Update Settings if needed**: New features often need configuration
-5. **Test the full flow**: Record → Process → Review → Approve → Timeline
+1. **Determine target platform**: Electron (main) or Windows Native (windows-native)?
+2. **Start with database schema**: Does this need new tables/columns?
+3. **Design the data flow**:
+   - Electron: Main process (DB) → IPC → Renderer (UI)
+   - Windows Native: Repository → Service → ViewModel → View (XAML)
+4. **Consider error states**: What if API fails? What if file doesn't exist?
+5. **Update Settings if needed**: New features often need configuration
+6. **Test the full flow**: Record → Process → Review → Approve → Timeline
+7. **Documentation**: Update README.md for Electron, MIGRATION-TO-NATIVE-WIN.md for Windows
 
 ### When Debugging
 
@@ -328,18 +345,27 @@ npm run package      # Package Electron app
 
 ## Project Status
 
-**Current Phase**: Phases 1-5 Complete (Alpha)
+**Current Phase**: All Phases Complete (Release Candidate)
 
-**Completed**:
+**Electron Version** (main application):
+- ✅ Phases 1-7 Complete
 - ✅ Core infrastructure and database
 - ✅ Audio recording and queue system
 - ✅ LLM integration for event extraction
 - ✅ Advanced timeline visualization
 - ✅ RAG cross-referencing with embeddings
+- ✅ Polish, optimization, export functionality
+- ✅ Extended features (advanced search, batch import, analytics)
+
+**Native Windows Version** (separate branch):
+- ✅ Phases 0-6 Complete (86% overall)
+- ⬜ Phase 7 Pending (Testing & Deployment)
+- See MIGRATION-TO-NATIVE-WIN.md for details
 
 **Next**:
-- 📋 Phase 6: Polish, optimization, export functionality
-- 📋 Phase 7: Native Windows implementation with NPU support
+- 📋 Continue native Windows implementation (Phase 7)
+- 📋 Mobile companion apps (iOS/Android)
+- 📋 Cloud sync and collaborative features
 
 ## Resources
 
@@ -351,5 +377,5 @@ npm run package      # Package Electron app
 
 ---
 
-**Last Updated**: 2025-11-21
-**Version**: 1.0.0-alpha
+**Last Updated**: 2025-11-25
+**Version**: 1.0.0-rc1 (Electron), 0.9.0 (Windows Native)
