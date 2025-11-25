@@ -63,7 +63,9 @@ public partial class TimelineViewModel : ObservableObject
     public bool IsMonthZoom => CurrentZoomLevel == ZoomLevel.Month;
     public bool IsWeekZoom => CurrentZoomLevel == ZoomLevel.Week;
     public bool IsDayZoom => CurrentZoomLevel == ZoomLevel.Day;
-    public string CurrentZoomLevelDisplay => ZoomConfig.GetDisplayName(CurrentZoomLevel);
+    public string CurrentZoomLevelDisplay => TimelineScale.GetZoomLevelName(CurrentZoomLevel);
+    public bool CanZoomIn => TimelineScale.CanZoomIn(CurrentZoomLevel);
+    public bool CanZoomOut => TimelineScale.CanZoomOut(CurrentZoomLevel);
 
     public TimelineViewModel(
         ITimelineService timelineService,
@@ -199,7 +201,7 @@ public partial class TimelineViewModel : ObservableObject
             await LoadEventsForViewportAsync();
             await LoadErasForViewportAsync();
 
-            StatusText = $"Zoom: {ZoomConfig.GetDisplayName(CurrentZoomLevel)}";
+            StatusText = $"Zoom: {TimelineScale.GetZoomLevelName(CurrentZoomLevel)}";
         }
         catch (Exception ex)
         {
@@ -232,7 +234,7 @@ public partial class TimelineViewModel : ObservableObject
             await LoadEventsForViewportAsync();
             await LoadErasForViewportAsync();
 
-            StatusText = $"Zoom: {ZoomConfig.GetDisplayName(CurrentZoomLevel)}";
+            StatusText = $"Zoom: {TimelineScale.GetZoomLevelName(CurrentZoomLevel)}";
         }
         catch (Exception ex)
         {
@@ -272,13 +274,13 @@ public partial class TimelineViewModel : ObservableObject
         try
         {
             IsLoading = true;
-            StatusText = $"Setting zoom to {ZoomConfig.GetDisplayName(zoomLevel)}...";
+            StatusText = $"Setting zoom to {TimelineScale.GetZoomLevelName(zoomLevel)}...";
 
             var centerDate = Viewport.StartDate.AddDays(Viewport.TotalDays / 2.0);
             await CreateViewportAsync(zoomLevel, centerDate);
             CurrentZoomLevel = zoomLevel;
 
-            StatusText = $"Zoom: {ZoomConfig.GetDisplayName(CurrentZoomLevel)}";
+            StatusText = $"Zoom: {TimelineScale.GetZoomLevelName(CurrentZoomLevel)}";
         }
         catch (Exception ex)
         {

@@ -4,11 +4,11 @@ using MemoryTimeline.ViewModels;
 
 namespace MemoryTimeline.Views;
 
-public sealed partial class QueuePage : Page
+public sealed partial class ReviewPage : Page
 {
-    public QueueViewModel ViewModel { get; }
+    public ReviewViewModel ViewModel { get; }
 
-    public QueuePage(QueueViewModel viewModel)
+    public ReviewPage(ReviewViewModel viewModel)
     {
         ViewModel = viewModel;
         InitializeComponent();

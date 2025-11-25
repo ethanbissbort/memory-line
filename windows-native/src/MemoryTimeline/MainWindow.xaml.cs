@@ -36,6 +36,7 @@ public sealed partial class MainWindow : Window
     {
         _navigationService.RegisterPage("Timeline", typeof(TimelinePage));
         _navigationService.RegisterPage("Queue", typeof(QueuePage));
+        _navigationService.RegisterPage("Review", typeof(ReviewPage));
         _navigationService.RegisterPage("Search", typeof(SearchPage));
         _navigationService.RegisterPage("Analytics", typeof(AnalyticsPage));
         _navigationService.RegisterPage("Settings", typeof(SettingsPage));

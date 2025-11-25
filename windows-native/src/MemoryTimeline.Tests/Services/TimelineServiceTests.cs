@@ -52,7 +52,7 @@ public class TimelineServiceTests : IDisposable
         viewport.ZoomLevel.Should().Be(ZoomLevel.Month);
         viewport.ViewportWidth.Should().Be(1920);
         viewport.ViewportHeight.Should().Be(1080);
-        viewport.PixelsPerDay.Should().Be(ZoomConfig.GetPixelsPerDay(ZoomLevel.Month));
+        viewport.PixelsPerDay.Should().Be(TimelineScale.GetPixelsPerDay(ZoomLevel.Month));
     }
 
     [Fact]
@@ -72,10 +72,10 @@ public class TimelineServiceTests : IDisposable
     }
 
     [Theory]
-    [InlineData(ZoomLevel.Year, 0.5)]
-    [InlineData(ZoomLevel.Month, 5.0)]
-    [InlineData(ZoomLevel.Week, 20.0)]
-    [InlineData(ZoomLevel.Day, 100.0)]
+    [InlineData(ZoomLevel.Year, 0.1)]
+    [InlineData(ZoomLevel.Month, 3.0)]
+    [InlineData(ZoomLevel.Week, 50.0)]
+    [InlineData(ZoomLevel.Day, 800.0)]
     public async Task CreateViewportAsync_DifferentZoomLevels_HasCorrectPixelsPerDay(
         ZoomLevel zoomLevel, double expectedPixelsPerDay)
     {
@@ -103,7 +103,7 @@ public class TimelineServiceTests : IDisposable
 
         // Assert
         zoomedViewport.ZoomLevel.Should().Be(ZoomLevel.Week);
-        zoomedViewport.PixelsPerDay.Should().Be(ZoomConfig.GetPixelsPerDay(ZoomLevel.Week));
+        zoomedViewport.PixelsPerDay.Should().Be(TimelineScale.GetPixelsPerDay(ZoomLevel.Week));
     }
 
     [Fact]
@@ -132,7 +132,7 @@ public class TimelineServiceTests : IDisposable
 
         // Assert
         zoomedViewport.ZoomLevel.Should().Be(ZoomLevel.Year);
-        zoomedViewport.PixelsPerDay.Should().Be(ZoomConfig.GetPixelsPerDay(ZoomLevel.Year));
+        zoomedViewport.PixelsPerDay.Should().Be(TimelineScale.GetPixelsPerDay(ZoomLevel.Year));
     }
 
     [Fact]
@@ -444,7 +444,7 @@ public class TimelineServiceTests : IDisposable
             StartDate = new DateTime(2024, 1, 1),
             EndDate = new DateTime(2024, 12, 31),
             ZoomLevel = ZoomLevel.Month,
-            PixelsPerDay = 5.0,
+            PixelsPerDay = TimelineScale.GetPixelsPerDay(ZoomLevel.Month),
             ViewportWidth = 1920,
             ViewportHeight = 1080
         };
@@ -471,7 +471,7 @@ public class TimelineServiceTests : IDisposable
             StartDate = new DateTime(2024, 1, 1),
             EndDate = new DateTime(2024, 12, 31),
             ZoomLevel = ZoomLevel.Month,
-            PixelsPerDay = 5.0,
+            PixelsPerDay = TimelineScale.GetPixelsPerDay(ZoomLevel.Month),
             ViewportWidth = 1920,
             ViewportHeight = 1080
         };

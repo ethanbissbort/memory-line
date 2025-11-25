@@ -36,6 +36,13 @@ public partial class App : Application
                 services.AddScoped<IEventRepository, EventRepository>();
                 services.AddScoped<IEraRepository, EraRepository>();
                 services.AddScoped<IRecordingQueueRepository, RecordingQueueRepository>();
+                services.AddScoped<ITagRepository, TagRepository>();
+                services.AddScoped<IPersonRepository, PersonRepository>();
+                services.AddScoped<ILocationRepository, LocationRepository>();
+                services.AddScoped<ICrossReferenceRepository, CrossReferenceRepository>();
+                services.AddScoped<IEventEmbeddingRepository, EventEmbeddingRepository>();
+                services.AddScoped<IAppSettingRepository, AppSettingRepository>();
+                services.AddScoped<IPendingEventRepository, PendingEventRepository>();
 
                 // Register core services
                 services.AddSingleton<ISettingsService, SettingsService>();
@@ -49,7 +56,7 @@ public partial class App : Application
                 services.AddScoped<ISpeechToTextService, WindowsSpeechRecognitionService>();
 
                 // Phase 4: LLM & Event Extraction services
-                services.AddHttpClient<ILlmService, AnthropicClaudeService>();
+                services.AddSingleton<ILlmService, AnthropicLlmService>();
                 services.AddScoped<IEventExtractionService, EventExtractionService>();
 
                 // Phase 5: RAG & Embedding services
@@ -72,11 +79,13 @@ public partial class App : Application
                 services.AddTransient<TimelineViewModel>();
                 services.AddTransient<SettingsViewModel>();
                 services.AddTransient<QueueViewModel>();
+                services.AddTransient<ReviewViewModel>();
 
                 // Register Views
                 services.AddTransient<MainWindow>();
                 services.AddTransient<TimelinePage>();
                 services.AddTransient<QueuePage>();
+                services.AddTransient<ReviewPage>();
                 services.AddTransient<SearchPage>();
                 services.AddTransient<AnalyticsPage>();
                 services.AddTransient<SettingsPage>();
