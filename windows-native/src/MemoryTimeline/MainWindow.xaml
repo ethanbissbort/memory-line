@@ -26,6 +26,11 @@
                         <InfoBadge x:Name="QueueBadge"/>
                     </NavigationViewItem.InfoBadge>
                 </NavigationViewItem>
+                <NavigationViewItem Content="Review Events" Tag="Review" Icon="Accept">
+                    <NavigationViewItem.InfoBadge>
+                        <InfoBadge x:Name="ReviewBadge"/>
+                    </NavigationViewItem.InfoBadge>
+                </NavigationViewItem>
                 <NavigationViewItem Content="Search" Tag="Search" Icon="Find"/>
                 <NavigationViewItem Content="Analytics" Tag="Analytics" Icon="BarChart"/>
             </NavigationView.MenuItems>
