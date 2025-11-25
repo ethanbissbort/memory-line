@@ -147,6 +147,98 @@
                 </StackPanel>
             </StackPanel>
 
+            <!-- Export/Import Section -->
+            <StackPanel Spacing="16"
+                       Padding="16"
+                       Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                       BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                       BorderThickness="1"
+                       CornerRadius="8">
+                <TextBlock Text="Export &amp; Import"
+                          Style="{StaticResource SubtitleTextBlockStyle}"/>
+
+                <TextBlock Text="Export your timeline data to different formats"
+                          Style="{StaticResource BodyTextBlockStyle}"
+                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+
+                <!-- Export Buttons -->
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.ColumnSpacing>8</Grid.ColumnSpacing>
+
+                    <Button Grid.Column="0"
+                           Command="{x:Bind ViewModel.ExportToJsonCommand}"
+                           HorizontalAlignment="Stretch"
+                           IsEnabled="{x:Bind ViewModel.IsExporting, Converter={StaticResource BoolNegationConverter}, Mode=OneWay}">
+                        <StackPanel Spacing="4">
+                            <FontIcon Glyph="&#xE8B7;" FontSize="20"/>
+                            <TextBlock Text="Export JSON" Style="{StaticResource CaptionTextBlockStyle}"/>
+                        </StackPanel>
+                    </Button>
+
+                    <Button Grid.Column="1"
+                           Command="{x:Bind ViewModel.ExportToCsvCommand}"
+                           HorizontalAlignment="Stretch"
+                           IsEnabled="{x:Bind ViewModel.IsExporting, Converter={StaticResource BoolNegationConverter}, Mode=OneWay}">
+                        <StackPanel Spacing="4">
+                            <FontIcon Glyph="&#xE8A5;" FontSize="20"/>
+                            <TextBlock Text="Export CSV" Style="{StaticResource CaptionTextBlockStyle}"/>
+                        </StackPanel>
+                    </Button>
+
+                    <Button Grid.Column="2"
+                           Command="{x:Bind ViewModel.ExportToMarkdownCommand}"
+                           HorizontalAlignment="Stretch"
+                           IsEnabled="{x:Bind ViewModel.IsExporting, Converter={StaticResource BoolNegationConverter}, Mode=OneWay}">
+                        <StackPanel Spacing="4">
+                            <FontIcon Glyph="&#xE8A4;" FontSize="20"/>
+                            <TextBlock Text="Export MD" Style="{StaticResource CaptionTextBlockStyle}"/>
+                        </StackPanel>
+                    </Button>
+                </Grid>
+
+                <!-- Export Status -->
+                <StackPanel Spacing="4" Visibility="{x:Bind ViewModel.IsExporting, Mode=OneWay}">
+                    <ProgressBar Value="{x:Bind ViewModel.ExportProgress, Mode=OneWay}"
+                                Maximum="100"
+                                IsIndeterminate="{x:Bind ViewModel.IsExporting, Mode=OneWay}"/>
+                    <TextBlock Text="{x:Bind ViewModel.ExportStatusMessage, Mode=OneWay}"
+                              Style="{StaticResource CaptionTextBlockStyle}"
+                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+
+                <Border Height="1"
+                       Background="{ThemeResource DividerStrokeColorDefaultBrush}"
+                       Margin="0,8"/>
+
+                <!-- Import Section -->
+                <TextBlock Text="Import timeline data from JSON"
+                          Style="{StaticResource BodyTextBlockStyle}"
+                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+
+                <Button Command="{x:Bind ViewModel.ImportFromJsonCommand}"
+                       HorizontalAlignment="Stretch"
+                       IsEnabled="{x:Bind ViewModel.IsImporting, Converter={StaticResource BoolNegationConverter}, Mode=OneWay}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE8B5;" FontSize="16"/>
+                        <TextBlock Text="Import from JSON"/>
+                    </StackPanel>
+                </Button>
+
+                <!-- Import Status -->
+                <StackPanel Spacing="4" Visibility="{x:Bind ViewModel.IsImporting, Mode=OneWay}">
+                    <ProgressRing IsActive="{x:Bind ViewModel.IsImporting, Mode=OneWay}"
+                                 Width="24" Height="24"/>
+                    <TextBlock Text="{x:Bind ViewModel.ImportStatusMessage, Mode=OneWay}"
+                              Style="{StaticResource CaptionTextBlockStyle}"
+                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+            </StackPanel>
+
             <!-- Data Management Section -->
             <StackPanel Spacing="16"
                        Padding="16"
