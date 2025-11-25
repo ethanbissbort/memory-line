@@ -1,0 +1,246 @@
+<Page
+    x:Class="MemoryTimeline.Views.ReviewPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:dtos="using:MemoryTimeline.Core.DTOs"
+    mc:Ignorable="d"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Grid Grid.Row="0" Padding="24,16" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0" Spacing="4">
+                <TextBlock Text="Review Extracted Events"
+                          Style="{StaticResource TitleTextBlockStyle}"/>
+                <TextBlock Style="{StaticResource BodyTextBlockStyle}"
+                          Foreground="{ThemeResource TextFillColorSecondaryBrush}">
+                    <Run Text="{x:Bind ViewModel.PendingCount, Mode=OneWay}"/>
+                    <Run Text="pending events awaiting review"/>
+                </TextBlock>
+            </StackPanel>
+
+            <CommandBar Grid.Column="1" DefaultLabelPosition="Right">
+                <AppBarButton Icon="Refresh"
+                             Label="Refresh"
+                             Command="{x:Bind ViewModel.RefreshPendingEventsCommand}"/>
+
+                <AppBarButton Icon="Accept"
+                             Label="Approve All"
+                             Command="{x:Bind ViewModel.ApproveAllCommand}"
+                             IsEnabled="{x:Bind ViewModel.HasPendingEvents, Mode=OneWay}"/>
+
+                <AppBarButton Icon="Cancel"
+                             Label="Reject All"
+                             Command="{x:Bind ViewModel.RejectAllCommand}"
+                             IsEnabled="{x:Bind ViewModel.HasPendingEvents, Mode=OneWay}"/>
+            </CommandBar>
+        </Grid>
+
+        <!-- Main Content -->
+        <Grid Grid.Row="1">
+            <!-- Loading Overlay -->
+            <Grid Visibility="{x:Bind ViewModel.IsLoading, Mode=OneWay}"
+                  Background="#80000000"
+                  Canvas.ZIndex="1000">
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+                    <ProgressRing IsActive="True" Width="48" Height="48"/>
+                    <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                              FontSize="16"
+                              Foreground="White"
+                              HorizontalAlignment="Center"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- Empty State -->
+            <StackPanel Spacing="16"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       Visibility="{x:Bind ViewModel.IsEmpty, Mode=OneWay}">
+                <FontIcon Glyph="&#xE73E;"
+                         FontSize="64"
+                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <TextBlock Text="No pending events"
+                          Style="{StaticResource SubtitleTextBlockStyle}"
+                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                          HorizontalAlignment="Center"/>
+                <TextBlock Text="Events extracted from recordings will appear here for review"
+                          Style="{StaticResource BodyTextBlockStyle}"
+                          Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                          TextWrapping="Wrap"
+                          TextAlignment="Center"
+                          MaxWidth="400"
+                          HorizontalAlignment="Center"/>
+            </StackPanel>
+
+            <!-- Event List -->
+            <ScrollViewer Visibility="{x:Bind ViewModel.HasPendingEvents, Mode=OneWay}">
+                <StackPanel Padding="24" Spacing="12">
+                    <ListView ItemsSource="{x:Bind ViewModel.PendingEvents, Mode=OneWay}"
+                             SelectedItem="{x:Bind ViewModel.SelectedEvent, Mode=TwoWay}"
+                             SelectionMode="Single">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="dtos:PendingEventDto">
+                                <Grid Padding="16"
+                                     Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                     BorderThickness="1"
+                                     CornerRadius="8"
+                                     Margin="0,4">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+
+                                    <!-- Header with Title and Confidence -->
+                                    <Grid Grid.Row="0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <FontIcon Grid.Column="0"
+                                                 Glyph="{x:Bind CategoryIcon}"
+                                                 FontSize="24"
+                                                 Margin="0,0,12,0"
+                                                 Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Text="{x:Bind Title, Mode=OneWay}"
+                                                      Style="{StaticResource SubtitleTextBlockStyle}"
+                                                      TextWrapping="Wrap"/>
+                                            <TextBlock Text="{x:Bind Category, Mode=OneWay}"
+                                                      Style="{StaticResource CaptionTextBlockStyle}"
+                                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="2" Spacing="4">
+                                            <TextBlock Text="{x:Bind ConfidenceDisplay, Mode=OneWay}"
+                                                      FontWeight="SemiBold"
+                                                      Foreground="{x:Bind ConfidenceColor, Mode=OneWay}"
+                                                      HorizontalAlignment="Right"/>
+                                            <TextBlock Text="Confidence"
+                                                      Style="{StaticResource CaptionTextBlockStyle}"
+                                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                      HorizontalAlignment="Right"/>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <!-- Event Details -->
+                                    <StackPanel Grid.Row="1" Margin="0,12,0,0" Spacing="8">
+                                        <!-- Dates -->
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon Glyph="&#xE787;" FontSize="16"
+                                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            <TextBlock>
+                                                <Run Text="{x:Bind StartDateDisplay, Mode=OneWay}"/>
+                                                <Run Text="→" Visibility="{x:Bind HasEndDate, Mode=OneWay}"/>
+                                                <Run Text="{x:Bind EndDateDisplay, Mode=OneWay}"
+                                                     Visibility="{x:Bind HasEndDate, Mode=OneWay}"/>
+                                            </TextBlock>
+                                            <TextBlock Text="{x:Bind DurationDisplay, Mode=OneWay}"
+                                                      Style="{StaticResource CaptionTextBlockStyle}"
+                                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                        </StackPanel>
+
+                                        <!-- Description -->
+                                        <TextBlock Text="{x:Bind Description, Mode=OneWay}"
+                                                  TextWrapping="Wrap"
+                                                  MaxLines="3"
+                                                  TextTrimming="CharacterEllipsis"
+                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    </StackPanel>
+
+                                    <!-- Action Buttons -->
+                                    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Margin="0,12,0,0">
+                                        <Button Command="{x:Bind ApproveCommand, Mode=OneWay}"
+                                               Style="{StaticResource AccentButtonStyle}">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <FontIcon Glyph="&#xE73E;" FontSize="16"/>
+                                                <TextBlock Text="Approve"/>
+                                            </StackPanel>
+                                        </Button>
+
+                                        <Button Command="{x:Bind EditCommand, Mode=OneWay}">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <FontIcon Glyph="&#xE70F;" FontSize="16"/>
+                                                <TextBlock Text="Edit"/>
+                                            </StackPanel>
+                                        </Button>
+
+                                        <Button Command="{x:Bind RejectCommand, Mode=OneWay}">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <FontIcon Glyph="&#xE711;" FontSize="16"/>
+                                                <TextBlock Text="Reject"/>
+                                            </StackPanel>
+                                        </Button>
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                <Setter Property="Padding" Value="0"/>
+                                <Setter Property="Margin" Value="0"/>
+                            </Style>
+                        </ListView.ItemContainerStyle>
+                    </ListView>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+
+        <!-- Status Bar -->
+        <Grid Grid.Row="2"
+              Padding="24,12"
+              Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+              BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+              BorderThickness="0,1,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Grid.Column="0"
+                      Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                      VerticalAlignment="Center"
+                      Style="{StaticResource BodyTextBlockStyle}"
+                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="16">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE81C;" FontSize="16"
+                             Foreground="{ThemeResource SystemFillColorAttentionBrush}"/>
+                    <TextBlock>
+                        <Run Text="{x:Bind ViewModel.PendingCount, Mode=OneWay}"/>
+                        <Run Text="Pending"/>
+                    </TextBlock>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE73E;" FontSize="16"
+                             Foreground="{ThemeResource SystemFillColorSuccessBrush}"/>
+                    <TextBlock>
+                        <Run Text="{x:Bind ViewModel.ApprovedCount, Mode=OneWay}"/>
+                        <Run Text="Approved"/>
+                    </TextBlock>
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Page>
