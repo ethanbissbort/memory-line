@@ -31,6 +31,11 @@
                         <InfoBadge x:Name="ReviewBadge"/>
                     </NavigationViewItem.InfoBadge>
                 </NavigationViewItem>
+                <NavigationViewItem Content="Connections" Tag="Connections">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE71B;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Content="Search" Tag="Search" Icon="Find"/>
                 <NavigationViewItem Content="Analytics" Tag="Analytics" Icon="BarChart"/>
             </NavigationView.MenuItems>

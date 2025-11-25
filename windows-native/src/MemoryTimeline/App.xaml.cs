@@ -80,6 +80,7 @@ public partial class App : Application
                 services.AddTransient<SettingsViewModel>();
                 services.AddTransient<QueueViewModel>();
                 services.AddTransient<ReviewViewModel>();
+                services.AddTransient<ConnectionsViewModel>();
 
                 // Register Views
                 services.AddTransient<MainWindow>();
@@ -89,6 +90,7 @@ public partial class App : Application
                 services.AddTransient<SearchPage>();
                 services.AddTransient<AnalyticsPage>();
                 services.AddTransient<SettingsPage>();
+                services.AddTransient<ConnectionsPage>();
             })
             .Build();
     }

@@ -5,38 +5,8 @@ namespace MemoryTimeline.Core.Services;
 /// </summary>
 public interface IExportService
 {
-    Task ExportToJsonAsync(string filePath);
-    Task ExportToCsvAsync(string filePath);
-    Task ExportToMarkdownAsync(string filePath);
-    Task ExportToPdfAsync(string filePath);
-}
-
-/// <summary>
-/// Export service implementation.
-/// </summary>
-public class ExportService : IExportService
-{
-    public Task ExportToJsonAsync(string filePath)
-    {
-        // TODO: Implement JSON export
-        throw new NotImplementedException();
-    }
-
-    public Task ExportToCsvAsync(string filePath)
-    {
-        // TODO: Implement CSV export
-        throw new NotImplementedException();
-    }
-
-    public Task ExportToMarkdownAsync(string filePath)
-    {
-        // TODO: Implement Markdown export
-        throw new NotImplementedException();
-    }
-
-    public Task ExportToPdfAsync(string filePath)
-    {
-        // TODO: Implement PDF export using WinUI 3 printing
-        throw new NotImplementedException();
-    }
+    Task ExportToJsonAsync(string filePath, DateTime? startDate = null, DateTime? endDate = null, IProgress<int>? progress = null);
+    Task ExportToCsvAsync(string filePath, DateTime? startDate = null, DateTime? endDate = null, IProgress<int>? progress = null);
+    Task ExportToMarkdownAsync(string filePath, DateTime? startDate = null, DateTime? endDate = null, IProgress<int>? progress = null);
+    Task ExportFullDatabaseAsync(string filePath, IProgress<int>? progress = null);
 }

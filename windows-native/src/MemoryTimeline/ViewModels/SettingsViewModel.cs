@@ -3,6 +3,9 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using MemoryTimeline.Core.Services;
 using System.Reflection;
+using Windows.Storage.Pickers;
+using Windows.Storage;
+using WinRT.Interop;
 
 namespace MemoryTimeline.ViewModels;
 
@@ -13,6 +16,8 @@ public partial class SettingsViewModel : ObservableObject
 {
     private readonly ISettingsService _settingsService;
     private readonly IThemeService _themeService;
+    private readonly IExportService _exportService;
+    private readonly IImportService _importService;
     private readonly ILogger<SettingsViewModel> _logger;
 
     [ObservableProperty]
@@ -42,6 +47,21 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private bool _isSaving;
 
+    [ObservableProperty]
+    private bool _isExporting;
+
+    [ObservableProperty]
+    private bool _isImporting;
+
+    [ObservableProperty]
+    private int _exportProgress;
+
+    [ObservableProperty]
+    private string _exportStatusMessage = string.Empty;
+
+    [ObservableProperty]
+    private string _importStatusMessage = string.Empty;
+
     // About information
     public string AppName => "Memory Timeline";
     public string AppVersion => Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0";
@@ -55,10 +75,14 @@ public partial class SettingsViewModel : ObservableObject
     public SettingsViewModel(
         ISettingsService settingsService,
         IThemeService themeService,
+        IExportService exportService,
+        IImportService importService,
         ILogger<SettingsViewModel> logger)
     {
         _settingsService = settingsService;
         _themeService = themeService;
+        _exportService = exportService;
+        _importService = importService;
         _logger = logger;
     }
 
@@ -184,6 +208,210 @@ public partial class SettingsViewModel : ObservableObject
             StatusMessage = "Error clearing cache";
         }
     }
+
+    #region Export/Import Commands
+
+    [RelayCommand]
+    private async Task ExportToJsonAsync()
+    {
+        try
+        {
+            IsExporting = true;
+            ExportStatusMessage = "Selecting export location...";
+
+            var savePicker = new FileSavePicker
+            {
+                SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+                SuggestedFileName = $"MemoryTimeline_Export_{DateTime.Now:yyyyMMdd_HHmmss}"
+            };
+            savePicker.FileTypeChoices.Add("JSON File", new List<string> { ".json" });
+
+            // Get the main window handle for WinUI 3
+            var hwnd = WindowNative.GetWindowHandle(App.Current.Window);
+            InitializeWithWindow.Initialize(savePicker, hwnd);
+
+            var file = await savePicker.PickSaveFileAsync();
+            if (file == null)
+            {
+                ExportStatusMessage = "Export cancelled";
+                return;
+            }
+
+            ExportStatusMessage = "Exporting to JSON...";
+            var progress = new Progress<int>(p => ExportProgress = p);
+
+            await _exportService.ExportToJsonAsync(file.Path, progress: progress);
+
+            ExportStatusMessage = $"Export complete: {file.Path}";
+            _logger.LogInformation("Exported timeline to JSON: {Path}", file.Path);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error exporting to JSON");
+            ExportStatusMessage = $"Export error: {ex.Message}";
+        }
+        finally
+        {
+            IsExporting = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task ExportToCsvAsync()
+    {
+        try
+        {
+            IsExporting = true;
+            ExportStatusMessage = "Selecting export location...";
+
+            var savePicker = new FileSavePicker
+            {
+                SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+                SuggestedFileName = $"MemoryTimeline_Export_{DateTime.Now:yyyyMMdd_HHmmss}"
+            };
+            savePicker.FileTypeChoices.Add("CSV File", new List<string> { ".csv" });
+
+            var hwnd = WindowNative.GetWindowHandle(App.Current.Window);
+            InitializeWithWindow.Initialize(savePicker, hwnd);
+
+            var file = await savePicker.PickSaveFileAsync();
+            if (file == null)
+            {
+                ExportStatusMessage = "Export cancelled";
+                return;
+            }
+
+            ExportStatusMessage = "Exporting to CSV...";
+            var progress = new Progress<int>(p => ExportProgress = p);
+
+            await _exportService.ExportToCsvAsync(file.Path, progress: progress);
+
+            ExportStatusMessage = $"Export complete: {file.Path}";
+            _logger.LogInformation("Exported timeline to CSV: {Path}", file.Path);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error exporting to CSV");
+            ExportStatusMessage = $"Export error: {ex.Message}";
+        }
+        finally
+        {
+            IsExporting = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task ExportToMarkdownAsync()
+    {
+        try
+        {
+            IsExporting = true;
+            ExportStatusMessage = "Selecting export location...";
+
+            var savePicker = new FileSavePicker
+            {
+                SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+                SuggestedFileName = $"MemoryTimeline_Export_{DateTime.Now:yyyyMMdd_HHmmss}"
+            };
+            savePicker.FileTypeChoices.Add("Markdown File", new List<string> { ".md" });
+
+            var hwnd = WindowNative.GetWindowHandle(App.Current.Window);
+            InitializeWithWindow.Initialize(savePicker, hwnd);
+
+            var file = await savePicker.PickSaveFileAsync();
+            if (file == null)
+            {
+                ExportStatusMessage = "Export cancelled";
+                return;
+            }
+
+            ExportStatusMessage = "Exporting to Markdown...";
+            var progress = new Progress<int>(p => ExportProgress = p);
+
+            await _exportService.ExportToMarkdownAsync(file.Path, progress: progress);
+
+            ExportStatusMessage = $"Export complete: {file.Path}";
+            _logger.LogInformation("Exported timeline to Markdown: {Path}", file.Path);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error exporting to Markdown");
+            ExportStatusMessage = $"Export error: {ex.Message}";
+        }
+        finally
+        {
+            IsExporting = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task ImportFromJsonAsync()
+    {
+        try
+        {
+            IsImporting = true;
+            ImportStatusMessage = "Selecting file to import...";
+
+            var openPicker = new FileOpenPicker
+            {
+                ViewMode = PickerViewMode.List,
+                SuggestedStartLocation = PickerLocationId.DocumentsLibrary
+            };
+            openPicker.FileTypeFilter.Add(".json");
+
+            var hwnd = WindowNative.GetWindowHandle(App.Current.Window);
+            InitializeWithWindow.Initialize(openPicker, hwnd);
+
+            var file = await openPicker.PickSingleFileAsync();
+            if (file == null)
+            {
+                ImportStatusMessage = "Import cancelled";
+                return;
+            }
+
+            ImportStatusMessage = "Validating import file...";
+            var validation = await _importService.ValidateImportFileAsync(file.Path);
+
+            if (!validation.IsValid)
+            {
+                ImportStatusMessage = $"Invalid file: {string.Join(", ", validation.Issues)}";
+                return;
+            }
+
+            ImportStatusMessage = $"Importing {validation.EventCount} events...";
+            var progress = new Progress<(int, string)>(p => ImportStatusMessage = p.Item2);
+
+            var options = new ImportOptions
+            {
+                SkipDuplicates = true,
+                UpdateExisting = false,
+                CreateBackup = true
+            };
+
+            var result = await _importService.ImportFromJsonAsync(file.Path, options, progress);
+
+            if (result.Success)
+            {
+                ImportStatusMessage = $"Import complete: {result.EventsImported} imported, {result.EventsSkipped} skipped";
+                _logger.LogInformation("Imported {Count} events from JSON", result.EventsImported);
+            }
+            else
+            {
+                ImportStatusMessage = $"Import failed: {result.ErrorMessage}";
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error importing from JSON");
+            ImportStatusMessage = $"Import error: {ex.Message}";
+        }
+        finally
+        {
+            IsImporting = false;
+        }
+    }
+
+    #endregion
 
     partial void OnSelectedThemeChanged(string value)
     {
