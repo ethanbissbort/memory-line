@@ -50,6 +50,10 @@ public interface IEventService
     // Statistics
     Task<int> GetTotalEventCountAsync();
     Task<Dictionary<string, int>> GetEventCountByCategoryAsync();
+
+    // Embeddings
+    Task<bool> HasEmbeddingAsync(string eventId);
+    Task GenerateEmbeddingAsync(string eventId);
 }
 
 /// <summary>
@@ -609,6 +613,42 @@ public class EventService : IEventService
         {
             _logger.LogError(ex, "Error generating embedding for event {EventId}", eventData.EventId);
             // Don't throw - embedding generation is non-critical
+        }
+    }
+
+    // Embeddings
+
+    public async Task<bool> HasEmbeddingAsync(string eventId)
+    {
+        try
+        {
+            var embedding = await _dbContext.EventEmbeddings
+                .FirstOrDefaultAsync(ee => ee.EventId == eventId);
+            return embedding != null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error checking for embedding: {EventId}", eventId);
+            return false;
+        }
+    }
+
+    public async Task GenerateEmbeddingAsync(string eventId)
+    {
+        try
+        {
+            var eventData = await GetEventByIdAsync(eventId);
+            if (eventData == null)
+            {
+                throw new InvalidOperationException($"Event not found: {eventId}");
+            }
+
+            await GenerateEmbeddingForEventAsync(eventData);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating embedding for event: {EventId}", eventId);
+            throw;
         }
     }
 }
