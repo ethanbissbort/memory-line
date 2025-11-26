@@ -34,6 +34,10 @@ public class CrossReference
 
     [Column("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    // Navigation properties
+    public virtual Event? Event1 { get; set; }
+    public virtual Event? Event2 { get; set; }
 }
 
 /// <summary>

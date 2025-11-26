@@ -26,7 +26,7 @@
     <PackageReference Include="Polly" Version="8.2.0" />
 
     <!-- Anthropic SDK -->
-    <PackageReference Include="Anthropic.SDK" Version="0.27.0" />
+    <PackageReference Include="Anthropic.SDK" Version="1.0.0" />
 
     <!-- Windows ML for NPU/GPU acceleration -->
     <PackageReference Include="Microsoft.AI.MachineLearning" Version="1.22.0" />

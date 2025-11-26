@@ -11,7 +11,7 @@ public class AppDbContext : DbContext
 {
     public DbSet<Event> Events { get; set; } = null!;
     public DbSet<Era> Eras { get; set; } = null!;
-    public DbSet<RecordingQueue> RecordingQueue { get; set; } = null!;
+    public DbSet<RecordingQueue> RecordingQueues { get; set; } = null!;
     public DbSet<PendingEvent> PendingEvents { get; set; } = null!;
     public DbSet<Tag> Tags { get; set; } = null!;
     public DbSet<EventTag> EventTags { get; set; } = null!;
@@ -89,7 +89,7 @@ public class AppDbContext : DbContext
             entity.HasIndex(p => p.Status);
             entity.HasIndex(p => p.CreatedAt);
 
-            entity.HasOne(p => p.Queue)
+            entity.HasOne(p => p.RecordingQueue)
                 .WithMany(q => q.PendingEvents)
                 .HasForeignKey(p => p.QueueId)
                 .OnDelete(DeleteBehavior.SetNull);
@@ -180,6 +180,16 @@ public class AppDbContext : DbContext
             entity.HasIndex(cr => cr.EventId1);
             entity.HasIndex(cr => cr.EventId2);
             entity.HasIndex(cr => cr.RelationshipType);
+
+            entity.HasOne(cr => cr.Event1)
+                .WithMany()
+                .HasForeignKey(cr => cr.EventId1)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(cr => cr.Event2)
+                .WithMany()
+                .HasForeignKey(cr => cr.EventId2)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         // Configure EventEmbedding entity

@@ -38,7 +38,7 @@ public class PendingEvent
     public DateTime? ReviewedAt { get; set; }
 
     // Navigation properties
-    public virtual RecordingQueue? Queue { get; set; }
+    public virtual RecordingQueue? RecordingQueue { get; set; }
 }
 
 /// <summary>
