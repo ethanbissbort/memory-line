@@ -1,7 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>12.0</LangVersion>
@@ -28,7 +29,7 @@
     <PackageReference Include="Anthropic.SDK" Version="0.27.0" />
 
     <!-- Windows ML for NPU/GPU acceleration -->
-    <PackageReference Include="Microsoft.AI.MachineLearning" Version="2.2.0" />
+    <PackageReference Include="Microsoft.AI.MachineLearning" Version="1.22.0" />
 
     <!-- ONNX Runtime with DirectML -->
     <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.16.3" />

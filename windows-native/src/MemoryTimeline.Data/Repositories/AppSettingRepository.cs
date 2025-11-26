@@ -34,11 +34,25 @@ public class AppSettingRepository : IAppSettingRepository
         await _context.SaveChangesAsync();
     }
 
-    public async Task<bool> ExistsAsync(string id) =>
-        await _context.AppSettings.AnyAsync(s => s.SettingKey == id);
+    public async Task AddRangeAsync(IEnumerable<AppSetting> entities)
+    {
+        _context.AppSettings.AddRange(entities);
+        await _context.SaveChangesAsync();
+    }
 
-    public async Task<int> CountAsync() =>
-        await _context.AppSettings.CountAsync();
+    public async Task DeleteRangeAsync(IEnumerable<AppSetting> entities)
+    {
+        _context.AppSettings.RemoveRange(entities);
+        await _context.SaveChangesAsync();
+    }
+
+    public async Task<bool> ExistsAsync(System.Linq.Expressions.Expression<Func<AppSetting, bool>> predicate) =>
+        await _context.AppSettings.AnyAsync(predicate);
+
+    public async Task<int> CountAsync(System.Linq.Expressions.Expression<Func<AppSetting, bool>>? predicate = null) =>
+        predicate == null
+            ? await _context.AppSettings.CountAsync()
+            : await _context.AppSettings.CountAsync(predicate);
 
     public async Task<IEnumerable<AppSetting>> FindAsync(System.Linq.Expressions.Expression<Func<AppSetting, bool>> predicate) =>
         await _context.AppSettings.Where(predicate).ToListAsync();

@@ -39,17 +39,58 @@ public class CrossReference
 /// <summary>
 /// Relationship type enumeration.
 /// </summary>
-public static class RelationshipType
+public enum RelationshipType
 {
-    public const string Causal = "causal";
-    public const string Thematic = "thematic";
-    public const string Temporal = "temporal";
-    public const string Person = "person";
-    public const string Location = "location";
-    public const string Other = "other";
+    Causal,
+    Thematic,
+    Temporal,
+    Person,
+    Location,
+    Other
+}
 
-    public static readonly string[] AllTypes =
+/// <summary>
+/// Extension methods for RelationshipType enum.
+/// </summary>
+public static class RelationshipTypeExtensions
+{
+    public static string ToStringValue(this RelationshipType type)
     {
-        Causal, Thematic, Temporal, Person, Location, Other
-    };
+        return type switch
+        {
+            RelationshipType.Causal => "causal",
+            RelationshipType.Thematic => "thematic",
+            RelationshipType.Temporal => "temporal",
+            RelationshipType.Person => "person",
+            RelationshipType.Location => "location",
+            RelationshipType.Other => "other",
+            _ => "other"
+        };
+    }
+
+    public static RelationshipType FromString(string value)
+    {
+        return value?.ToLowerInvariant() switch
+        {
+            "causal" => RelationshipType.Causal,
+            "thematic" => RelationshipType.Thematic,
+            "temporal" => RelationshipType.Temporal,
+            "person" => RelationshipType.Person,
+            "location" => RelationshipType.Location,
+            _ => RelationshipType.Other
+        };
+    }
+
+    public static RelationshipType[] AllTypes()
+    {
+        return new[]
+        {
+            RelationshipType.Causal,
+            RelationshipType.Thematic,
+            RelationshipType.Temporal,
+            RelationshipType.Person,
+            RelationshipType.Location,
+            RelationshipType.Other
+        };
+    }
 }

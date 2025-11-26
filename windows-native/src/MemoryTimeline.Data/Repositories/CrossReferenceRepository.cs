@@ -34,11 +34,25 @@ public class CrossReferenceRepository : ICrossReferenceRepository
         await _context.SaveChangesAsync();
     }
 
-    public async Task<bool> ExistsAsync(string id) =>
-        await _context.CrossReferences.AnyAsync(cr => cr.ReferenceId == id);
+    public async Task AddRangeAsync(IEnumerable<CrossReference> entities)
+    {
+        _context.CrossReferences.AddRange(entities);
+        await _context.SaveChangesAsync();
+    }
 
-    public async Task<int> CountAsync() =>
-        await _context.CrossReferences.CountAsync();
+    public async Task DeleteRangeAsync(IEnumerable<CrossReference> entities)
+    {
+        _context.CrossReferences.RemoveRange(entities);
+        await _context.SaveChangesAsync();
+    }
+
+    public async Task<bool> ExistsAsync(System.Linq.Expressions.Expression<Func<CrossReference, bool>> predicate) =>
+        await _context.CrossReferences.AnyAsync(predicate);
+
+    public async Task<int> CountAsync(System.Linq.Expressions.Expression<Func<CrossReference, bool>>? predicate = null) =>
+        predicate == null
+            ? await _context.CrossReferences.CountAsync()
+            : await _context.CrossReferences.CountAsync(predicate);
 
     public async Task<IEnumerable<CrossReference>> FindAsync(System.Linq.Expressions.Expression<Func<CrossReference, bool>> predicate) =>
         await _context.CrossReferences.Where(predicate).ToListAsync();
@@ -48,7 +62,7 @@ public class CrossReferenceRepository : ICrossReferenceRepository
             .Include(cr => cr.Event1).Include(cr => cr.Event2).OrderByDescending(cr => cr.ConfidenceScore).ToListAsync();
 
     public async Task<IEnumerable<CrossReference>> GetByRelationshipTypeAsync(RelationshipType relationshipType) =>
-        await _context.CrossReferences.Where(cr => cr.RelationshipType == relationshipType)
+        await _context.CrossReferences.Where(cr => cr.RelationshipType == relationshipType.ToStringValue())
             .OrderByDescending(cr => cr.ConfidenceScore).ToListAsync();
 
     public async Task<IEnumerable<CrossReference>> GetHighConfidenceReferencesAsync(double minimumConfidence = 0.7) =>

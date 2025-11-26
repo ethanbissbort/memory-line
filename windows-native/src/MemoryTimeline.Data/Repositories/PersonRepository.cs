@@ -50,14 +50,28 @@ public class PersonRepository : IPersonRepository
         await _context.SaveChangesAsync();
     }
 
-    public async Task<bool> ExistsAsync(string id)
+    public async Task AddRangeAsync(IEnumerable<Person> entities)
     {
-        return await _context.People.AnyAsync(p => p.PersonId == id);
+        _context.People.AddRange(entities);
+        await _context.SaveChangesAsync();
     }
 
-    public async Task<int> CountAsync()
+    public async Task DeleteRangeAsync(IEnumerable<Person> entities)
     {
-        return await _context.People.CountAsync();
+        _context.People.RemoveRange(entities);
+        await _context.SaveChangesAsync();
+    }
+
+    public async Task<bool> ExistsAsync(System.Linq.Expressions.Expression<Func<Person, bool>> predicate)
+    {
+        return await _context.People.AnyAsync(predicate);
+    }
+
+    public async Task<int> CountAsync(System.Linq.Expressions.Expression<Func<Person, bool>>? predicate = null)
+    {
+        return predicate == null
+            ? await _context.People.CountAsync()
+            : await _context.People.CountAsync(predicate);
     }
 
     public async Task<IEnumerable<Person>> FindAsync(System.Linq.Expressions.Expression<Func<Person, bool>> predicate)
