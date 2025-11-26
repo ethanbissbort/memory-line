@@ -34,11 +34,25 @@ public class LocationRepository : ILocationRepository
         await _context.SaveChangesAsync();
     }
 
-    public async Task<bool> ExistsAsync(string id) =>
-        await _context.Locations.AnyAsync(l => l.LocationId == id);
+    public async Task AddRangeAsync(IEnumerable<Location> entities)
+    {
+        _context.Locations.AddRange(entities);
+        await _context.SaveChangesAsync();
+    }
 
-    public async Task<int> CountAsync() =>
-        await _context.Locations.CountAsync();
+    public async Task DeleteRangeAsync(IEnumerable<Location> entities)
+    {
+        _context.Locations.RemoveRange(entities);
+        await _context.SaveChangesAsync();
+    }
+
+    public async Task<bool> ExistsAsync(System.Linq.Expressions.Expression<Func<Location, bool>> predicate) =>
+        await _context.Locations.AnyAsync(predicate);
+
+    public async Task<int> CountAsync(System.Linq.Expressions.Expression<Func<Location, bool>>? predicate = null) =>
+        predicate == null
+            ? await _context.Locations.CountAsync()
+            : await _context.Locations.CountAsync(predicate);
 
     public async Task<IEnumerable<Location>> FindAsync(System.Linq.Expressions.Expression<Func<Location, bool>> predicate) =>
         await _context.Locations.Where(predicate).ToListAsync();

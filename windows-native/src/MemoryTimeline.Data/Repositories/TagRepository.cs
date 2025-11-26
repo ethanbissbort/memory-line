@@ -50,14 +50,28 @@ public class TagRepository : ITagRepository
         await _context.SaveChangesAsync();
     }
 
-    public async Task<bool> ExistsAsync(string id)
+    public async Task AddRangeAsync(IEnumerable<Tag> entities)
     {
-        return await _context.Tags.AnyAsync(t => t.TagId == id);
+        _context.Tags.AddRange(entities);
+        await _context.SaveChangesAsync();
     }
 
-    public async Task<int> CountAsync()
+    public async Task DeleteRangeAsync(IEnumerable<Tag> entities)
     {
-        return await _context.Tags.CountAsync();
+        _context.Tags.RemoveRange(entities);
+        await _context.SaveChangesAsync();
+    }
+
+    public async Task<bool> ExistsAsync(System.Linq.Expressions.Expression<Func<Tag, bool>> predicate)
+    {
+        return await _context.Tags.AnyAsync(predicate);
+    }
+
+    public async Task<int> CountAsync(System.Linq.Expressions.Expression<Func<Tag, bool>>? predicate = null)
+    {
+        return predicate == null
+            ? await _context.Tags.CountAsync()
+            : await _context.Tags.CountAsync(predicate);
     }
 
     public async Task<IEnumerable<Tag>> FindAsync(System.Linq.Expressions.Expression<Func<Tag, bool>> predicate)

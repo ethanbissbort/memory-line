@@ -34,11 +34,25 @@ public class EventEmbeddingRepository : IEventEmbeddingRepository
         await _context.SaveChangesAsync();
     }
 
-    public async Task<bool> ExistsAsync(string id) =>
-        await _context.EventEmbeddings.AnyAsync(e => e.EmbeddingId == id);
+    public async Task AddRangeAsync(IEnumerable<EventEmbedding> entities)
+    {
+        _context.EventEmbeddings.AddRange(entities);
+        await _context.SaveChangesAsync();
+    }
 
-    public async Task<int> CountAsync() =>
-        await _context.EventEmbeddings.CountAsync();
+    public async Task DeleteRangeAsync(IEnumerable<EventEmbedding> entities)
+    {
+        _context.EventEmbeddings.RemoveRange(entities);
+        await _context.SaveChangesAsync();
+    }
+
+    public async Task<bool> ExistsAsync(System.Linq.Expressions.Expression<Func<EventEmbedding, bool>> predicate) =>
+        await _context.EventEmbeddings.AnyAsync(predicate);
+
+    public async Task<int> CountAsync(System.Linq.Expressions.Expression<Func<EventEmbedding, bool>>? predicate = null) =>
+        predicate == null
+            ? await _context.EventEmbeddings.CountAsync()
+            : await _context.EventEmbeddings.CountAsync(predicate);
 
     public async Task<IEnumerable<EventEmbedding>> FindAsync(System.Linq.Expressions.Expression<Func<EventEmbedding, bool>> predicate) =>
         await _context.EventEmbeddings.Where(predicate).ToListAsync();

@@ -32,21 +32,45 @@ public class RecordingQueueRepository : IRecordingQueueRepository
         return entity;
     }
 
-    public async Task<RecordingQueue> UpdateAsync(RecordingQueue entity)
+    public async Task UpdateAsync(RecordingQueue entity)
     {
         _context.RecordingQueues.Update(entity);
         await _context.SaveChangesAsync();
-        return entity;
     }
 
-    public async Task DeleteAsync(string id)
+    public async Task DeleteAsync(RecordingQueue entity)
     {
-        var entity = await GetByIdAsync(id);
-        if (entity != null)
-        {
-            _context.RecordingQueues.Remove(entity);
-            await _context.SaveChangesAsync();
-        }
+        _context.RecordingQueues.Remove(entity);
+        await _context.SaveChangesAsync();
+    }
+
+    public async Task AddRangeAsync(IEnumerable<RecordingQueue> entities)
+    {
+        _context.RecordingQueues.AddRange(entities);
+        await _context.SaveChangesAsync();
+    }
+
+    public async Task DeleteRangeAsync(IEnumerable<RecordingQueue> entities)
+    {
+        _context.RecordingQueues.RemoveRange(entities);
+        await _context.SaveChangesAsync();
+    }
+
+    public async Task<bool> ExistsAsync(System.Linq.Expressions.Expression<Func<RecordingQueue, bool>> predicate)
+    {
+        return await _context.RecordingQueues.AnyAsync(predicate);
+    }
+
+    public async Task<int> CountAsync(System.Linq.Expressions.Expression<Func<RecordingQueue, bool>>? predicate = null)
+    {
+        return predicate == null
+            ? await _context.RecordingQueues.CountAsync()
+            : await _context.RecordingQueues.CountAsync(predicate);
+    }
+
+    public async Task<IEnumerable<RecordingQueue>> FindAsync(System.Linq.Expressions.Expression<Func<RecordingQueue, bool>> predicate)
+    {
+        return await _context.RecordingQueues.Where(predicate).ToListAsync();
     }
 
     public async Task<RecordingQueue?> GetByIdAsync(string id)

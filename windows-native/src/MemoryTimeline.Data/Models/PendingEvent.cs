@@ -29,7 +29,7 @@ public class PendingEvent
     [Required]
     [Column("status")]
     [MaxLength(20)]
-    public string Status { get; set; } = PendingStatus.PendingReview;
+    public string Status { get; set; } = PendingStatus.PendingReview.ToStringValue();
 
     [Column("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -44,14 +44,47 @@ public class PendingEvent
 /// <summary>
 /// Pending event status enumeration.
 /// </summary>
-public static class PendingStatus
+public enum PendingStatus
 {
-    public const string PendingReview = "pending_review";
-    public const string Approved = "approved";
-    public const string Rejected = "rejected";
+    PendingReview,
+    Approved,
+    Rejected
+}
 
-    public static readonly string[] AllStatuses =
+/// <summary>
+/// Extension methods for PendingStatus enum.
+/// </summary>
+public static class PendingStatusExtensions
+{
+    public static string ToStringValue(this PendingStatus status)
     {
-        PendingReview, Approved, Rejected
-    };
+        return status switch
+        {
+            PendingStatus.PendingReview => "pending_review",
+            PendingStatus.Approved => "approved",
+            PendingStatus.Rejected => "rejected",
+            _ => "pending_review"
+        };
+    }
+
+    public static PendingStatus FromString(string value)
+    {
+        return value?.ToLowerInvariant() switch
+        {
+            "pending_review" => PendingStatus.PendingReview,
+            "approved" => PendingStatus.Approved,
+            "rejected" => PendingStatus.Rejected,
+            _ => PendingStatus.PendingReview
+        };
+    }
+
+    public static PendingStatus[] AllStatuses()
+    {
+        return new[]
+        {
+            PendingStatus.PendingReview,
+            PendingStatus.Approved,
+            PendingStatus.Rejected
+        };
+    }
 }
