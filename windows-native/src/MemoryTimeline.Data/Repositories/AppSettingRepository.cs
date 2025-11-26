@@ -87,7 +87,7 @@ public class AppSettingRepository : IAppSettingRepository
     }
 
     public async Task<bool> SettingExistsAsync(string key) =>
-        await ExistsAsync(key);
+        await ExistsAsync(s => s.SettingKey == key);
 
     public async Task<IDictionary<string, string>> GetAllSettingsAsync()
     {
