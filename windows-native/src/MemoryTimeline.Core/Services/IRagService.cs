@@ -113,7 +113,7 @@ public class PatternAnalysisResult
 /// </summary>
 public class CategoryPattern
 {
-    public EventCategory Category { get; set; }
+    public string Category { get; set; } = string.Empty;
     public int EventCount { get; set; }
     public double Frequency { get; set; } // Events per month
     public List<string> CommonTags { get; set; } = new();
