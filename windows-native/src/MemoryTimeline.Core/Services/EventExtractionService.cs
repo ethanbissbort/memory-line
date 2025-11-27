@@ -300,9 +300,9 @@ public class EventExtractionService : IEventExtractionService
     }
 
     /// <summary>
-    /// Parses category string to EventCategory enum.
+    /// Parses category string to EventCategory constant.
     /// </summary>
-    private EventCategory ParseCategory(string? category)
+    private string ParseCategory(string? category)
     {
         if (string.IsNullOrWhiteSpace(category))
         {
@@ -314,11 +314,11 @@ public class EventExtractionService : IEventExtractionService
             "milestone" => EventCategory.Milestone,
             "work" => EventCategory.Work,
             "education" => EventCategory.Education,
-            "health" => EventCategory.Health,
+            "health" => EventCategory.Challenge,
             "travel" => EventCategory.Travel,
-            "social" => EventCategory.Social,
-            "personal" => EventCategory.Personal,
-            "family" => EventCategory.Family,
+            "social" => EventCategory.Relationship,
+            "personal" => EventCategory.Other,
+            "family" => EventCategory.Relationship,
             _ => EventCategory.Other
         };
     }

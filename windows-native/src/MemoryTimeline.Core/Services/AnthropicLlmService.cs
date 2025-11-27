@@ -1,5 +1,4 @@
 using Anthropic.SDK;
-using Anthropic.SDK.Messaging;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using System.Diagnostics;
