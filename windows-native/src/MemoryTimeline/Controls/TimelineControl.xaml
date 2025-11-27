@@ -209,21 +209,20 @@
                               FontSize="20"
                               FontWeight="SemiBold"/>
 
-                    <TextBlock Text="{x:Bind ViewModel.SelectedEvent.Title, Mode=OneWay}"
+                    <TextBlock Text="{x:Bind ViewModel.SelectedEvent.Title, Mode=OneWay, FallbackValue=''}"
                               FontSize="16"
                               TextWrapping="Wrap"/>
 
-                    <TextBlock Text="{x:Bind ViewModel.SelectedEvent.StartDate, Mode=OneWay}"
+                    <TextBlock Text="{x:Bind ViewModel.SelectedEvent.StartDate, Mode=OneWay, FallbackValue=''}"
                               FontSize="14"
                               Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
 
-                    <TextBlock Text="{x:Bind ViewModel.SelectedEvent.Description, Mode=OneWay}"
+                    <TextBlock Text="{x:Bind ViewModel.SelectedEvent.Description, Mode=OneWay, FallbackValue=''}"
                               TextWrapping="Wrap"
                               FontSize="14"/>
 
                     <Button Content="Close"
                            Command="{x:Bind ViewModel.SelectEventCommand}"
-                           CommandParameter="{x:Null}"
                            HorizontalAlignment="Stretch"/>
                 </StackPanel>
             </ScrollViewer>
