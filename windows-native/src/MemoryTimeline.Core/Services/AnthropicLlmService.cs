@@ -1,4 +1,6 @@
 using Anthropic.SDK;
+using Anthropic.SDK.Constants;
+using Anthropic.SDK.Messaging;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using System.Diagnostics;
@@ -7,6 +9,7 @@ namespace MemoryTimeline.Core.Services;
 
 /// <summary>
 /// LLM service using Anthropic Claude for event extraction.
+/// Uses Anthropic.SDK v5.8.0 (unofficial but well-maintained SDK).
 /// </summary>
 public class AnthropicLlmService : ILlmService
 {
@@ -16,7 +19,7 @@ public class AnthropicLlmService : ILlmService
     private string? _model;
 
     public string ProviderName => "Anthropic Claude";
-    public string ModelName => _model ?? "claude-3-5-sonnet-20241022";
+    public string ModelName => _model ?? AnthropicModels.Claude35Sonnet;
     public bool RequiresInternet => true;
 
     public AnthropicLlmService(
@@ -63,7 +66,7 @@ public class AnthropicLlmService : ILlmService
 
             _logger.LogDebug("Sending request to Claude API");
 
-            // Call Claude API using the SDK
+            // Call Claude API using the SDK (Anthropic.SDK v5.8.0 API)
             var messages = new List<Message>
             {
                 new Message(RoleType.User, prompt)
@@ -78,7 +81,8 @@ public class AnthropicLlmService : ILlmService
                 Stream = false
             };
 
-            var response = await _client.Messages.GetClaudeMessageAsync(ModelName, parameters);
+            // CORRECT API: GetClaudeMessageAsync takes only parameters (not model name)
+            var response = await _client.Messages.GetClaudeMessageAsync(parameters);
 
             _logger.LogInformation("Received response from Claude API");
 
@@ -149,6 +153,7 @@ public class AnthropicLlmService : ILlmService
 
     /// <summary>
     /// Initializes the Anthropic client with API key from settings.
+    /// Anthropic.SDK v5.8.0 supports passing API key via constructor or environment variable.
     /// </summary>
     private async Task InitializeClientAsync()
     {
@@ -166,8 +171,12 @@ public class AnthropicLlmService : ILlmService
                 return;
             }
 
-            _client = new AnthropicClient(new APIAuthentication(apiKey));
-            _logger.LogInformation("Anthropic client initialized with model: {Model}", _model);
+            // CORRECT API: AnthropicClient can be initialized with empty constructor
+            // (uses ANTHROPIC_API_KEY env var) or with APIAuthentication object
+            var authentication = new APIAuthentication(apiKey);
+            _client = new AnthropicClient(authentication);
+
+            _logger.LogInformation("Anthropic client initialized with model: {Model}", _model ?? ModelName);
         }
         catch (Exception ex)
         {
@@ -252,20 +261,23 @@ Now analyze the transcript and extract events:";
 
     /// <summary>
     /// Extracts JSON from Claude's response (handles markdown code blocks).
+    /// Anthropic.SDK v5.8.0 returns MessageResponse with Content list of ContentBase objects.
     /// </summary>
-    private string ExtractJsonFromResponse(dynamic response)
+    private string ExtractJsonFromResponse(MessageResponse response)
     {
-        if (response?.Content == null)
+        if (response?.Message?.Content == null || !response.Message.Content.Any())
             return string.Empty;
 
-        // Get the text content - try to find the first content item with text
         try
         {
-            var content = response.Content.FirstOrDefault();
-            if (content == null)
+            // Get the first text content block
+            var textContent = response.Message.Content
+                .FirstOrDefault(c => c is TextContent) as TextContent;
+
+            if (textContent == null || string.IsNullOrEmpty(textContent.Text))
                 return string.Empty;
 
-            var text = content?.Text?.ToString()?.Trim() ?? string.Empty;
+            var text = textContent.Text.Trim();
 
             // Remove markdown code fences if present
             if (text.StartsWith("```json"))
@@ -284,8 +296,9 @@ Now analyze the transcript and extract events:";
 
             return text.Trim();
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "Error extracting JSON from response");
             return string.Empty;
         }
     }
