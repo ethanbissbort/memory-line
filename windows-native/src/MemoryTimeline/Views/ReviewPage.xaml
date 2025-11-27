@@ -54,7 +54,7 @@
             <!-- Loading Overlay -->
             <Grid Visibility="{x:Bind ViewModel.IsLoading, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}"
                   Background="#80000000"
-                  Canvas.ZIndex="1000">
+                  Grid.ZIndex="1000">
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
                     <ProgressRing IsActive="True" Width="48" Height="48"/>
                     <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
