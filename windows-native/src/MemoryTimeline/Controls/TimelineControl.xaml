@@ -55,7 +55,7 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="dto:TimelineEraDto">
-                            <Rectangle Fill="{x:Bind ColorCode}"
+                            <Rectangle Fill="{x:Bind ColorBrush, Mode=OneWay}"
                                       Opacity="0.1"
                                       Canvas.Left="{x:Bind PixelX}"
                                       Canvas.Top="0"
