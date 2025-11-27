@@ -63,17 +63,20 @@ public class AnthropicLlmService : ILlmService
 
             _logger.LogDebug("Sending request to Claude API");
 
-            // Call Claude API
-            var messages = new List<Message>
+            // Call Claude API using the correct SDK method
+            var messages = new Anthropic.SDK.Messaging.Message[]
             {
-                new Message
+                new()
                 {
-                    Role = RoleType.User,
-                    Content = prompt
+                    Role = Anthropic.SDK.Messaging.RoleType.User,
+                    Content = new Anthropic.SDK.Messaging.ContentText[]
+                    {
+                        new() { Text = prompt }
+                    }
                 }
             };
 
-            var parameters = new MessageParameters
+            var parameters = new Anthropic.SDK.Messaging.MessageRequest
             {
                 Messages = messages,
                 Model = ModelName,
@@ -82,7 +85,7 @@ public class AnthropicLlmService : ILlmService
                 Stream = false
             };
 
-            var response = await _client.Messages.GetClaudeMessageAsync(parameters);
+            var response = await _client.Messages.CreateAsync(parameters);
 
             _logger.LogInformation("Received response from Claude API");
 
