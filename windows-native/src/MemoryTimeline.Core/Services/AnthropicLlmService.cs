@@ -257,17 +257,17 @@ Now analyze the transcript and extract events:";
     /// <summary>
     /// Extracts JSON from Claude's response (handles markdown code blocks).
     /// </summary>
-    private string ExtractJsonFromResponse(MessageResponse response)
+    private string ExtractJsonFromResponse(Anthropic.SDK.MessageResponse response)
     {
         if (response?.Content == null || !response.Content.Any())
             return string.Empty;
 
         // Get the text content
-        var content = response.Content.FirstOrDefault(c => c is TextContent) as TextContent;
+        var content = response.Content.FirstOrDefault(c => c is Anthropic.SDK.ContentBase) as Anthropic.SDK.ContentBase;
         if (content == null)
             return string.Empty;
 
-        var text = content.Text?.Trim() ?? string.Empty;
+        var text = (content as dynamic)?.Text?.ToString()?.Trim() ?? string.Empty;
 
         // Remove markdown code fences if present
         if (text.StartsWith("```json"))
