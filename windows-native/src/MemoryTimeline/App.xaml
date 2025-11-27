@@ -16,6 +16,15 @@
             <converters:InvertedBoolToVisibilityConverter x:Key="InvertedBoolToVisibilityConverter"/>
             <converters:BoolNegationConverter x:Key="BoolNegationConverter"/>
             <converters:NullToFalseConverter x:Key="NullToFalseConverter"/>
+
+            <!-- Button Styles -->
+            <Style x:Key="AccentButtonStyle" TargetType="Button">
+                <Setter Property="Background" Value="{ThemeResource AccentFillColorDefaultBrush}"/>
+                <Setter Property="Foreground" Value="{ThemeResource TextOnAccentFillColorPrimaryBrush}"/>
+                <Setter Property="BorderBrush" Value="{ThemeResource AccentControlElevationBorderBrush}"/>
+                <Setter Property="CornerRadius" Value="{ThemeResource ControlCornerRadius}"/>
+                <Setter Property="Padding" Value="{ThemeResource ButtonPadding}"/>
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>
