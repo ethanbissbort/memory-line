@@ -39,6 +39,14 @@ public class Era
     [Column("updated_at")]
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
+    // Alias property for backward compatibility
+    [NotMapped]
+    public string Color
+    {
+        get => ColorCode;
+        set => ColorCode = value;
+    }
+
     // Navigation properties
     public virtual ICollection<Event> Events { get; set; } = new List<Event>();
 }

@@ -18,8 +18,20 @@ public class Tag
     [Column("tag_name")]
     public string TagName { get; set; } = string.Empty;
 
+    [Column("color")]
+    [MaxLength(7)]
+    public string? Color { get; set; }
+
     [Column("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    // Alias property for backward compatibility
+    [NotMapped]
+    public string Name
+    {
+        get => TagName;
+        set => TagName = value;
+    }
 
     // Navigation properties
     public virtual ICollection<EventTag> EventTags { get; set; } = new List<EventTag>();

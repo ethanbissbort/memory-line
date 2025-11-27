@@ -37,6 +37,28 @@ public class EventEmbedding
     [Column("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+    // Alias properties for backward compatibility
+    [NotMapped]
+    public string EventEmbeddingId
+    {
+        get => EmbeddingId;
+        set => EmbeddingId = value;
+    }
+
+    [NotMapped]
+    public string Embedding
+    {
+        get => EmbeddingVector;
+        set => EmbeddingVector = value;
+    }
+
+    [NotMapped]
+    public string Model
+    {
+        get => EmbeddingModel;
+        set => EmbeddingModel = value;
+    }
+
     // Navigation properties
     public virtual Event Event { get; set; } = null!;
 }
