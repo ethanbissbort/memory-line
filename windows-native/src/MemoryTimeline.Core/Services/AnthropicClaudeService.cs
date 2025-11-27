@@ -1,24 +1,25 @@
+using Anthropic.SDK;
+using Anthropic.SDK.Constants;
+using Anthropic.SDK.Messaging;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
-using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace MemoryTimeline.Core.Services;
 
 /// <summary>
-/// LLM service implementation using Anthropic Claude API.
+/// LLM service implementation using Anthropic Claude API via SDK.
+/// Uses Anthropic.SDK v5.8.0 for improved reliability and type safety.
 /// </summary>
 public class AnthropicClaudeService : ILlmService
 {
-    private readonly HttpClient _httpClient;
+    private readonly ISettingsService _settingsService;
     private readonly ILogger<AnthropicClaudeService> _logger;
-    private readonly string _apiKey;
-    private readonly string _model;
+    private AnthropicClient? _client;
+    private string? _apiKey;
+    private string _model;
 
-    private const string AnthropicApiUrl = "https://api.anthropic.com/v1/messages";
     private const string DefaultModel = "claude-3-5-sonnet-20241022";
 
     public string ProviderName => "Anthropic Claude";
@@ -26,20 +27,12 @@ public class AnthropicClaudeService : ILlmService
     public bool RequiresInternet => true;
 
     public AnthropicClaudeService(
-        HttpClient httpClient,
         ILogger<AnthropicClaudeService> logger,
         ISettingsService settingsService)
     {
-        _httpClient = httpClient;
         _logger = logger;
-
-        // Get API key from settings
-        _apiKey = settingsService.GetSettingAsync<string>("AnthropicApiKey", string.Empty).GetAwaiter().GetResult();
-        _model = settingsService.GetSettingAsync<string>("AnthropicModel", DefaultModel).GetAwaiter().GetResult();
-
-        // Configure HttpClient
-        _httpClient.DefaultRequestHeaders.Add("x-api-key", _apiKey);
-        _httpClient.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
+        _settingsService = settingsService;
+        _model = DefaultModel;
     }
 
     /// <summary>
@@ -60,9 +53,12 @@ public class AnthropicClaudeService : ILlmService
 
         try
         {
-            if (string.IsNullOrWhiteSpace(_apiKey))
+            // Initialize client if needed
+            await InitializeClientAsync();
+
+            if (_client == null || string.IsNullOrWhiteSpace(_apiKey))
             {
-                _logger.LogError("Anthropic API key not configured");
+                _logger.LogError("Anthropic API client not initialized or API key not configured");
                 result.Success = false;
                 result.ErrorMessage = "Anthropic API key not configured. Please add your API key in Settings.";
                 return result;
@@ -70,45 +66,54 @@ public class AnthropicClaudeService : ILlmService
 
             _logger.LogInformation("Extracting events from transcript using {Model}", _model);
 
-            // Build the prompt
+            // Build the prompts
             var systemPrompt = BuildSystemPrompt(context);
             var userPrompt = BuildUserPrompt(transcript);
 
-            // Create API request
-            var request = new AnthropicRequest
+            // Create messages list with system message as first user message
+            // (Anthropic.SDK v5.8.0 doesn't have separate system parameter in MessageParameters)
+            var messages = new List<Message>
+            {
+                new Message(RoleType.User, $"{systemPrompt}\n\n{userPrompt}")
+            };
+
+            // Create API request using SDK
+            var parameters = new MessageParameters
             {
                 Model = _model,
                 MaxTokens = 4096,
-                Temperature = 0.0, // Deterministic for structured extraction
-                System = systemPrompt,
-                Messages = new List<AnthropicMessage>
-                {
-                    new() { Role = "user", Content = userPrompt }
-                }
+                Temperature = 0.0m, // Deterministic for structured extraction
+                Messages = messages,
+                Stream = false
             };
 
-            // Call API
-            var response = await _httpClient.PostAsJsonAsync(AnthropicApiUrl, request);
-            response.EnsureSuccessStatusCode();
+            // Call API using SDK
+            var response = await _client.Messages.GetClaudeMessageAsync(parameters);
 
-            var apiResponse = await response.Content.ReadFromJsonAsync<AnthropicResponse>();
-
-            if (apiResponse?.Content == null || apiResponse.Content.Count == 0)
+            if (response?.Message?.Content == null || !response.Message.Content.Any())
             {
                 throw new Exception("Empty response from Claude API");
             }
 
             // Extract and parse JSON from response
-            var jsonContent = apiResponse.Content[0].Text;
+            var textContent = response.Message.Content
+                .FirstOrDefault(c => c is TextContent) as TextContent;
+
+            if (textContent == null)
+            {
+                throw new Exception("No text content in Claude API response");
+            }
+
+            var jsonContent = textContent.Text;
             result = ParseExtractionResult(jsonContent);
 
             // Set metadata
             result.ProcessingDurationSeconds = stopwatch.Elapsed.TotalSeconds;
             result.TokenUsage = new TokenUsage
             {
-                InputTokens = apiResponse.Usage?.InputTokens ?? 0,
-                OutputTokens = apiResponse.Usage?.OutputTokens ?? 0,
-                EstimatedCost = CalculateCost(apiResponse.Usage)
+                InputTokens = response.Usage?.InputTokens ?? 0,
+                OutputTokens = response.Usage?.OutputTokens ?? 0,
+                EstimatedCost = CalculateCost(response.Usage)
             };
 
             _logger.LogInformation("Successfully extracted {Count} events in {Duration}s",
@@ -128,6 +133,52 @@ public class AnthropicClaudeService : ILlmService
             return result;
         }
     }
+
+    #region Initialization
+
+    /// <summary>
+    /// Initializes the Anthropic client with API key from settings.
+    /// </summary>
+    private async Task InitializeClientAsync()
+    {
+        if (_client != null)
+            return;
+
+        try
+        {
+            _apiKey = await _settingsService.GetSettingAsync<string>("AnthropicApiKey", string.Empty);
+
+            // Fallback to generic ApiKey if AnthropicApiKey not found
+            if (string.IsNullOrEmpty(_apiKey))
+            {
+                _apiKey = await _settingsService.GetSettingAsync<string>("ApiKey", string.Empty);
+            }
+
+            var modelSetting = await _settingsService.GetSettingAsync<string>("AnthropicModel", DefaultModel);
+            if (!string.IsNullOrEmpty(modelSetting))
+            {
+                _model = modelSetting;
+            }
+
+            if (string.IsNullOrEmpty(_apiKey))
+            {
+                _logger.LogWarning("No API key configured in settings");
+                return;
+            }
+
+            // Initialize SDK client
+            var authentication = new APIAuthentication(_apiKey);
+            _client = new AnthropicClient(authentication);
+
+            _logger.LogInformation("Anthropic SDK client initialized with model: {Model}", _model);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error initializing Anthropic client");
+        }
+    }
+
+    #endregion
 
     #region Prompt Engineering
 
@@ -272,7 +323,7 @@ public class AnthropicClaudeService : ILlmService
         }
     }
 
-    private decimal CalculateCost(Usage? usage)
+    private decimal CalculateCost(Anthropic.SDK.Messaging.Usage? usage)
     {
         if (usage == null) return 0m;
 
@@ -288,73 +339,7 @@ public class AnthropicClaudeService : ILlmService
 
     #endregion
 
-    #region API DTOs
-
-    private class AnthropicRequest
-    {
-        [JsonPropertyName("model")]
-        public string Model { get; set; } = string.Empty;
-
-        [JsonPropertyName("max_tokens")]
-        public int MaxTokens { get; set; }
-
-        [JsonPropertyName("temperature")]
-        public double Temperature { get; set; }
-
-        [JsonPropertyName("system")]
-        public string System { get; set; } = string.Empty;
-
-        [JsonPropertyName("messages")]
-        public List<AnthropicMessage> Messages { get; set; } = new();
-    }
-
-    private class AnthropicMessage
-    {
-        [JsonPropertyName("role")]
-        public string Role { get; set; } = string.Empty;
-
-        [JsonPropertyName("content")]
-        public string Content { get; set; } = string.Empty;
-    }
-
-    private class AnthropicResponse
-    {
-        [JsonPropertyName("id")]
-        public string? Id { get; set; }
-
-        [JsonPropertyName("type")]
-        public string? Type { get; set; }
-
-        [JsonPropertyName("role")]
-        public string? Role { get; set; }
-
-        [JsonPropertyName("content")]
-        public List<ContentBlock>? Content { get; set; }
-
-        [JsonPropertyName("model")]
-        public string? Model { get; set; }
-
-        [JsonPropertyName("usage")]
-        public Usage? Usage { get; set; }
-    }
-
-    private class ContentBlock
-    {
-        [JsonPropertyName("type")]
-        public string Type { get; set; } = string.Empty;
-
-        [JsonPropertyName("text")]
-        public string Text { get; set; } = string.Empty;
-    }
-
-    private class Usage
-    {
-        [JsonPropertyName("input_tokens")]
-        public int InputTokens { get; set; }
-
-        [JsonPropertyName("output_tokens")]
-        public int OutputTokens { get; set; }
-    }
+    #region DTOs
 
     private class ExtractionJsonResponse
     {

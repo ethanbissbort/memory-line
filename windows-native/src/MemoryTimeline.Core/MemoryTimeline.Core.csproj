@@ -28,8 +28,8 @@
     <!-- Resilience and retry logic -->
     <PackageReference Include="Polly" Version="8.2.0" />
 
-    <!-- Anthropic SDK -->
-    <PackageReference Include="Anthropic.SDK" Version="1.0.0" />
+    <!-- Anthropic SDK (unofficial but well-maintained) -->
+    <PackageReference Include="Anthropic.SDK" Version="5.8.0" />
 
     <!-- Windows ML for NPU/GPU acceleration -->
     <PackageReference Include="Microsoft.AI.MachineLearning" Version="1.22.0" />
