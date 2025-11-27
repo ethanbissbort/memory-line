@@ -148,9 +148,9 @@
                                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                             <TextBlock>
                                                 <Run Text="{x:Bind StartDateDisplay, Mode=OneWay}"/>
-                                                <Run Text="→" Visibility="{x:Bind HasEndDate, Mode=OneWay}"/>
+                                                <Run Text="→" Visibility="{x:Bind HasEndDate, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}"/>
                                                 <Run Text="{x:Bind EndDateDisplay, Mode=OneWay}"
-                                                     Visibility="{x:Bind HasEndDate, Mode=OneWay}"/>
+                                                     Visibility="{x:Bind HasEndDate, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}"/>
                                             </TextBlock>
                                             <TextBlock Text="{x:Bind DurationDisplay, Mode=OneWay}"
                                                       Style="{StaticResource CaptionTextBlockStyle}"
