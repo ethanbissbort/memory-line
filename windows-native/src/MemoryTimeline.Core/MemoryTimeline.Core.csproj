@@ -49,7 +49,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\MemoryTimeline.Data\MemoryTimeline.Data.csproj" />
-    <ProjectReference Include="..\MemoryTimeline.Services\MemoryTimeline.Services.csproj" />
   </ItemGroup>
 
 </Project>

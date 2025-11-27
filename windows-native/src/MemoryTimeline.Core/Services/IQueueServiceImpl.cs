@@ -2,7 +2,6 @@ using Microsoft.Extensions.Logging;
 using MemoryTimeline.Core.DTOs;
 using MemoryTimeline.Data.Models;
 using MemoryTimeline.Data.Repositories;
-using MemoryTimeline.Services;
 
 namespace MemoryTimeline.Core.Services;
 
