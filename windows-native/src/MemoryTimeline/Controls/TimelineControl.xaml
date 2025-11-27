@@ -15,7 +15,7 @@
         <Grid x:Name="LoadingOverlay"
               Visibility="Collapsed"
               Background="#80000000"
-              Canvas.ZIndex="1000">
+              Grid.ZIndex="1000">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
                 <ProgressRing IsActive="True" Width="48" Height="48"/>
                 <TextBlock Text="Loading timeline..."
@@ -47,7 +47,7 @@
                 <!-- Era background layer -->
                 <ItemsControl x:Name="ErasLayer"
                              ItemsSource="{x:Bind ViewModel.Eras, Mode=OneWay}"
-                             Canvas.ZIndex="0">
+                             Grid.ZIndex="0">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
                             <Canvas/>
@@ -66,7 +66,7 @@
                 </ItemsControl>
 
                 <!-- Timeline axis -->
-                <Canvas x:Name="AxisCanvas" Canvas.ZIndex="5">
+                <Canvas x:Name="AxisCanvas" Grid.ZIndex="5">
                     <Line x:Name="TimelineAxis"
                           X1="0" Y1="50"
                           X2="10000" Y2="50"
@@ -79,7 +79,7 @@
                 <!-- Events layer -->
                 <ItemsControl x:Name="EventsLayer"
                              ItemsSource="{x:Bind ViewModel.Events, Mode=OneWay}"
-                             Canvas.ZIndex="10">
+                             Grid.ZIndex="10">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
                             <Canvas/>
@@ -102,7 +102,7 @@
         <!-- Ink Canvas Layer (for stylus/pen annotations) -->
         <InkCanvas x:Name="TimelineInkCanvas"
                   Visibility="Collapsed"
-                  Canvas.ZIndex="50"/>
+                  Grid.ZIndex="50"/>
 
         <!-- Ink Toolbar (for pen controls) -->
         <InkToolbar x:Name="TimelineInkToolbar"
@@ -111,7 +111,7 @@
                    VerticalAlignment="Top"
                    Margin="0,20,0,0"
                    Visibility="Collapsed"
-                   Canvas.ZIndex="150">
+                   Grid.ZIndex="150">
             <InkToolbarCustomToolButton x:Name="InkToggleButton"
                                        Click="InkToggleButton_Click"
                                        ToolTipService.ToolTip="Toggle Ink Mode">
@@ -135,7 +135,7 @@
                    VerticalAlignment="Bottom"
                    Margin="0,0,20,80"
                    Spacing="8"
-                   Canvas.ZIndex="100">
+                   Grid.ZIndex="100">
 
             <Button Content="&#xE71E;"
                    FontFamily="Segoe MDL2 Assets"
@@ -169,7 +169,7 @@
         <!-- Navigation controls -->
         <CommandBar VerticalAlignment="Bottom"
                    DefaultLabelPosition="Right"
-                   Canvas.ZIndex="100">
+                   Grid.ZIndex="100">
 
             <AppBarButton Icon="GlobalNavigationButton"
                          Label="Go to Today"
@@ -201,7 +201,7 @@
               Width="320"
               Background="{ThemeResource AcrylicBackgroundFillColorDefaultBrush}"
               Visibility="{x:Bind ViewModel.SelectedEvent, Mode=OneWay, Converter={StaticResource NullToVisibilityConverter}}"
-              Canvas.ZIndex="200">
+              Grid.ZIndex="200">
 
             <ScrollViewer>
                 <StackPanel Padding="20" Spacing="12">
