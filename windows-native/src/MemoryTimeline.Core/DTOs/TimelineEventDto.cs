@@ -1,4 +1,6 @@
 using MemoryTimeline.Data.Models;
+using Microsoft.UI;
+using Microsoft.UI.Xaml.Media;
 
 namespace MemoryTimeline.Core.DTOs;
 
@@ -101,6 +103,46 @@ public class TimelineEraDto
     public double PixelX { get; set; }
     public double Width { get; set; }
     public bool IsVisible { get; set; }
+
+    /// <summary>
+    /// Gets the color as a Brush for XAML binding.
+    /// </summary>
+    public SolidColorBrush ColorBrush
+    {
+        get
+        {
+            try
+            {
+                // Remove # if present
+                var hex = ColorCode.Replace("#", string.Empty);
+
+                if (hex.Length == 6)
+                {
+                    // RGB format
+                    return new SolidColorBrush(Windows.UI.Color.FromArgb(
+                        255,
+                        Convert.ToByte(hex.Substring(0, 2), 16),
+                        Convert.ToByte(hex.Substring(2, 2), 16),
+                        Convert.ToByte(hex.Substring(4, 2), 16)));
+                }
+                else if (hex.Length == 8)
+                {
+                    // ARGB format
+                    return new SolidColorBrush(Windows.UI.Color.FromArgb(
+                        Convert.ToByte(hex.Substring(0, 2), 16),
+                        Convert.ToByte(hex.Substring(2, 2), 16),
+                        Convert.ToByte(hex.Substring(4, 2), 16),
+                        Convert.ToByte(hex.Substring(6, 2), 16)));
+                }
+            }
+            catch
+            {
+                // Fall back to gray if parsing fails
+            }
+
+            return new SolidColorBrush(Colors.Gray);
+        }
+    }
 
     /// <summary>
     /// Creates a DTO from an Era entity.
