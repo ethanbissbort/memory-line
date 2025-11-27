@@ -202,7 +202,7 @@
                 </Grid>
 
                 <!-- Export Status -->
-                <StackPanel Spacing="4" Visibility="{x:Bind ViewModel.IsExporting, Mode=OneWay}">
+                <StackPanel Spacing="4" Visibility="{x:Bind ViewModel.IsExporting, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
                     <ProgressBar Value="{x:Bind ViewModel.ExportProgress, Mode=OneWay}"
                                 Maximum="100"
                                 IsIndeterminate="{x:Bind ViewModel.IsExporting, Mode=OneWay}"/>
@@ -230,7 +230,7 @@
                 </Button>
 
                 <!-- Import Status -->
-                <StackPanel Spacing="4" Visibility="{x:Bind ViewModel.IsImporting, Mode=OneWay}">
+                <StackPanel Spacing="4" Visibility="{x:Bind ViewModel.IsImporting, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
                     <ProgressRing IsActive="{x:Bind ViewModel.IsImporting, Mode=OneWay}"
                                  Width="24" Height="24"/>
                     <TextBlock Text="{x:Bind ViewModel.ImportStatusMessage, Mode=OneWay}"

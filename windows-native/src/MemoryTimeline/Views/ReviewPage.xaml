@@ -52,7 +52,7 @@
         <!-- Main Content -->
         <Grid Grid.Row="1">
             <!-- Loading Overlay -->
-            <Grid Visibility="{x:Bind ViewModel.IsLoading, Mode=OneWay}"
+            <Grid Visibility="{x:Bind ViewModel.IsLoading, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}"
                   Background="#80000000"
                   Canvas.ZIndex="1000">
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
@@ -68,7 +68,7 @@
             <StackPanel Spacing="16"
                        HorizontalAlignment="Center"
                        VerticalAlignment="Center"
-                       Visibility="{x:Bind ViewModel.IsEmpty, Mode=OneWay}">
+                       Visibility="{x:Bind ViewModel.IsEmpty, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
                 <FontIcon Glyph="&#xE73E;"
                          FontSize="64"
                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
@@ -86,7 +86,7 @@
             </StackPanel>
 
             <!-- Event List -->
-            <ScrollViewer Visibility="{x:Bind ViewModel.HasPendingEvents, Mode=OneWay}">
+            <ScrollViewer Visibility="{x:Bind ViewModel.HasPendingEvents, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
                 <StackPanel Padding="24" Spacing="12">
                     <ListView ItemsSource="{x:Bind ViewModel.PendingEvents, Mode=OneWay}"
                              SelectedItem="{x:Bind ViewModel.SelectedEvent, Mode=TwoWay}"
