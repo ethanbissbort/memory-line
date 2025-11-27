@@ -20,7 +20,7 @@ public class ImportOptions
     public bool CreateBackup { get; set; } = true;
     public bool ImportEras { get; set; } = true;
     public bool ImportTags { get; set; } = true;
-    public string ConflictResolution { get; set; } = "Skip";
+    public ConflictResolution ConflictResolution { get; set; } = ConflictResolution.Skip;
 }
 
 /// <summary>
@@ -53,4 +53,15 @@ public class ValidationResult
     public List<string> Issues { get; set; } = new();
     public List<string> Errors { get; set; } = new();
     public List<string> Warnings { get; set; } = new();
+}
+
+/// <summary>
+/// Conflict resolution strategy for import operations.
+/// </summary>
+public enum ConflictResolution
+{
+    Skip,
+    Overwrite,
+    CreateDuplicate,
+    Merge
 }

@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MemoryTimeline.Data.Models;
 using MemoryTimeline.Data.Repositories;

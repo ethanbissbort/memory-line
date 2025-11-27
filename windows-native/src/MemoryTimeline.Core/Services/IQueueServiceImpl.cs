@@ -131,8 +131,12 @@ public class QueueService : IQueueService
     {
         try
         {
-            await _queueRepository.DeleteAsync(queueId);
-            _logger.LogInformation("Removed queue item: {QueueId}", queueId);
+            var item = await _queueRepository.GetByIdAsync(queueId);
+            if (item != null)
+            {
+                await _queueRepository.DeleteAsync(item);
+                _logger.LogInformation("Removed queue item: {QueueId}", queueId);
+            }
         }
         catch (Exception ex)
         {
@@ -275,7 +279,7 @@ public class QueueService : IQueueService
 
             foreach (var item in completedItems)
             {
-                await _queueRepository.DeleteAsync(item.QueueId);
+                await _queueRepository.DeleteAsync(item);
                 count++;
             }
 
