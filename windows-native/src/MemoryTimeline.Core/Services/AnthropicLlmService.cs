@@ -257,34 +257,41 @@ Now analyze the transcript and extract events:";
     /// <summary>
     /// Extracts JSON from Claude's response (handles markdown code blocks).
     /// </summary>
-    private string ExtractJsonFromResponse(Anthropic.SDK.MessageResponse response)
+    private string ExtractJsonFromResponse(dynamic response)
     {
-        if (response?.Content == null || !response.Content.Any())
+        if (response?.Content == null)
             return string.Empty;
 
-        // Get the text content
-        var content = response.Content.FirstOrDefault(c => c is Anthropic.SDK.ContentBase) as Anthropic.SDK.ContentBase;
-        if (content == null)
+        // Get the text content - try to find the first content item with text
+        try
+        {
+            var content = response.Content.FirstOrDefault();
+            if (content == null)
+                return string.Empty;
+
+            var text = content?.Text?.ToString()?.Trim() ?? string.Empty;
+
+            // Remove markdown code fences if present
+            if (text.StartsWith("```json"))
+            {
+                text = text.Substring(7);
+            }
+            else if (text.StartsWith("```"))
+            {
+                text = text.Substring(3);
+            }
+
+            if (text.EndsWith("```"))
+            {
+                text = text.Substring(0, text.Length - 3);
+            }
+
+            return text.Trim();
+        }
+        catch
+        {
             return string.Empty;
-
-        var text = (content as dynamic)?.Text?.ToString()?.Trim() ?? string.Empty;
-
-        // Remove markdown code fences if present
-        if (text.StartsWith("```json"))
-        {
-            text = text.Substring(7);
         }
-        else if (text.StartsWith("```"))
-        {
-            text = text.Substring(3);
-        }
-
-        if (text.EndsWith("```"))
-        {
-            text = text.Substring(0, text.Length - 3);
-        }
-
-        return text.Trim();
     }
 
     /// <summary>
