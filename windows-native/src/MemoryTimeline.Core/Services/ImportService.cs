@@ -233,7 +233,6 @@ public class ImportService : IImportService
         // Handle tags
         if (jsonEvent.Tags?.Any() == true)
         {
-            evt.Tags = new List<Tag>();
             foreach (var tagName in jsonEvent.Tags)
             {
                 var tag = await _dbContext.Tags.FirstOrDefaultAsync(t => t.Name == tagName);
@@ -247,7 +246,14 @@ public class ImportService : IImportService
                     };
                     _dbContext.Tags.Add(tag);
                 }
-                evt.Tags.Add(tag);
+                evt.EventTags.Add(new EventTag
+                {
+                    EventId = evt.EventId,
+                    TagId = tag.TagId,
+                    Tag = tag,
+                    Event = evt,
+                    CreatedAt = DateTime.UtcNow
+                });
             }
         }
 
