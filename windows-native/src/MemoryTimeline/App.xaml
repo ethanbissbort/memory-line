@@ -13,6 +13,7 @@
             <!-- Application-wide converters -->
             <converters:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
             <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+            <converters:InvertedBoolToVisibilityConverter x:Key="InvertedBoolToVisibilityConverter"/>
             <converters:BoolNegationConverter x:Key="BoolNegationConverter"/>
             <converters:NullToFalseConverter x:Key="NullToFalseConverter"/>
         </ResourceDictionary>

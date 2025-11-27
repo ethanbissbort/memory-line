@@ -78,11 +78,11 @@
 
             <!-- Main Content -->
             <ScrollViewer VerticalScrollBarVisibility="Auto"
-                         Visibility="{x:Bind ViewModel.IsLoading, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay, ConverterParameter=Invert}">
+                         Visibility="{x:Bind ViewModel.IsLoading, Converter={StaticResource InvertedBoolToVisibilityConverter}, Mode=OneWay}">
                 <StackPanel Spacing="24">
 
                     <!-- Empty State -->
-                    <Grid Visibility="{x:Bind ViewModel.HasSelectedEvent, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay, ConverterParameter=Invert}">
+                    <Grid Visibility="{x:Bind ViewModel.HasSelectedEvent, Converter={StaticResource InvertedBoolToVisibilityConverter}, Mode=OneWay}">
                         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,60,0,0">
                             <FontIcon Glyph="&#xE71B;" FontSize="64" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             <TextBlock Text="No Event Selected"
