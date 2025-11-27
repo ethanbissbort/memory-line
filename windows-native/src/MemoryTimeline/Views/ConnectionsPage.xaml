@@ -26,7 +26,7 @@
 
             <!-- Selected Event Info -->
             <Grid Margin="0,16,0,0"
-                  Visibility="{x:Bind ViewModel.HasSelectedEvent, Mode=OneWay}">
+                  Visibility="{x:Bind ViewModel.HasSelectedEvent, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
                 <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                        BorderThickness="1"
@@ -58,7 +58,7 @@
         <!-- Content -->
         <Grid Grid.Row="1">
             <!-- Loading Overlay -->
-            <Grid Visibility="{x:Bind ViewModel.IsLoading, Mode=OneWay}">
+            <Grid Visibility="{x:Bind ViewModel.IsLoading, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
                 <Grid Background="{ThemeResource LayerFillColorDefaultBrush}" Opacity="0.5"/>
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                     <ProgressRing IsActive="True" Width="48" Height="48"/>
@@ -97,7 +97,7 @@
                     </Grid>
 
                     <!-- Similar Events Section -->
-                    <StackPanel Spacing="12" Visibility="{x:Bind ViewModel.HasSelectedEvent, Mode=OneWay}">
+                    <StackPanel Spacing="12" Visibility="{x:Bind ViewModel.HasSelectedEvent, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
                         <Grid>
                             <TextBlock Text="Similar Events" Style="{StaticResource SubtitleTextBlockStyle}"/>
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
@@ -157,7 +157,7 @@
                     </StackPanel>
 
                     <!-- Cross-References Section -->
-                    <StackPanel Spacing="12" Visibility="{x:Bind ViewModel.HasSelectedEvent, Mode=OneWay}">
+                    <StackPanel Spacing="12" Visibility="{x:Bind ViewModel.HasSelectedEvent, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
                         <Grid>
                             <TextBlock Text="Cross-References" Style="{StaticResource SubtitleTextBlockStyle}"/>
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
@@ -232,7 +232,7 @@
                     </StackPanel>
 
                     <!-- Tag Suggestions Section -->
-                    <StackPanel Spacing="12" Visibility="{x:Bind ViewModel.HasSelectedEvent, Mode=OneWay}">
+                    <StackPanel Spacing="12" Visibility="{x:Bind ViewModel.HasSelectedEvent, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
                         <Grid>
                             <TextBlock Text="Tag Suggestions" Style="{StaticResource SubtitleTextBlockStyle}"/>
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
