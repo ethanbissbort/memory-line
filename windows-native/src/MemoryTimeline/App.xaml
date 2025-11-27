@@ -12,6 +12,9 @@
 
             <!-- Application-wide converters -->
             <converters:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
+            <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+            <converters:BoolNegationConverter x:Key="BoolNegationConverter"/>
+            <converters:NullToFalseConverter x:Key="NullToFalseConverter"/>
         </ResourceDictionary>
     </Application.Resources>
 </Application>
