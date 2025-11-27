@@ -326,7 +326,7 @@
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <ProgressRing IsActive="{x:Bind ViewModel.IsSaving, Mode=OneWay}"
                                          Width="16" Height="16"
-                                         Visibility="{x:Bind ViewModel.IsSaving, Mode=OneWay}"/>
+                                         Visibility="{x:Bind ViewModel.IsSaving, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}"/>
                             <TextBlock Text="Save Settings"/>
                         </StackPanel>
                     </Button.Content>
