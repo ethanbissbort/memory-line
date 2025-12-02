@@ -249,8 +249,7 @@
                 <TextBlock Text="Data Management"
                           Style="{StaticResource SubtitleTextBlockStyle}"/>
 
-                <Button Content="Clear Cache"
-                       Command="{x:Bind ViewModel.ClearCacheCommand}"
+                <Button Command="{x:Bind ViewModel.ClearCacheCommand}"
                        HorizontalAlignment="Stretch">
                     <Button.Content>
                         <StackPanel Orientation="Horizontal" Spacing="8">
@@ -260,8 +259,7 @@
                     </Button.Content>
                 </Button>
 
-                <Button Content="Reset to Defaults"
-                       Command="{x:Bind ViewModel.ResetSettingsCommand}"
+                <Button Command="{x:Bind ViewModel.ResetSettingsCommand}"
                        HorizontalAlignment="Stretch">
                     <Button.Content>
                         <StackPanel Orientation="Horizontal" Spacing="8">
@@ -318,7 +316,6 @@
                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
                 <Button Grid.Column="1"
-                       Content="Save Settings"
                        Command="{x:Bind ViewModel.SaveSettingsCommand}"
                        Style="{StaticResource AccentButtonStyle}"
                        MinWidth="120">

@@ -47,7 +47,7 @@
             <!-- Command Bar -->
             <CommandBar DefaultLabelPosition="Right" Margin="0,16,0,0">
                 <AppBarButton Icon="Refresh" Label="Refresh" Command="{x:Bind ViewModel.RefreshCommand}"/>
-                <AppBarButton Icon="Calculate" Label="Generate Embeddings" Command="{x:Bind ViewModel.GenerateEmbeddingsCommand}">
+                <AppBarButton Label="Generate Embeddings" Command="{x:Bind ViewModel.GenerateEmbeddingsCommand}">
                     <AppBarButton.Icon>
                         <FontIcon Glyph="&#xE945;"/>
                     </AppBarButton.Icon>

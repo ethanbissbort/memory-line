@@ -65,8 +65,7 @@
                     <TextBlock FontSize="12" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}">
                         <Run Text="{x:Bind FormatDate(Event.StartDate), Mode=OneWay}"/>
                         <Run x:Name="EndDateRun"
-                             Text="{x:Bind FormatEndDate(Event.EndDate), Mode=OneWay}"
-                             x:Load="{x:Bind Event.IsDurationEvent, Mode=OneWay}"/>
+                             Text="{x:Bind FormatEndDate(Event.EndDate), Mode=OneWay}"/>
                     </TextBlock>
 
                     <TextBlock Text="{x:Bind Event.Description, Mode=OneWay}"
