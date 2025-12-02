@@ -54,7 +54,7 @@
             <!-- Loading Overlay -->
             <Grid Visibility="{x:Bind ViewModel.IsLoading, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}"
                   Background="#80000000"
-                  Grid.ZIndex="1000">
+                  Canvas.ZIndex="1000">
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
                     <ProgressRing IsActive="True" Width="48" Height="48"/>
                     <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
@@ -146,12 +146,13 @@
                                         <StackPanel Orientation="Horizontal" Spacing="8">
                                             <FontIcon Glyph="&#xE787;" FontSize="16"
                                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                            <TextBlock>
-                                                <Run Text="{x:Bind StartDateDisplay, Mode=OneWay}"/>
-                                                <Run Text="→" Visibility="{x:Bind HasEndDate, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}"/>
-                                                <Run Text="{x:Bind EndDateDisplay, Mode=OneWay}"
-                                                     Visibility="{x:Bind HasEndDate, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}"/>
-                                            </TextBlock>
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <TextBlock Text="{x:Bind StartDateDisplay, Mode=OneWay}"/>
+                                                <TextBlock Text="→"
+                                                          Visibility="{x:Bind HasEndDate, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}"/>
+                                                <TextBlock Text="{x:Bind EndDateDisplay, Mode=OneWay}"
+                                                          Visibility="{x:Bind HasEndDate, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}"/>
+                                            </StackPanel>
                                             <TextBlock Text="{x:Bind DurationDisplay, Mode=OneWay}"
                                                       Style="{StaticResource CaptionTextBlockStyle}"
                                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
