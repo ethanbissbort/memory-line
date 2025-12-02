@@ -99,9 +99,13 @@
             </Grid>
         </ScrollViewer>
 
-        <!-- TODO: Ink Canvas and Ink Toolbar removed - not available in WinUI 3 -->
-        <!-- TODO: Implement custom drawing solution using Win2D (Microsoft.Graphics.Win2D) or Canvas with pointer events -->
-        <!-- TODO: Restore pen/stylus annotation functionality once alternative solution is implemented -->
+        <!-- NOTE: Pen/stylus/touch navigation is fully supported via ManipulationMode on TimelineCanvas -->
+        <!--       - Pinch-to-zoom: Two-finger zoom gestures -->
+        <!--       - Touch panning: Drag to pan the timeline -->
+        <!--       - Momentum scrolling: Inertial scrolling after gesture ends -->
+        <!--       - Double-tap: Double-tap to zoom in on specific location -->
+        <!-- NOTE: Drawing/inking functionality intentionally NOT implemented (not a sketching app) -->
+        <!--       For handwriting input support, integrate TextBox with InputScope="Default" -->
 
         <!-- Zoom controls overlay -->
         <StackPanel Orientation="Horizontal"
@@ -154,8 +158,6 @@
                          Command="{x:Bind ViewModel.RefreshCommand}"/>
 
             <AppBarSeparator/>
-
-            <!-- TODO: InkModeToggle removed - InkCanvas not available in WinUI 3 -->
 
             <CommandBar.Content>
                 <TextBlock Text="{x:Bind ViewModel.StatusText, Mode=OneWay}"
