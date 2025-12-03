@@ -32,8 +32,8 @@ public class OpenAIEmbeddingService : IEmbeddingService
         _logger = logger;
 
         // Get API key from settings
-        _apiKey = settingsService.GetSettingAsync<string>("OpenAIApiKey", string.Empty).GetAwaiter().GetResult();
-        _model = settingsService.GetSettingAsync<string>("OpenAIEmbeddingModel", DefaultModel).GetAwaiter().GetResult();
+        _apiKey = settingsService.GetSettingAsync<string>("OpenAIApiKey", string.Empty).GetAwaiter().GetResult() ?? string.Empty;
+        _model = settingsService.GetSettingAsync<string>("OpenAIEmbeddingModel", DefaultModel).GetAwaiter().GetResult() ?? DefaultModel;
 
         // Configure HttpClient
         if (!string.IsNullOrWhiteSpace(_apiKey))
