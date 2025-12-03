@@ -58,7 +58,7 @@
             <!-- Recording Status -->
             <StackPanel Grid.Column="1" Margin="24,0,0,0" VerticalAlignment="Center">
                 <TextBlock x:Name="RecordingDurationText"
-                           Text="{x:Bind ViewModel.RecordingDuration, Mode=OneWay}"
+                           Text="{x:Bind ViewModel.FormattedRecordingDuration, Mode=OneWay}"
                            FontSize="28"
                            FontWeight="SemiBold"
                            Visibility="{x:Bind ViewModel.IsRecording, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}"/>

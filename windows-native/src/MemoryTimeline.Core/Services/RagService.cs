@@ -423,7 +423,7 @@ public class RagService : IRagService
         {
             var pattern = new CategoryPattern
             {
-                Category = group.Key,
+                Category = group.Key ?? "Unknown",
                 EventCount = group.Count()
             };
 
@@ -502,9 +502,9 @@ public class RagService : IRagService
                     transitions.Add(new EraTransition
                     {
                         TransitionDate = sortedEvents[i].StartDate,
-                        FromTheme = prevCategory.ToString(),
-                        ToTheme = currentCategory.ToString(),
-                        Description = $"Transition from {prevCategory} to {currentCategory} focus"
+                        FromTheme = prevCategory ?? "Unknown",
+                        ToTheme = currentCategory ?? "Unknown",
+                        Description = $"Transition from {prevCategory ?? "Unknown"} to {currentCategory ?? "Unknown"} focus"
                     });
                 }
             }
@@ -522,7 +522,7 @@ public class RagService : IRagService
             .First()
             .Key;
 
-        return commonCategory.ToString();
+        return commonCategory;
     }
 
     #endregion

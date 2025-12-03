@@ -53,7 +53,7 @@ public partial class QueueViewModel : ObservableObject
     public bool IsIdle => !IsRecording && !IsProcessing;
     public bool HasPendingItems => PendingCount > 0;
     public bool IsQueueEmpty => QueueItems.Count == 0;
-    public string RecordingDuration => TimeSpan.FromSeconds(_recordingDuration).ToString(@"mm\:ss");
+    public string FormattedRecordingDuration => TimeSpan.FromSeconds(_recordingDuration).ToString(@"mm\:ss");
     public string StatusMessage => StatusText;
 
     // Commands for queue operations
@@ -414,7 +414,7 @@ public partial class QueueViewModel : ObservableObject
 
     partial void OnRecordingDurationChanged(double value)
     {
-        OnPropertyChanged(nameof(RecordingDuration));
+        OnPropertyChanged(nameof(FormattedRecordingDuration));
     }
 
     partial void OnStatusTextChanged(string value)
