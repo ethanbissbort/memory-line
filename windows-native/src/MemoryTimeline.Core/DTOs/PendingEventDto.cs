@@ -144,7 +144,7 @@ public partial class PendingEventDto : ObservableObject
         return new PendingEventDto
         {
             PendingEventId = pendingEvent.PendingEventId,
-            QueueId = pendingEvent.QueueId,
+            QueueId = pendingEvent.QueueId ?? string.Empty,
             Title = pendingEvent.Title,
             Description = pendingEvent.Description,
             StartDate = pendingEvent.StartDate,
@@ -174,7 +174,7 @@ public partial class PendingEventDto : ObservableObject
             ConfidenceScore = ConfidenceScore,
             IsApproved = IsApproved,
             CreatedAt = CreatedAt,
-            ExtractedData = ExtractedData
+            ExtractedData = ExtractedData ?? string.Empty
         };
     }
 }

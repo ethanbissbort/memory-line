@@ -290,7 +290,7 @@ public class ImportService : IImportService
                         Description = jsonEra.Description,
                         StartDate = jsonEra.StartDate,
                         EndDate = jsonEra.EndDate,
-                        Color = jsonEra.Color,
+                        Color = jsonEra.Color ?? "#000000",
                         CreatedAt = jsonEra.CreatedAt != default ? jsonEra.CreatedAt : DateTime.UtcNow
                     };
 
