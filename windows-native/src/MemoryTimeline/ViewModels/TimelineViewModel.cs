@@ -185,7 +185,7 @@ public partial class TimelineViewModel : ObservableObject
     /// Zooms in the timeline.
     /// </summary>
     [RelayCommand]
-    private async Task ZoomInAsync()
+    public async Task ZoomInAsync()
     {
         if (Viewport == null || IsLoading) return;
 
@@ -194,7 +194,7 @@ public partial class TimelineViewModel : ObservableObject
             IsLoading = true;
             StatusText = "Zooming in...";
 
-            var centerDate = Viewport.StartDate.AddDays(Viewport.TotalDays / 2.0);
+            var centerDate = Viewport.StartDate.AddDays(Viewport.VisibleDays / 2.0);
             Viewport = await _timelineService.ZoomInAsync(Viewport, centerDate);
             CurrentZoomLevel = Viewport.ZoomLevel;
 
@@ -218,7 +218,7 @@ public partial class TimelineViewModel : ObservableObject
     /// Zooms out the timeline.
     /// </summary>
     [RelayCommand]
-    private async Task ZoomOutAsync()
+    public async Task ZoomOutAsync()
     {
         if (Viewport == null || IsLoading) return;
 
@@ -227,7 +227,7 @@ public partial class TimelineViewModel : ObservableObject
             IsLoading = true;
             StatusText = "Zooming out...";
 
-            var centerDate = Viewport.StartDate.AddDays(Viewport.TotalDays / 2.0);
+            var centerDate = Viewport.StartDate.AddDays(Viewport.VisibleDays / 2.0);
             Viewport = await _timelineService.ZoomOutAsync(Viewport, centerDate);
             CurrentZoomLevel = Viewport.ZoomLevel;
 
@@ -276,7 +276,7 @@ public partial class TimelineViewModel : ObservableObject
             IsLoading = true;
             StatusText = $"Setting zoom to {TimelineScale.GetZoomLevelName(zoomLevel)}...";
 
-            var centerDate = Viewport.StartDate.AddDays(Viewport.TotalDays / 2.0);
+            var centerDate = Viewport.StartDate.AddDays(Viewport.VisibleDays / 2.0);
             await CreateViewportAsync(zoomLevel, centerDate);
             CurrentZoomLevel = zoomLevel;
 

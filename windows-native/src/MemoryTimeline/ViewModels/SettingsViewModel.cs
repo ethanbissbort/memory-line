@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
+using Microsoft.UI.Xaml;
 using MemoryTimeline.Core.Services;
 using MemoryTimeline.Services;
 using System.Reflection;
@@ -133,9 +134,9 @@ public partial class SettingsViewModel : ObservableObject
             await _settingsService.SetThemeAsync(SelectedTheme);
             await _themeService.SetThemeAsync(SelectedTheme switch
             {
-                "Light" => Services.AppTheme.Light,
-                "Dark" => Services.AppTheme.Dark,
-                _ => Services.AppTheme.System
+                "Light" => ElementTheme.Light,
+                "Dark" => ElementTheme.Dark,
+                _ => ElementTheme.Default
             });
 
             // Save zoom level
