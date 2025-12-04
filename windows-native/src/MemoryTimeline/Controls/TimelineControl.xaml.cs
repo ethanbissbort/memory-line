@@ -321,7 +321,7 @@ public sealed partial class TimelineControl : UserControl
         if (_viewModel.Viewport != null)
         {
             var viewport = _viewModel.Viewport;
-            var dateAtPosition = Core.Models.TimelineScale.GetDateFromPixelPosition(
+            var dateAtPosition = Core.Models.TimelineScale.GetDateFromPixel(
                 position.X,
                 viewport.StartDate,
                 viewport.ZoomLevel);

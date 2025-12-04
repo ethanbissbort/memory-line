@@ -66,7 +66,7 @@ public partial class App : Application
                 // Phase 6: Export/Import & Windows Integration services
                 services.AddScoped<IExportService, ExportService>();
                 services.AddScoped<IImportService, ImportService>();
-                services.AddSingleton<INotificationService, NotificationService>();
+                services.AddSingleton<Services.INotificationService, Services.NotificationService>();
                 services.AddSingleton<IWindowsTimelineService, WindowsTimelineService>();
                 services.AddSingleton<IJumpListService, JumpListService>();
 
