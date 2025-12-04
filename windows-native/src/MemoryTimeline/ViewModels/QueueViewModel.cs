@@ -50,11 +50,15 @@ public partial class QueueViewModel : ObservableObject
 
     // Computed properties for UI bindings
     public bool CanStartRecording => !IsRecording;
+    public bool CanPauseRecording => IsRecording;
+    public bool CanStopRecording => IsRecording;
+    public bool CanCancelRecording => IsRecording;
     public bool IsIdle => !IsRecording && !IsProcessing;
     public bool HasPendingItems => PendingCount > 0;
     public bool IsQueueEmpty => QueueItems.Count == 0;
     public string FormattedRecordingDuration => TimeSpan.FromSeconds(_recordingDuration).ToString(@"mm\:ss");
     public string StatusMessage => StatusText;
+    public bool CanStopPlayback => IsPlaying;
 
     // Commands for queue operations
     public IRelayCommand ProcessQueueCommand => ProcessAllCommand;
@@ -140,7 +144,7 @@ public partial class QueueViewModel : ObservableObject
         }
     }
 
-    [RelayCommand(CanExecute = nameof(CanStopRecording))]
+    [RelayCommand(CanExecute = nameof(CanExecuteStopRecording))]
     private async Task StopRecordingAsync()
     {
         try
@@ -165,9 +169,9 @@ public partial class QueueViewModel : ObservableObject
         }
     }
 
-    private bool CanStopRecording() => IsRecording;
+    private bool CanExecuteStopRecording() => IsRecording;
 
-    [RelayCommand(CanExecute = nameof(CanPauseRecording))]
+    [RelayCommand(CanExecute = nameof(CanExecutePauseRecording))]
     private async Task PauseRecordingAsync()
     {
         try
@@ -182,9 +186,9 @@ public partial class QueueViewModel : ObservableObject
         }
     }
 
-    private bool CanPauseRecording() => IsRecording;
+    private bool CanExecutePauseRecording() => IsRecording;
 
-    [RelayCommand(CanExecute = nameof(CanCancelRecording))]
+    [RelayCommand(CanExecute = nameof(CanExecuteCancelRecording))]
     private async Task CancelRecordingAsync()
     {
         try
@@ -203,7 +207,7 @@ public partial class QueueViewModel : ObservableObject
         }
     }
 
-    private bool CanCancelRecording() => IsRecording;
+    private bool CanExecuteCancelRecording() => IsRecording;
 
     #endregion
 
@@ -376,7 +380,7 @@ public partial class QueueViewModel : ObservableObject
         }
     }
 
-    [RelayCommand(CanExecute = nameof(CanStopPlayback))]
+    [RelayCommand(CanExecute = nameof(CanExecuteStopPlayback))]
     private void StopPlayback()
     {
         try
@@ -390,7 +394,7 @@ public partial class QueueViewModel : ObservableObject
         }
     }
 
-    private bool CanStopPlayback() => IsPlaying;
+    private bool CanExecuteStopPlayback() => IsPlaying;
 
     #endregion
 
@@ -399,12 +403,20 @@ public partial class QueueViewModel : ObservableObject
     partial void OnIsRecordingChanged(bool value)
     {
         OnPropertyChanged(nameof(CanStartRecording));
+        OnPropertyChanged(nameof(CanPauseRecording));
+        OnPropertyChanged(nameof(CanStopRecording));
+        OnPropertyChanged(nameof(CanCancelRecording));
         OnPropertyChanged(nameof(IsIdle));
     }
 
     partial void OnIsProcessingChanged(bool value)
     {
         OnPropertyChanged(nameof(IsIdle));
+    }
+
+    partial void OnIsPlayingChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanStopPlayback));
     }
 
     partial void OnPendingCountChanged(int value)
