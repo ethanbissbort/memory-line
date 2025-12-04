@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MemoryTimeline.Core.Services;
+using MemoryTimeline.Services;
 using Microsoft.Extensions.Logging;
 using System.Collections.ObjectModel;
 
