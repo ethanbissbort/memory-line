@@ -49,6 +49,13 @@ public partial class AudioRecordingDto : ObservableObject
     public IRelayCommand? RetryCommand { get; set; }
     public IRelayCommand? RemoveCommand { get; set; }
 
+    // Cached brushes for StatusColor
+    private static readonly SolidColorBrush PendingBrush = new(Colors.Orange);
+    private static readonly SolidColorBrush ProcessingBrush = new(Colors.DodgerBlue);
+    private static readonly SolidColorBrush CompletedBrush = new(Colors.Green);
+    private static readonly SolidColorBrush FailedBrush = new(Colors.Red);
+    private static readonly SolidColorBrush DefaultBrush = new(Colors.Gray);
+
     // Display properties
     public string DurationDisplay => DurationSeconds.HasValue
         ? TimeSpan.FromSeconds(DurationSeconds.Value).ToString(@"mm\:ss")
@@ -84,20 +91,20 @@ public partial class AudioRecordingDto : ObservableObject
 
     public SolidColorBrush StatusColor => Status switch
     {
-        "pending" => new SolidColorBrush(Colors.Orange),
-        "processing" => new SolidColorBrush(Colors.DodgerBlue),
-        "completed" => new SolidColorBrush(Colors.Green),
-        "failed" => new SolidColorBrush(Colors.Red),
-        _ => new SolidColorBrush(Colors.Gray)
+        "pending" => PendingBrush,
+        "processing" => ProcessingBrush,
+        "completed" => CompletedBrush,
+        "failed" => FailedBrush,
+        _ => DefaultBrush
     };
 
-    public Visibility IsProcessing => Status == "processing" ? Visibility.Visible : Visibility.Collapsed;
+    public bool IsProcessing => Status == "processing";
 
-    public Visibility HasError => !string.IsNullOrEmpty(ErrorMessage) ? Visibility.Visible : Visibility.Collapsed;
+    public bool HasError => !string.IsNullOrEmpty(ErrorMessage);
 
-    public Visibility CanPlay => Status == "completed" || Status == "failed" ? Visibility.Visible : Visibility.Collapsed;
+    public bool CanPlay => Status == "completed" || Status == "failed";
 
-    public Visibility CanRetry => Status == "failed" ? Visibility.Visible : Visibility.Collapsed;
+    public bool CanRetry => Status == "failed";
 
     partial void OnStatusChanged(string value)
     {
