@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using MemoryTimeline.Core.Services;
 using MemoryTimeline.Data;
 using MemoryTimeline.Data.Repositories;
@@ -116,13 +117,73 @@ public partial class App : Application
     /// <param name="args">Details about the launch request and process.</param>
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
-        await _host.StartAsync();
+        try
+        {
+            await _host.StartAsync();
 
-        _mainWindow = Services.GetRequiredService<MainWindow>();
-        _mainWindow.Activate();
+            // Ensure database is created and migrated
+            using (var scope = Services.CreateScope())
+            {
+                var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                await dbContext.Database.EnsureCreatedAsync();
+            }
 
-        // Initialize theme
-        var themeService = Services.GetRequiredService<IThemeService>();
-        await themeService.InitializeAsync();
+            _mainWindow = Services.GetRequiredService<MainWindow>();
+            _mainWindow.Activate();
+
+            // Initialize theme
+            var themeService = Services.GetRequiredService<IThemeService>();
+            await themeService.InitializeAsync();
+        }
+        catch (Exception ex)
+        {
+            // Log the error and show a message to the user
+            var errorMessage = $"Failed to start Memory Timeline:\n\n{ex.Message}\n\nStack Trace:\n{ex.StackTrace}";
+
+            // Try to show an error dialog if possible
+            try
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = "Startup Error",
+                    Content = new ScrollViewer
+                    {
+                        Content = new TextBlock
+                        {
+                            Text = errorMessage,
+                            TextWrapping = TextWrapping.Wrap,
+                            IsTextSelectionEnabled = true
+                        },
+                        MaxHeight = 400
+                    },
+                    CloseButtonText = "Exit",
+                    XamlRoot = _mainWindow?.Content?.XamlRoot
+                };
+
+                // If we don't have a window yet, create a minimal one for the dialog
+                if (_mainWindow == null)
+                {
+                    _mainWindow = new Window();
+                    _mainWindow.Activate();
+                    dialog.XamlRoot = _mainWindow.Content.XamlRoot;
+                }
+
+                await dialog.ShowAsync();
+            }
+            catch
+            {
+                // If dialog fails, write to a log file
+                var logPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "MemoryTimeline",
+                    "error.log"
+                );
+                Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+                File.WriteAllText(logPath, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}\n{errorMessage}\n\n");
+            }
+
+            // Exit the application
+            Environment.Exit(1);
+        }
     }
 }
