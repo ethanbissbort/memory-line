@@ -18,8 +18,8 @@
             <KeyboardAccelerator Key="Number5" Modifiers="Control" Invoked="NavigateToSearch_Invoked"/>
             <KeyboardAccelerator Key="Number6" Modifiers="Control" Invoked="NavigateToAnalytics_Invoked"/>
             <KeyboardAccelerator Key="Number7" Modifiers="Control" Invoked="NavigateToSettings_Invoked"/>
-            <!-- Alternative: Comma for Settings (common convention) -->
-            <KeyboardAccelerator Key="Comma" Modifiers="Control" Invoked="NavigateToSettings_Invoked"/>
+            <!-- Alternative: S for Settings -->
+            <KeyboardAccelerator Key="S" Modifiers="Control,Shift" Invoked="NavigateToSettings_Invoked"/>
             <!-- F5 to refresh -->
             <KeyboardAccelerator Key="F5" Invoked="Refresh_Invoked"/>
             <!-- Ctrl+F for Search -->
