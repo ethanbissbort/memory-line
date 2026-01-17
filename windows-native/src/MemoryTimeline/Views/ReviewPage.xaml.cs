@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
 using MemoryTimeline.ViewModels;
@@ -8,10 +9,10 @@ public sealed partial class ReviewPage : Page
 {
     public ReviewViewModel ViewModel { get; }
 
-    public ReviewPage(ReviewViewModel viewModel)
+    public ReviewPage()
     {
-        ViewModel = viewModel;
         InitializeComponent();
+        ViewModel = App.Current.Services.GetRequiredService<ReviewViewModel>();
     }
 
     protected override async void OnNavigatedTo(NavigationEventArgs e)
