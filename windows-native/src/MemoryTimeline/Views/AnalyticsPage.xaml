@@ -138,7 +138,7 @@
                                         <StackPanel Grid.Column="2" Orientation="Horizontal"
                                                     HorizontalAlignment="Right" Spacing="4">
                                             <TextBlock Text="{x:Bind Count}" FontWeight="SemiBold"/>
-                                            <TextBlock Text="{x:Bind Percentage, StringFormat='{0:F1}%'}"
+                                            <TextBlock Text="{x:Bind PercentageFormatted}"
                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                                        FontSize="12"/>
                                         </StackPanel>
@@ -256,7 +256,7 @@
                                                            FontSize="12"/>
                                             </StackPanel>
 
-                                            <TextBlock Grid.Column="2" Text="{x:Bind EventCount, StringFormat='{0} events'}"
+                                            <TextBlock Grid.Column="2" Text="{x:Bind EventCountFormatted}"
                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                                        FontSize="12" VerticalAlignment="Center"/>
                                         </Grid>
@@ -283,7 +283,7 @@
                                                                Text="{x:Bind SourceId}"
                                                                FontSize="12"/>
                                                     <TextBlock Grid.Column="1"
-                                                               Text="{x:Bind SharedEventCount, StringFormat='{0} shared'}"
+                                                               Text="{x:Bind SharedEventCountFormatted}"
                                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                                                FontSize="11"/>
                                                 </Grid>

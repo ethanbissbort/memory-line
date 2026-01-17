@@ -51,6 +51,11 @@ public class CategoryDistribution
     public int Count { get; set; }
     public double Percentage { get; set; }
     public string Color { get; set; } = "#808080";
+
+    /// <summary>
+    /// Formatted percentage string for display (e.g., "25.5%").
+    /// </summary>
+    public string PercentageFormatted => $"{Percentage:F1}%";
 }
 
 /// <summary>
@@ -97,6 +102,11 @@ public class PersonNode
     public int EventCount { get; set; }
     public double Size { get; set; } // Node size based on event count
     public string Color { get; set; } = "#4A90D9";
+
+    /// <summary>
+    /// Formatted event count string for display (e.g., "5 events").
+    /// </summary>
+    public string EventCountFormatted => $"{EventCount} events";
 }
 
 /// <summary>
@@ -109,6 +119,11 @@ public class PersonEdge
     public int SharedEventCount { get; set; }
     public double Weight { get; set; } // Edge thickness
     public List<string> SharedEventIds { get; set; } = new();
+
+    /// <summary>
+    /// Formatted shared event count string for display (e.g., "3 shared").
+    /// </summary>
+    public string SharedEventCountFormatted => $"{SharedEventCount} shared";
 }
 
 /// <summary>
