@@ -293,10 +293,9 @@ public class AnalyticsService : IAnalyticsService
                 {
                     PersonId = person.PersonId,
                     Name = person.Name,
-                    Relationship = person.Relationship,
                     EventCount = eventCount,
                     Size = maxEventCount > 0 ? 10 + ((double)eventCount / maxEventCount * 40) : 20,
-                    Color = GetRelationshipColor(person.Relationship)
+                    Color = GetDefaultPersonColor(eventCount)
                 });
             }
 
@@ -506,14 +505,12 @@ public class AnalyticsService : IAnalyticsService
         _ => category
     };
 
-    private static string GetRelationshipColor(string? relationship) => relationship?.ToLower() switch
+    private static string GetDefaultPersonColor(int eventCount)
     {
-        "family" => "#FF6B6B",
-        "friend" => "#4ECDC4",
-        "colleague" => "#45B7D1",
-        "partner" => "#F7DC6F",
-        "mentor" => "#82E0AA",
-        "acquaintance" => "#AEB6BF",
-        _ => "#4A90D9"
-    };
+        // Color based on activity level
+        if (eventCount >= 10) return "#FF6B6B"; // High activity - red
+        if (eventCount >= 5) return "#4ECDC4";  // Medium activity - teal
+        if (eventCount >= 3) return "#45B7D1";  // Low-medium activity - blue
+        return "#4A90D9";                        // Low activity - default blue
+    }
 }

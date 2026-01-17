@@ -343,8 +343,7 @@ public class AdvancedSearchService : IAdvancedSearchService
                 {
                     Text = p.Name,
                     Type = "person",
-                    Id = p.PersonId,
-                    Context = p.Relationship
+                    Id = p.PersonId
                 })
                 .ToListAsync();
             suggestions.AddRange(personSuggestions);
