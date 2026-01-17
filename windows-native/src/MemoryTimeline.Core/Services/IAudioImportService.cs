@@ -169,7 +169,7 @@ public class AudioImportService : IAudioImportService
                 ReportProgress(progress, progressReport);
 
                 var queueItem = await AddToQueueAsync(destinationPath, importItem);
-                importItem.QueueItemId = queueItem.QueueItemId;
+                importItem.QueueItemId = queueItem.QueueId;
                 importItem.Status = AudioImportStatus.Queued;
 
                 // Auto-process if enabled
@@ -332,11 +332,12 @@ public class AudioImportService : IAudioImportService
 
     private async Task<bool> CheckForDuplicateAsync(AudioImportItem item)
     {
-        // Check by filename and size in queue
+        // Check by file path containing filename and size in queue
+        var fileName = item.FileName;
         var existingInQueue = await Task.Run(() =>
-            _dbContext.RecordingQueue.Any(q =>
-                q.FileName == item.FileName &&
-                q.FileSize == item.FileSize));
+            _dbContext.RecordingQueues.Any(q =>
+                q.AudioFilePath.Contains(fileName) &&
+                q.FileSizeBytes == item.FileSize));
 
         return existingInQueue;
     }
@@ -363,20 +364,18 @@ public class AudioImportService : IAudioImportService
     {
         var queueItem = new RecordingQueue
         {
-            QueueItemId = Guid.NewGuid().ToString(),
-            FilePath = filePath,
-            FileName = item.FileName,
-            FileSize = item.FileSize,
-            Duration = item.Duration?.TotalSeconds,
+            QueueId = Guid.NewGuid().ToString(),
+            AudioFilePath = filePath,
+            FileSizeBytes = item.FileSize,
+            DurationSeconds = item.Duration?.TotalSeconds,
             Status = QueueStatus.Pending,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
+            CreatedAt = DateTime.UtcNow
         };
 
-        _dbContext.RecordingQueue.Add(queueItem);
+        _dbContext.RecordingQueues.Add(queueItem);
         await _dbContext.SaveChangesAsync();
 
-        _logger.LogInformation("Added to queue: {Id} - {FileName}", queueItem.QueueItemId, queueItem.FileName);
+        _logger.LogInformation("Added to queue: {Id} - {FileName}", queueItem.QueueId, Path.GetFileName(queueItem.AudioFilePath));
         return queueItem;
     }
 
@@ -389,26 +388,24 @@ public class AudioImportService : IAudioImportService
         if (_sttService == null)
             return;
 
+        var fileName = Path.GetFileName(queueItem.AudioFilePath);
+
         // Update status to processing
         queueItem.Status = QueueStatus.Processing;
-        queueItem.UpdatedAt = DateTime.UtcNow;
         await _dbContext.SaveChangesAsync();
 
         try
         {
             // Transcribe
-            _logger.LogInformation("Transcribing: {FileName}", queueItem.FileName);
-            var transcript = await _sttService.TranscribeAsync(queueItem.FilePath);
+            _logger.LogInformation("Transcribing: {FileName}", fileName);
+            var transcript = await _sttService.TranscribeAsync(queueItem.AudioFilePath);
 
             if (string.IsNullOrWhiteSpace(transcript))
             {
                 throw new InvalidOperationException("Transcription returned empty result");
             }
 
-            queueItem.Transcript = transcript;
-            queueItem.TranscribedAt = DateTime.UtcNow;
-
-            // Extract events if enabled
+            // Extract events if enabled - use the extraction service which handles creating pending events
             if (options.AutoExtract && _extractionService != null)
             {
                 progressReport.CurrentStatus = AudioImportStatus.Extracting;
@@ -416,51 +413,23 @@ public class AudioImportService : IAudioImportService
                 progressReport.CurrentItemProgress = 80;
                 ReportProgress(progress, progressReport);
 
-                _logger.LogInformation("Extracting events from: {FileName}", queueItem.FileName);
-                var extractedEvents = await _extractionService.ExtractEventsAsync(transcript);
-
-                if (extractedEvents.Any())
-                {
-                    // Create pending events for review
-                    foreach (var extracted in extractedEvents)
-                    {
-                        var pendingEvent = new PendingEvent
-                        {
-                            PendingEventId = Guid.NewGuid().ToString(),
-                            QueueItemId = queueItem.QueueItemId,
-                            Title = extracted.Title,
-                            StartDate = extracted.StartDate,
-                            EndDate = extracted.EndDate,
-                            Description = extracted.Description,
-                            Category = extracted.Category,
-                            Location = extracted.Location,
-                            RawTranscript = transcript,
-                            Confidence = extracted.Confidence,
-                            Status = PendingEventStatus.Pending,
-                            CreatedAt = DateTime.UtcNow
-                        };
-
-                        _dbContext.PendingEvents.Add(pendingEvent);
-                    }
-
-                    queueItem.ExtractedEventCount = extractedEvents.Count;
-                    _logger.LogInformation("Extracted {Count} events from: {FileName}", extractedEvents.Count, queueItem.FileName);
-                }
+                _logger.LogInformation("Extracting events from: {FileName}", fileName);
+                var pendingEvents = await _extractionService.ExtractAndCreatePendingEventsAsync(queueItem.QueueId, transcript);
+                _logger.LogInformation("Extracted {Count} events from: {FileName}", pendingEvents.Count, fileName);
             }
 
             queueItem.Status = QueueStatus.Completed;
-            queueItem.CompletedAt = DateTime.UtcNow;
+            queueItem.ProcessedAt = DateTime.UtcNow;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error processing queue item: {Id}", queueItem.QueueItemId);
+            _logger.LogError(ex, "Error processing queue item: {Id}", queueItem.QueueId);
             queueItem.Status = QueueStatus.Failed;
             queueItem.ErrorMessage = ex.Message;
             throw;
         }
         finally
         {
-            queueItem.UpdatedAt = DateTime.UtcNow;
             await _dbContext.SaveChangesAsync();
         }
     }
