@@ -141,7 +141,7 @@ public partial class SearchViewModel : ObservableObject
         }
     }
 
-    public static int[] PageSizeOptions => Models.PageSizeOptions.Options;
+    public static int[] AvailablePageSizes => MemoryTimeline.Core.Models.PageSizeOptions.Options;
     public static string[] SortOptions => SearchSortOptions.AllOptions;
 
     #endregion
