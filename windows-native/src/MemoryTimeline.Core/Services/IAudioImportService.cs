@@ -398,12 +398,14 @@ public class AudioImportService : IAudioImportService
         {
             // Transcribe
             _logger.LogInformation("Transcribing: {FileName}", fileName);
-            var transcript = await _sttService.TranscribeAsync(queueItem.AudioFilePath);
+            var transcriptionResult = await _sttService.TranscribeAsync(queueItem.AudioFilePath);
 
-            if (string.IsNullOrWhiteSpace(transcript))
+            if (!transcriptionResult.Success || string.IsNullOrWhiteSpace(transcriptionResult.Text))
             {
-                throw new InvalidOperationException("Transcription returned empty result");
+                throw new InvalidOperationException(transcriptionResult.ErrorMessage ?? "Transcription returned empty result");
             }
+
+            var transcript = transcriptionResult.Text;
 
             // Extract events if enabled - use the extraction service which handles creating pending events
             if (options.AutoExtract && _extractionService != null)
