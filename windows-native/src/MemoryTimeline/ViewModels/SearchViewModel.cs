@@ -88,10 +88,10 @@ public partial class SearchViewModel : ObservableObject
     private ObservableCollection<string> _selectedEraIds = new();
 
     [ObservableProperty]
-    private DateTime? _startDate;
+    private DateTimeOffset? _startDate;
 
     [ObservableProperty]
-    private DateTime? _endDate;
+    private DateTimeOffset? _endDate;
 
     [ObservableProperty]
     private bool? _hasAudio;
@@ -613,8 +613,8 @@ public partial class SearchViewModel : ObservableObject
             PersonIds = SelectedPersonIds.ToList(),
             LocationIds = SelectedLocationIds.ToList(),
             EraIds = SelectedEraIds.ToList(),
-            StartDate = StartDate,
-            EndDate = EndDate,
+            StartDate = StartDate?.DateTime,
+            EndDate = EndDate?.DateTime,
             HasAudio = HasAudio,
             HasTranscript = HasTranscript,
             MinConfidence = MinConfidence,
@@ -648,8 +648,8 @@ public partial class SearchViewModel : ObservableObject
         foreach (var id in filter.EraIds)
             SelectedEraIds.Add(id);
 
-        StartDate = filter.StartDate;
-        EndDate = filter.EndDate;
+        StartDate = filter.StartDate.HasValue ? new DateTimeOffset(filter.StartDate.Value) : null;
+        EndDate = filter.EndDate.HasValue ? new DateTimeOffset(filter.EndDate.Value) : null;
         HasAudio = filter.HasAudio;
         HasTranscript = filter.HasTranscript;
         MinConfidence = filter.MinConfidence;
