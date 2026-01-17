@@ -37,7 +37,11 @@
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <NavigationViewItem Content="Search" Tag="Search" Icon="Find"/>
-                <NavigationViewItem Content="Analytics" Tag="Analytics" Icon="BarChart"/>
+                <NavigationViewItem Content="Analytics" Tag="Analytics">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE9D2;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
             </NavigationView.MenuItems>
 
             <Frame x:Name="ContentFrame">
