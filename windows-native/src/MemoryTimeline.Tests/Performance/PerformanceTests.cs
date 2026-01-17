@@ -248,7 +248,7 @@ public class PerformanceTests : IDisposable
         _output.WriteLine($"20 concurrent read operations completed in {stopwatch.ElapsedMilliseconds}ms");
         stopwatch.ElapsedMilliseconds.Should().BeLessThan(5000);
 
-        results.Should().AllBe(50);
+        results.Should().AllSatisfy(x => x.Should().Be(50));
     }
 
     [Fact]
@@ -278,7 +278,7 @@ public class PerformanceTests : IDisposable
     private List<Event> GenerateTestEvents(int count)
     {
         var random = new Random(42); // Fixed seed for reproducibility
-        var categories = Enum.GetValues<EventCategory>();
+        var categories = EventCategory.AllCategories;
         var startDate = new DateTime(2020, 1, 1);
 
         return Enumerable.Range(1, count).Select(i =>

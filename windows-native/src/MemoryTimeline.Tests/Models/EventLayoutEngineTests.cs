@@ -676,7 +676,7 @@ public class EventLayoutEngineTests
         for (int i = 0; i < 1000; i++)
         {
             var startDate = referenceDate.AddDays(random.Next(0, 365));
-            var endDate = random.Next(2) == 0 ? null : startDate.AddDays(random.Next(1, 10));
+            var endDate = random.Next(2) == 0 ? (DateTime?)null : startDate.AddDays(random.Next(1, 10));
             events.Add(CreateEvent($"Event {i}", startDate, endDate));
         }
 

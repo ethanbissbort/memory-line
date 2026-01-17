@@ -27,7 +27,7 @@ public class EventServiceTests : IDisposable
         _context = new AppDbContext(options);
         _repository = new EventRepository(_context);
         _loggerMock = new Mock<ILogger<EventService>>();
-        _eventService = new EventService(_repository, _loggerMock.Object);
+        _eventService = new EventService(_repository, _context, _loggerMock.Object);
     }
 
     [Fact]

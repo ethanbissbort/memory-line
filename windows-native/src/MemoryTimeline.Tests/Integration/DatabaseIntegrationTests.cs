@@ -107,9 +107,12 @@ public class DatabaseIntegrationTests : IDisposable
             Title = "Event with Relationships",
             StartDate = DateTime.UtcNow,
             EraId = era.EraId,
-            Tags = new List<Tag> { tag1, tag2 },
             CreatedAt = DateTime.UtcNow
         };
+
+        // Add tags via EventTags (Tags property is read-only)
+        eventWithRelationships.EventTags.Add(new EventTag { EventId = eventWithRelationships.EventId, TagId = tag1.TagId, Tag = tag1 });
+        eventWithRelationships.EventTags.Add(new EventTag { EventId = eventWithRelationships.EventId, TagId = tag2.TagId, Tag = tag2 });
 
         // Act
         await _eventRepository.AddAsync(eventWithRelationships);
@@ -218,9 +221,9 @@ public class DatabaseIntegrationTests : IDisposable
         var events = new List<Event>
         {
             new() { EventId = Guid.NewGuid().ToString(), Title = "Work Event 1", Category = EventCategory.Work, StartDate = DateTime.UtcNow, CreatedAt = DateTime.UtcNow },
-            new() { EventId = Guid.NewGuid().ToString(), Title = "Personal Event", Category = EventCategory.Personal, StartDate = DateTime.UtcNow, CreatedAt = DateTime.UtcNow },
+            new() { EventId = Guid.NewGuid().ToString(), Title = "Relationship Event", Category = EventCategory.Relationship, StartDate = DateTime.UtcNow, CreatedAt = DateTime.UtcNow },
             new() { EventId = Guid.NewGuid().ToString(), Title = "Work Event 2", Category = EventCategory.Work, StartDate = DateTime.UtcNow, CreatedAt = DateTime.UtcNow },
-            new() { EventId = Guid.NewGuid().ToString(), Title = "Health Event", Category = EventCategory.Health, StartDate = DateTime.UtcNow, CreatedAt = DateTime.UtcNow }
+            new() { EventId = Guid.NewGuid().ToString(), Title = "Achievement Event", Category = EventCategory.Achievement, StartDate = DateTime.UtcNow, CreatedAt = DateTime.UtcNow }
         };
 
         await _eventRepository.AddRangeAsync(events);

@@ -14,6 +14,7 @@ public class RagServiceTests : IDisposable
 {
     private readonly AppDbContext _context;
     private readonly Mock<IEmbeddingService> _embeddingServiceMock;
+    private readonly Mock<ILlmService> _llmServiceMock;
     private readonly Mock<IEventService> _eventServiceMock;
     private readonly Mock<ILogger<RagService>> _loggerMock;
     private readonly RagService _ragService;
@@ -27,13 +28,15 @@ public class RagServiceTests : IDisposable
 
         _context = new AppDbContext(options);
         _embeddingServiceMock = new Mock<IEmbeddingService>();
+        _llmServiceMock = new Mock<ILlmService>();
         _eventServiceMock = new Mock<IEventService>();
         _loggerMock = new Mock<ILogger<RagService>>();
 
         _ragService = new RagService(
-            _context,
             _embeddingServiceMock.Object,
+            _llmServiceMock.Object,
             _eventServiceMock.Object,
+            _context,
             _loggerMock.Object);
 
         // Setup embedding service defaults
@@ -201,10 +204,11 @@ public class RagServiceTests : IDisposable
         _context.Tags.AddRange(tag1, tag2);
 
         var event2 = await _context.Events.FindAsync("event2");
-        event2!.Tags = new List<Tag> { tag1, tag2 };
+        event2!.EventTags.Add(new EventTag { EventId = event2.EventId, TagId = tag1.TagId, Tag = tag1 });
+        event2!.EventTags.Add(new EventTag { EventId = event2.EventId, TagId = tag2.TagId, Tag = tag2 });
 
         var event3 = await _context.Events.FindAsync("event3");
-        event3!.Tags = new List<Tag> { tag1 };
+        event3!.EventTags.Add(new EventTag { EventId = event3.EventId, TagId = tag1.TagId, Tag = tag1 });
 
         await _context.SaveChangesAsync();
 
