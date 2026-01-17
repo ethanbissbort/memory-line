@@ -17,6 +17,9 @@
             <converters:InvertedBoolToVisibilityConverter x:Key="InvertedBoolToVisibilityConverter"/>
             <converters:BoolNegationConverter x:Key="BoolNegationConverter"/>
             <converters:NullToFalseConverter x:Key="NullToFalseConverter"/>
+            <converters:DateFormatConverter x:Key="DateFormatConverter"/>
+            <converters:PercentageToWidthConverter x:Key="PercentageToWidthConverter"/>
+            <converters:NormalizedToHeightConverter x:Key="NormalizedToHeightConverter"/>
 
             <!-- Button Styles -->
             <Style x:Key="AccentButtonStyle" TargetType="Button">
