@@ -12,7 +12,7 @@
             x:Name="NavigationView"
             IsBackButtonVisible="Auto"
             IsSettingsVisible="True"
-            PaneDisplayMode="Left"
+            PaneDisplayMode="Top"
             SelectionChanged="NavigationView_SelectionChanged">
 
             <NavigationView.MenuItems>

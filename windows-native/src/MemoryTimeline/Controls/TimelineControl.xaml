@@ -42,7 +42,35 @@
                   ManipulationMode="TranslateX,TranslateY,Scale,TranslateInertia"
                   ManipulationDelta="TimelineCanvas_ManipulationDelta"
                   ManipulationCompleted="TimelineCanvas_ManipulationCompleted"
-                  DoubleTapped="TimelineCanvas_DoubleTapped">
+                  DoubleTapped="TimelineCanvas_DoubleTapped"
+                  RightTapped="TimelineCanvas_RightTapped"
+                  PointerMoved="TimelineCanvas_PointerMoved">
+
+                <!-- Context menu for timeline canvas (add event) -->
+                <Grid.ContextFlyout>
+                    <MenuFlyout x:Name="TimelineContextMenu">
+                        <MenuFlyoutItem x:Name="AddEventMenuItem"
+                                       Text="Add Event Here"
+                                       Click="AddEventMenuItem_Click">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE710;"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutSeparator/>
+                        <MenuFlyoutItem Text="Go to Today"
+                                       Command="{x:Bind ViewModel.GoToTodayCommand}">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE8D1;"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="Refresh"
+                                       Command="{x:Bind ViewModel.RefreshCommand}">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE72C;"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                    </MenuFlyout>
+                </Grid.ContextFlyout>
 
                 <!-- Era background layer -->
                 <ItemsControl x:Name="ErasLayer"
@@ -72,8 +100,6 @@
                           X2="10000" Y2="50"
                           Stroke="{ThemeResource SystemControlForegroundBaseMediumBrush}"
                           StrokeThickness="2"/>
-
-                    <!-- Date markers will be added dynamically in code-behind -->
                 </Canvas>
 
                 <!-- Events layer -->
@@ -92,20 +118,39 @@
                                                  Canvas.Top="{x:Bind PixelY}"
                                                  Width="{x:Bind Width}"
                                                  Height="{x:Bind Height}"
-                                                 Tapped="EventBubble_Tapped"/>
+                                                 Tapped="EventBubble_Tapped"
+                                                 RightTapped="EventBubble_RightTapped"
+                                                 PointerEntered="EventBubble_PointerEntered"
+                                                 PointerExited="EventBubble_PointerExited">
+                                <controls:EventBubble.ContextFlyout>
+                                    <MenuFlyout>
+                                        <MenuFlyoutItem Text="View Details"
+                                                       Click="ViewEventMenuItem_Click">
+                                            <MenuFlyoutItem.Icon>
+                                                <FontIcon Glyph="&#xE8A7;"/>
+                                            </MenuFlyoutItem.Icon>
+                                        </MenuFlyoutItem>
+                                        <MenuFlyoutItem Text="Edit Event"
+                                                       Click="EditEventMenuItem_Click">
+                                            <MenuFlyoutItem.Icon>
+                                                <FontIcon Glyph="&#xE70F;"/>
+                                            </MenuFlyoutItem.Icon>
+                                        </MenuFlyoutItem>
+                                        <MenuFlyoutSeparator/>
+                                        <MenuFlyoutItem Text="Delete Event"
+                                                       Click="DeleteEventMenuItem_Click">
+                                            <MenuFlyoutItem.Icon>
+                                                <FontIcon Glyph="&#xE74D;"/>
+                                            </MenuFlyoutItem.Icon>
+                                        </MenuFlyoutItem>
+                                    </MenuFlyout>
+                                </controls:EventBubble.ContextFlyout>
+                            </controls:EventBubble>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
             </Grid>
         </ScrollViewer>
-
-        <!-- NOTE: Pen/stylus/touch navigation is fully supported via ManipulationMode on TimelineCanvas -->
-        <!--       - Pinch-to-zoom: Two-finger zoom gestures -->
-        <!--       - Touch panning: Drag to pan the timeline -->
-        <!--       - Momentum scrolling: Inertial scrolling after gesture ends -->
-        <!--       - Double-tap: Double-tap to zoom in on specific location -->
-        <!-- NOTE: Drawing/inking functionality intentionally NOT implemented (not a sketching app) -->
-        <!--       For handwriting input support, integrate TextBox with InputScope="Default" -->
 
         <!-- Zoom controls overlay -->
         <StackPanel Orientation="Horizontal"
@@ -149,21 +194,46 @@
                    DefaultLabelPosition="Right"
                    Canvas.ZIndex="100">
 
-            <AppBarButton Icon="GlobalNavigationButton"
-                         Label="Go to Today"
-                         Command="{x:Bind ViewModel.GoToTodayCommand}"/>
+            <AppBarButton Label="Add Event"
+                         Click="AddEventButton_Click"
+                         ToolTipService.ToolTip="Create a new event (Ctrl+N)">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE710;"/>
+                </AppBarButton.Icon>
+                <AppBarButton.KeyboardAccelerators>
+                    <KeyboardAccelerator Key="N" Modifiers="Control"/>
+                </AppBarButton.KeyboardAccelerators>
+            </AppBarButton>
 
-            <AppBarButton Icon="Refresh"
-                         Label="Refresh"
-                         Command="{x:Bind ViewModel.RefreshCommand}"/>
+            <AppBarSeparator/>
+
+            <AppBarButton Label="Go to Today"
+                         Command="{x:Bind ViewModel.GoToTodayCommand}">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE8D1;"/>
+                </AppBarButton.Icon>
+            </AppBarButton>
+
+            <AppBarButton Label="Refresh"
+                         Command="{x:Bind ViewModel.RefreshCommand}">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE72C;"/>
+                </AppBarButton.Icon>
+            </AppBarButton>
 
             <AppBarSeparator/>
 
             <CommandBar.Content>
-                <TextBlock Text="{x:Bind ViewModel.StatusText, Mode=OneWay}"
-                          VerticalAlignment="Center"
-                          Margin="12,0,0,0"
-                          FontSize="14"/>
+                <StackPanel Orientation="Horizontal" Spacing="12" Margin="12,0,0,0">
+                    <TextBlock Text="{x:Bind ViewModel.StatusText, Mode=OneWay}"
+                              VerticalAlignment="Center"
+                              FontSize="14"/>
+                    <TextBlock x:Name="HoverDateText"
+                              VerticalAlignment="Center"
+                              FontSize="12"
+                              Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                              Visibility="Collapsed"/>
+                </StackPanel>
             </CommandBar.Content>
         </CommandBar>
 
@@ -177,27 +247,107 @@
 
             <ScrollViewer>
                 <StackPanel Padding="20" Spacing="12">
-                    <TextBlock Text="Event Details"
-                              FontSize="20"
-                              FontWeight="SemiBold"/>
+                    <Grid>
+                        <TextBlock Text="Event Details"
+                                  FontSize="20"
+                                  FontWeight="SemiBold"/>
+                        <Button Content="&#xE711;"
+                               FontFamily="Segoe MDL2 Assets"
+                               HorizontalAlignment="Right"
+                               Background="Transparent"
+                               ToolTipService.ToolTip="Close"
+                               Command="{x:Bind ViewModel.SelectEventCommand}"/>
+                    </Grid>
 
                     <TextBlock Text="{x:Bind ViewModel.SelectedEvent.Title, Mode=OneWay, FallbackValue=''}"
                               FontSize="16"
+                              FontWeight="SemiBold"
                               TextWrapping="Wrap"/>
 
-                    <TextBlock Text="{x:Bind ViewModel.SelectedEvent.StartDate, Mode=OneWay, FallbackValue=''}"
-                              FontSize="14"
-                              Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE787;" FontSize="14"/>
+                        <TextBlock Text="{x:Bind ViewModel.SelectedEvent.StartDate, Mode=OneWay, FallbackValue=''}"
+                                  FontSize="14"
+                                  Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
+                    </StackPanel>
 
                     <TextBlock Text="{x:Bind ViewModel.SelectedEvent.Description, Mode=OneWay, FallbackValue=''}"
                               TextWrapping="Wrap"
                               FontSize="14"/>
 
-                    <Button Content="Close"
-                           Command="{x:Bind ViewModel.SelectEventCommand}"
-                           HorizontalAlignment="Stretch"/>
+                    <!-- Action buttons -->
+                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,12,0,0">
+                        <Button Content="Edit"
+                               Click="EditSelectedEvent_Click"
+                               Style="{StaticResource AccentButtonStyle}"
+                               Width="80">
+                            <Button.KeyboardAccelerators>
+                                <KeyboardAccelerator Key="E" Modifiers="Control"/>
+                            </Button.KeyboardAccelerators>
+                        </Button>
+                        <Button Content="Delete"
+                               Click="DeleteSelectedEvent_Click"
+                               Width="80">
+                            <Button.KeyboardAccelerators>
+                                <KeyboardAccelerator Key="Delete"/>
+                            </Button.KeyboardAccelerators>
+                        </Button>
+                    </StackPanel>
                 </StackPanel>
             </ScrollViewer>
         </Grid>
+
+        <!-- Add/Edit Event Dialog -->
+        <ContentDialog x:Name="EventDialog"
+                      Title="Add Event"
+                      PrimaryButtonText="Save"
+                      CloseButtonText="Cancel"
+                      DefaultButton="Primary"
+                      PrimaryButtonClick="EventDialog_PrimaryButtonClick">
+            <StackPanel Spacing="16" MinWidth="400">
+                <TextBox x:Name="EventTitleBox"
+                        Header="Title"
+                        PlaceholderText="Enter event title"/>
+
+                <CalendarDatePicker x:Name="EventDatePicker"
+                                   Header="Date"
+                                   PlaceholderText="Select date"
+                                   DateFormat="{}{month.full} {day.integer}, {year.full}"/>
+
+                <TextBox x:Name="EventDescriptionBox"
+                        Header="Description"
+                        PlaceholderText="Enter description (optional)"
+                        AcceptsReturn="True"
+                        TextWrapping="Wrap"
+                        Height="100"/>
+
+                <ComboBox x:Name="EventCategoryCombo"
+                         Header="Category"
+                         PlaceholderText="Select category"
+                         HorizontalAlignment="Stretch">
+                    <ComboBoxItem Content="Milestone" Tag="Milestone"/>
+                    <ComboBoxItem Content="Work" Tag="Work"/>
+                    <ComboBoxItem Content="Education" Tag="Education"/>
+                    <ComboBoxItem Content="Relationship" Tag="Relationship"/>
+                    <ComboBoxItem Content="Travel" Tag="Travel"/>
+                    <ComboBoxItem Content="Achievement" Tag="Achievement"/>
+                    <ComboBoxItem Content="Challenge" Tag="Challenge"/>
+                    <ComboBoxItem Content="Era" Tag="Era"/>
+                    <ComboBoxItem Content="Other" Tag="Other"/>
+                </ComboBox>
+
+                <TextBox x:Name="EventLocationBox"
+                        Header="Location (optional)"
+                        PlaceholderText="Enter location"/>
+            </StackPanel>
+        </ContentDialog>
+
+        <!-- Delete confirmation dialog -->
+        <ContentDialog x:Name="DeleteConfirmDialog"
+                      Title="Delete Event"
+                      Content="Are you sure you want to delete this event? This action cannot be undone."
+                      PrimaryButtonText="Delete"
+                      CloseButtonText="Cancel"
+                      DefaultButton="Close"/>
     </Grid>
 </UserControl>
