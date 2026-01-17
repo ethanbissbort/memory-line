@@ -7,44 +7,72 @@
     mc:Ignorable="d"
     Title="Memory Timeline">
 
-    <Grid>
+    <Grid x:Name="RootGrid" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        <!-- Keyboard Accelerators -->
+        <Grid.KeyboardAccelerators>
+            <!-- Navigation shortcuts: Ctrl+1 through Ctrl+7 -->
+            <KeyboardAccelerator Key="Number1" Modifiers="Control" Invoked="NavigateToTimeline_Invoked"/>
+            <KeyboardAccelerator Key="Number2" Modifiers="Control" Invoked="NavigateToQueue_Invoked"/>
+            <KeyboardAccelerator Key="Number3" Modifiers="Control" Invoked="NavigateToReview_Invoked"/>
+            <KeyboardAccelerator Key="Number4" Modifiers="Control" Invoked="NavigateToConnections_Invoked"/>
+            <KeyboardAccelerator Key="Number5" Modifiers="Control" Invoked="NavigateToSearch_Invoked"/>
+            <KeyboardAccelerator Key="Number6" Modifiers="Control" Invoked="NavigateToAnalytics_Invoked"/>
+            <KeyboardAccelerator Key="Number7" Modifiers="Control" Invoked="NavigateToSettings_Invoked"/>
+            <!-- Alternative: Comma for Settings (common convention) -->
+            <KeyboardAccelerator Key="Comma" Modifiers="Control" Invoked="NavigateToSettings_Invoked"/>
+            <!-- F5 to refresh -->
+            <KeyboardAccelerator Key="F5" Invoked="Refresh_Invoked"/>
+            <!-- Ctrl+F for Search -->
+            <KeyboardAccelerator Key="F" Modifiers="Control" Invoked="NavigateToSearch_Invoked"/>
+            <!-- Ctrl+T for Timeline -->
+            <KeyboardAccelerator Key="T" Modifiers="Control" Invoked="NavigateToTimeline_Invoked"/>
+            <!-- Ctrl+R for Recording Queue -->
+            <KeyboardAccelerator Key="R" Modifiers="Control" Invoked="NavigateToQueue_Invoked"/>
+            <!-- Alt+Left/Right for back/forward navigation -->
+            <KeyboardAccelerator Key="Left" Modifiers="Menu" Invoked="GoBack_Invoked"/>
+            <KeyboardAccelerator Key="Right" Modifiers="Menu" Invoked="GoForward_Invoked"/>
+            <!-- Backspace for back -->
+            <KeyboardAccelerator Key="Back" Invoked="GoBack_Invoked"/>
+        </Grid.KeyboardAccelerators>
+
         <NavigationView
             x:Name="NavigationView"
             IsBackButtonVisible="Auto"
             IsSettingsVisible="True"
             PaneDisplayMode="Top"
+            Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
             SelectionChanged="NavigationView_SelectionChanged">
 
             <NavigationView.MenuItems>
-                <NavigationViewItem Content="Timeline" Tag="Timeline" Icon="Calendar">
+                <NavigationViewItem Content="Timeline (Ctrl+1)" Tag="Timeline" Icon="Calendar">
                     <NavigationViewItem.InfoBadge>
                         <InfoBadge x:Name="TimelineBadge"/>
                     </NavigationViewItem.InfoBadge>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Recording Queue" Tag="Queue" Icon="Microphone">
+                <NavigationViewItem Content="Queue (Ctrl+2)" Tag="Queue" Icon="Microphone">
                     <NavigationViewItem.InfoBadge>
                         <InfoBadge x:Name="QueueBadge"/>
                     </NavigationViewItem.InfoBadge>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Review Events" Tag="Review" Icon="Accept">
+                <NavigationViewItem Content="Review (Ctrl+3)" Tag="Review" Icon="Accept">
                     <NavigationViewItem.InfoBadge>
                         <InfoBadge x:Name="ReviewBadge"/>
                     </NavigationViewItem.InfoBadge>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Connections" Tag="Connections">
+                <NavigationViewItem Content="Connections (Ctrl+4)" Tag="Connections">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE71B;"/>
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Search" Tag="Search" Icon="Find"/>
-                <NavigationViewItem Content="Analytics" Tag="Analytics">
+                <NavigationViewItem Content="Search (Ctrl+5)" Tag="Search" Icon="Find"/>
+                <NavigationViewItem Content="Analytics (Ctrl+6)" Tag="Analytics">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE9D2;"/>
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
             </NavigationView.MenuItems>
 
-            <Frame x:Name="ContentFrame">
+            <Frame x:Name="ContentFrame" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
                 <!-- Pages will be navigated here -->
             </Frame>
         </NavigationView>
