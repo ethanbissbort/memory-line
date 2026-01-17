@@ -70,7 +70,7 @@ public partial class SettingsViewModel : ObservableObject
     public string BuildDate => File.GetLastWriteTime(Assembly.GetExecutingAssembly().Location).ToString("yyyy-MM-dd");
 
     // Available options
-    public List<string> ThemeOptions { get; } = new() { "Light", "Dark", "System" };
+    public List<string> ThemeOptions { get; } = new() { "System", "Light", "Dark", "Solarized Dark" };
     public List<string> ZoomLevelOptions { get; } = new() { "Year", "Month", "Week", "Day" };
     public List<string> LlmProviderOptions { get; } = new() { "Anthropic", "OpenAI", "Local" };
 
@@ -95,8 +95,15 @@ public partial class SettingsViewModel : ObservableObject
     {
         try
         {
-            // Load current settings
-            SelectedTheme = await _settingsService.GetThemeAsync();
+            // Load current settings - convert stored theme to display format
+            var storedTheme = await _settingsService.GetThemeAsync();
+            SelectedTheme = storedTheme?.ToLowerInvariant() switch
+            {
+                "light" => "Light",
+                "dark" => "Dark",
+                "solarized-dark" => "Solarized Dark",
+                _ => "System"
+            };
             SelectedZoomLevel = await _settingsService.GetDefaultZoomLevelAsync();
             LlmProvider = await _settingsService.GetLlmProviderAsync();
             LlmModel = await _settingsService.GetLlmModelAsync();
@@ -130,8 +137,15 @@ public partial class SettingsViewModel : ObservableObject
             IsSaving = true;
             StatusMessage = "Saving settings...";
 
-            // Save theme
-            await _settingsService.SetThemeAsync(SelectedTheme);
+            // Save theme - convert display format to storage format
+            var themeToStore = SelectedTheme switch
+            {
+                "Light" => "light",
+                "Dark" => "dark",
+                "Solarized Dark" => "solarized-dark",
+                _ => "system"
+            };
+            await _settingsService.SetThemeAsync(themeToStore);
             await _themeService.SetThemeAsync(SelectedTheme switch
             {
                 "Light" => AppTheme.Light,
@@ -177,7 +191,7 @@ public partial class SettingsViewModel : ObservableObject
         try
         {
             // Reset to defaults
-            SelectedTheme = "System";
+            SelectedTheme = "Dark";
             SelectedZoomLevel = "Month";
             LlmProvider = "Anthropic";
             LlmModel = "claude-3-5-sonnet-20241022";
