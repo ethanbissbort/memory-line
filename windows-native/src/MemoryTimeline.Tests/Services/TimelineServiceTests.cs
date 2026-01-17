@@ -184,7 +184,7 @@ public class TimelineServiceTests : IDisposable
         // Assert
         pannedViewport.StartDate.Should().BeBefore(originalStartDate); // Moving right means earlier dates
         var expectedDaysOffset = pixelOffset / viewport.PixelsPerDay;
-        var actualDaysOffset = (originalStartDate - pannedViewport.StartDate).VisibleDays;
+        var actualDaysOffset = (originalStartDate - pannedViewport.StartDate).TotalDays;
         actualDaysOffset.Should().BeApproximately(expectedDaysOffset, 0.1);
     }
 
