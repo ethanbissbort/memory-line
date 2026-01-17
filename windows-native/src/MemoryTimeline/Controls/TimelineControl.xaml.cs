@@ -1,8 +1,10 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Input;
 using MemoryTimeline.ViewModels;
 using MemoryTimeline.Core.DTOs;
+using MemoryTimeline.Core.Models;
 
 namespace MemoryTimeline.Controls;
 
@@ -18,6 +20,9 @@ public sealed partial class TimelineControl : UserControl
     private double _lastScale = 1.0;
     private Windows.Foundation.Point _lastManipulationPosition;
     private bool _isManipulating;
+    private Windows.Foundation.Point _lastRightTapPosition;
+    private TimelineEventDto? _contextMenuEvent;
+    private string? _editingEventId;
 
     /// <summary>
     /// Gets or sets the ViewModel for the timeline.
@@ -131,12 +136,12 @@ public sealed partial class TimelineControl : UserControl
 
         // Draw date markers based on zoom level
         var viewport = _viewModel.Viewport;
-        var intervalDays = Core.Models.TimelineScale.GetGridInterval(viewport.ZoomLevel);
+        var intervalDays = TimelineScale.GetGridInterval(viewport.ZoomLevel);
         var startDate = new DateTime(viewport.StartDate.Year, viewport.StartDate.Month, 1);
 
         for (var date = startDate; date <= viewport.EndDate; date = date.AddDays(intervalDays))
         {
-            var x = Core.Models.TimelineScale.GetPixelPosition(
+            var x = TimelineScale.GetPixelPosition(
                 date,
                 viewport.StartDate,
                 viewport.ZoomLevel);
@@ -168,14 +173,14 @@ public sealed partial class TimelineControl : UserControl
         }
     }
 
-    private string FormatDateLabel(DateTime date, Core.Models.ZoomLevel zoom)
+    private string FormatDateLabel(DateTime date, ZoomLevel zoom)
     {
         return zoom switch
         {
-            Core.Models.ZoomLevel.Year => date.ToString("yyyy"),
-            Core.Models.ZoomLevel.Month => date.ToString("MMM yyyy"),
-            Core.Models.ZoomLevel.Week => date.ToString("MMM d"),
-            Core.Models.ZoomLevel.Day => date.ToString("MMM d, h:mm tt"),
+            ZoomLevel.Year => date.ToString("yyyy"),
+            ZoomLevel.Month => date.ToString("MMM yyyy"),
+            ZoomLevel.Week => date.ToString("MMM d"),
+            ZoomLevel.Day => date.ToString("MMM d, h:mm tt"),
             _ => date.ToString("MMM yyyy")
         };
     }
@@ -302,6 +307,9 @@ public sealed partial class TimelineControl : UserControl
             await _viewModel.PanAsync(-momentumDistance);
         }
 
+        // Snap back to boundaries if panned beyond limits
+        _viewModel.Viewport?.SnapToBoundaries();
+
         _lastScale = 1.0;
         _lastManipulationPosition = default;
     }
@@ -321,7 +329,7 @@ public sealed partial class TimelineControl : UserControl
         if (_viewModel.Viewport != null)
         {
             var viewport = _viewModel.Viewport;
-            var dateAtPosition = Core.Models.TimelineScale.GetDateFromPixel(
+            var dateAtPosition = TimelineScale.GetDateFromPixel(
                 position.X,
                 viewport.StartDate,
                 viewport.ZoomLevel);
@@ -335,6 +343,225 @@ public sealed partial class TimelineControl : UserControl
             {
                 await _viewModel.PanAsync(-centerOffsetX);
             }
+        }
+    }
+
+    #endregion
+
+    #region Right-Click Context Menu Handlers
+
+    private void TimelineCanvas_RightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        // Store the position for "Add Event Here" functionality
+        _lastRightTapPosition = e.GetPosition(TimelineCanvas);
+    }
+
+    private void EventBubble_RightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement element && element.DataContext is TimelineEventDto eventDto)
+        {
+            _contextMenuEvent = eventDto;
+        }
+    }
+
+    #endregion
+
+    #region Pointer/Cursor Handlers
+
+    private void TimelineCanvas_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (_viewModel?.Viewport == null)
+            return;
+
+        // Get current pointer position
+        var point = e.GetCurrentPoint(TimelineCanvas);
+        var position = point.Position;
+
+        // Calculate date at pointer position
+        var dateAtPointer = TimelineScale.GetDateFromPixel(
+            position.X,
+            _viewModel.Viewport.StartDate,
+            _viewModel.Viewport.ZoomLevel);
+
+        // Update hover date display
+        HoverDateText.Text = dateAtPointer.ToString("MMMM d, yyyy");
+        HoverDateText.Visibility = Visibility.Visible;
+    }
+
+    private void EventBubble_PointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        // Change cursor to hand when hovering over events
+        if (sender is FrameworkElement element)
+        {
+            ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.Hand);
+        }
+    }
+
+    private void EventBubble_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        // Reset cursor when leaving events
+        ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.Arrow);
+    }
+
+    #endregion
+
+    #region Event CRUD Handlers
+
+    private async void AddEventButton_Click(object sender, RoutedEventArgs e)
+    {
+        await ShowAddEventDialogAsync(DateTime.Now);
+    }
+
+    private async void AddEventMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel?.Viewport == null)
+            return;
+
+        // Calculate the date at the right-click position
+        var dateAtPosition = TimelineScale.GetDateFromPixel(
+            _lastRightTapPosition.X,
+            _viewModel.Viewport.StartDate,
+            _viewModel.Viewport.ZoomLevel);
+
+        await ShowAddEventDialogAsync(dateAtPosition);
+    }
+
+    private async Task ShowAddEventDialogAsync(DateTime defaultDate)
+    {
+        _editingEventId = null;
+        EventDialog.Title = "Add Event";
+
+        // Clear and set defaults
+        EventTitleBox.Text = "";
+        EventDatePicker.Date = new DateTimeOffset(defaultDate);
+        EventDescriptionBox.Text = "";
+        EventCategoryCombo.SelectedIndex = -1;
+        EventLocationBox.Text = "";
+
+        EventDialog.XamlRoot = XamlRoot;
+        await EventDialog.ShowAsync();
+    }
+
+    private void ViewEventMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_contextMenuEvent != null)
+        {
+            _viewModel?.SelectEventCommand.Execute(_contextMenuEvent);
+        }
+    }
+
+    private async void EditEventMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_contextMenuEvent != null)
+        {
+            await ShowEditEventDialogAsync(_contextMenuEvent);
+        }
+    }
+
+    private async void EditSelectedEvent_Click(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel?.SelectedEvent != null)
+        {
+            await ShowEditEventDialogAsync(_viewModel.SelectedEvent);
+        }
+    }
+
+    private async Task ShowEditEventDialogAsync(TimelineEventDto eventDto)
+    {
+        _editingEventId = eventDto.EventId;
+        EventDialog.Title = "Edit Event";
+
+        // Populate with existing values
+        EventTitleBox.Text = eventDto.Title ?? "";
+        EventDatePicker.Date = new DateTimeOffset(eventDto.StartDate);
+        EventDescriptionBox.Text = eventDto.Description ?? "";
+        EventLocationBox.Text = eventDto.Location ?? "";
+
+        // Select the category
+        var category = eventDto.Category ?? "Other";
+        for (int i = 0; i < EventCategoryCombo.Items.Count; i++)
+        {
+            if (EventCategoryCombo.Items[i] is ComboBoxItem item &&
+                item.Tag?.ToString() == category)
+            {
+                EventCategoryCombo.SelectedIndex = i;
+                break;
+            }
+        }
+
+        EventDialog.XamlRoot = XamlRoot;
+        await EventDialog.ShowAsync();
+    }
+
+    private async void DeleteEventMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_contextMenuEvent != null)
+        {
+            await ConfirmAndDeleteEventAsync(_contextMenuEvent);
+        }
+    }
+
+    private async void DeleteSelectedEvent_Click(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel?.SelectedEvent != null)
+        {
+            await ConfirmAndDeleteEventAsync(_viewModel.SelectedEvent);
+        }
+    }
+
+    private async Task ConfirmAndDeleteEventAsync(TimelineEventDto eventDto)
+    {
+        DeleteConfirmDialog.XamlRoot = XamlRoot;
+        var result = await DeleteConfirmDialog.ShowAsync();
+
+        if (result == ContentDialogResult.Primary)
+        {
+            await _viewModel!.DeleteEventAsync(eventDto.EventId);
+        }
+    }
+
+    private async void EventDialog_PrimaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
+    {
+        // Validate input
+        if (string.IsNullOrWhiteSpace(EventTitleBox.Text))
+        {
+            args.Cancel = true;
+            // Could show validation error here
+            return;
+        }
+
+        if (!EventDatePicker.Date.HasValue)
+        {
+            args.Cancel = true;
+            return;
+        }
+
+        var category = "Other";
+        if (EventCategoryCombo.SelectedItem is ComboBoxItem selectedCategory)
+        {
+            category = selectedCategory.Tag?.ToString() ?? "Other";
+        }
+
+        if (_editingEventId == null)
+        {
+            // Create new event
+            await _viewModel!.CreateEventAsync(
+                EventTitleBox.Text,
+                EventDatePicker.Date.Value.DateTime,
+                EventDescriptionBox.Text,
+                category,
+                EventLocationBox.Text);
+        }
+        else
+        {
+            // Update existing event
+            await _viewModel!.UpdateEventAsync(
+                _editingEventId,
+                EventTitleBox.Text,
+                EventDatePicker.Date.Value.DateTime,
+                EventDescriptionBox.Text,
+                category,
+                EventLocationBox.Text);
         }
     }
 

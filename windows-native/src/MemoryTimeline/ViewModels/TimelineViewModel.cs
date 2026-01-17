@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using MemoryTimeline.Core.DTOs;
 using MemoryTimeline.Core.Models;
 using MemoryTimeline.Core.Services;
+using MemoryTimeline.Data.Models;
 using System.Collections.ObjectModel;
 
 namespace MemoryTimeline.ViewModels;
@@ -430,4 +431,148 @@ public partial class TimelineViewModel : ObservableObject
             await LoadErasForViewportAsync();
         }
     }
+
+    #region Event CRUD Operations
+
+    /// <summary>
+    /// Creates a new event on the timeline.
+    /// </summary>
+    public async Task CreateEventAsync(
+        string title,
+        DateTime date,
+        string? description,
+        string? category,
+        string? location)
+    {
+        if (IsLoading) return;
+
+        try
+        {
+            IsLoading = true;
+            StatusText = "Creating event...";
+
+            var eventData = new Event
+            {
+                Title = title,
+                StartDate = date,
+                Description = description,
+                Category = category ?? EventCategory.Other,
+                Location = location
+            };
+
+            await _eventService.CreateEventAsync(eventData);
+            TotalEventCount = await _eventService.GetTotalEventCountAsync();
+
+            // Refresh the timeline to show the new event
+            await LoadEventsForViewportAsync();
+
+            StatusText = $"Event '{title}' created";
+            _logger.LogInformation("Created event: {Title} on {Date}", title, date);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating event: {Title}", title);
+            StatusText = "Error creating event";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    /// <summary>
+    /// Updates an existing event on the timeline.
+    /// </summary>
+    public async Task UpdateEventAsync(
+        string eventId,
+        string title,
+        DateTime date,
+        string? description,
+        string? category,
+        string? location)
+    {
+        if (IsLoading || string.IsNullOrEmpty(eventId)) return;
+
+        try
+        {
+            IsLoading = true;
+            StatusText = "Updating event...";
+
+            var existingEvent = await _eventService.GetEventByIdAsync(eventId);
+            if (existingEvent == null)
+            {
+                StatusText = "Event not found";
+                return;
+            }
+
+            existingEvent.Title = title;
+            existingEvent.StartDate = date;
+            existingEvent.Description = description;
+            existingEvent.Category = category ?? EventCategory.Other;
+            existingEvent.Location = location;
+
+            await _eventService.UpdateEventAsync(existingEvent);
+
+            // Refresh the timeline to show the updated event
+            await LoadEventsForViewportAsync();
+
+            // Update selected event if it was the one edited
+            if (SelectedEvent?.EventId == eventId)
+            {
+                SelectedEvent = Events.FirstOrDefault(e => e.EventId == eventId);
+            }
+
+            StatusText = $"Event '{title}' updated";
+            _logger.LogInformation("Updated event: {EventId} - {Title}", eventId, title);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating event: {EventId}", eventId);
+            StatusText = "Error updating event";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    /// <summary>
+    /// Deletes an event from the timeline.
+    /// </summary>
+    public async Task DeleteEventAsync(string eventId)
+    {
+        if (IsLoading || string.IsNullOrEmpty(eventId)) return;
+
+        try
+        {
+            IsLoading = true;
+            StatusText = "Deleting event...";
+
+            await _eventService.DeleteEventAsync(eventId);
+            TotalEventCount = await _eventService.GetTotalEventCountAsync();
+
+            // Refresh the timeline
+            await LoadEventsForViewportAsync();
+
+            // Clear selection if the deleted event was selected
+            if (SelectedEvent?.EventId == eventId)
+            {
+                SelectedEvent = null;
+            }
+
+            StatusText = "Event deleted";
+            _logger.LogInformation("Deleted event: {EventId}", eventId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting event: {EventId}", eventId);
+            StatusText = "Error deleting event";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    #endregion
 }
