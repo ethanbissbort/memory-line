@@ -22,6 +22,7 @@ public class AppDbContext : DbContext
     public DbSet<CrossReference> CrossReferences { get; set; } = null!;
     public DbSet<EventEmbedding> EventEmbeddings { get; set; } = null!;
     public DbSet<AppSetting> AppSettings { get; set; } = null!;
+    public DbSet<SavedSearch> SavedSearches { get; set; } = null!;
 
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
     {
@@ -204,6 +205,15 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<AppSetting>(entity =>
         {
             entity.HasKey(s => s.SettingKey);
+        });
+
+        // Configure SavedSearch entity
+        modelBuilder.Entity<SavedSearch>(entity =>
+        {
+            entity.HasKey(s => s.SavedSearchId);
+            entity.HasIndex(s => s.Name);
+            entity.HasIndex(s => s.IsFavorite);
+            entity.HasIndex(s => s.LastUsedAt);
         });
 
         // Seed default settings

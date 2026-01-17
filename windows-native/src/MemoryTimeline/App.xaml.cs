@@ -117,6 +117,11 @@ public partial class App : Application
                     services.AddSingleton<IWindowsTimelineService, WindowsTimelineService>();
                     services.AddSingleton<IJumpListService, JumpListService>();
 
+                    // Phase 7: Advanced Search, Analytics, & Audio Import services
+                    services.AddScoped<IAdvancedSearchService, AdvancedSearchService>();
+                    services.AddScoped<IAnalyticsService, AnalyticsService>();
+                    services.AddScoped<IAudioImportService, AudioImportService>();
+
                     // Register app services
                     services.AddSingleton<INavigationService, NavigationService>();
                     services.AddSingleton<IThemeService, ThemeService>();
@@ -128,6 +133,8 @@ public partial class App : Application
                     services.AddTransient<QueueViewModel>();
                     services.AddTransient<ReviewViewModel>();
                     services.AddTransient<ConnectionsViewModel>();
+                    services.AddTransient<SearchViewModel>();
+                    services.AddTransient<AnalyticsViewModel>();
 
                     // Register Views
                     services.AddTransient<MainWindow>();

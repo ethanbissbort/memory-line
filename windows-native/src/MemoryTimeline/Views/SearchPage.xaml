@@ -4,12 +4,293 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    mc:Ignorable="d">
+    xmlns:models="using:MemoryTimeline.Data.Models"
+    xmlns:core="using:MemoryTimeline.Core.Models"
+    mc:Ignorable="d"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+    Loaded="Page_Loaded">
 
-    <Grid>
-        <TextBlock Text="Search View - TODO: Implement"
-                   HorizontalAlignment="Center"
-                   VerticalAlignment="Center"
-                   FontSize="24"/>
+    <Grid Padding="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header with search box -->
+        <StackPanel Grid.Row="0" Spacing="16">
+            <TextBlock Text="Advanced Search" Style="{StaticResource TitleTextBlockStyle}"/>
+
+            <!-- Search Input with Autocomplete -->
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <AutoSuggestBox
+                    x:Name="SearchBox"
+                    Grid.Column="0"
+                    PlaceholderText="Search events, tags, people, locations..."
+                    Text="{x:Bind ViewModel.SearchTerm, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                    QueryIcon="Find"
+                    QuerySubmitted="SearchBox_QuerySubmitted"
+                    TextMemberPath="Text">
+                </AutoSuggestBox>
+
+                <Button Grid.Column="1" Margin="8,0,0,0" Command="{x:Bind ViewModel.SearchCommand}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE721;" FontSize="14"/>
+                        <TextBlock Text="Search"/>
+                    </StackPanel>
+                </Button>
+
+                <Button Grid.Column="2" Margin="8,0,0,0" Command="{x:Bind ViewModel.ClearFiltersCommand}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE711;" FontSize="14"/>
+                        <TextBlock Text="Clear"/>
+                    </StackPanel>
+                </Button>
+
+                <Button Grid.Column="3" Margin="8,0,0,0" Command="{x:Bind ViewModel.ShowSaveSearchCommand}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE74E;" FontSize="14"/>
+                        <TextBlock Text="Save"/>
+                    </StackPanel>
+                </Button>
+            </Grid>
+
+            <!-- Status Message -->
+            <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+        </StackPanel>
+
+        <!-- Main Content -->
+        <Grid Grid.Row="1" Margin="0,16,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="280"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Filters Panel -->
+            <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto">
+                <StackPanel Spacing="16" Padding="0,0,16,0">
+
+                    <!-- Saved Searches -->
+                    <Expander Header="Saved Searches" IsExpanded="True" HorizontalAlignment="Stretch"
+                              HorizontalContentAlignment="Stretch">
+                        <ListView ItemsSource="{x:Bind ViewModel.SavedSearches, Mode=OneWay}"
+                                  SelectionMode="None" MaxHeight="200"
+                                  ItemClick="SavedSearch_ItemClick"
+                                  IsItemClickEnabled="True">
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="models:SavedSearch">
+                                    <Grid Padding="4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon Grid.Column="0"
+                                                  Glyph="&#xE735;"
+                                                  FontSize="14" Margin="0,0,8,0"
+                                                  Foreground="{ThemeResource AccentFillColorDefaultBrush}"
+                                                  Visibility="{x:Bind IsFavorite}"/>
+                                        <TextBlock Grid.Column="1" Text="{x:Bind Name}"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="2" Text="{x:Bind UseCount}"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                   FontSize="11"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </Expander>
+
+                    <!-- Categories -->
+                    <Expander Header="Categories" IsExpanded="True" HorizontalAlignment="Stretch"
+                              HorizontalContentAlignment="Stretch">
+                        <StackPanel>
+                            <CheckBox Content="Milestone" Tag="milestone" Checked="Category_Checked" Unchecked="Category_Unchecked"/>
+                            <CheckBox Content="Work" Tag="work" Checked="Category_Checked" Unchecked="Category_Unchecked"/>
+                            <CheckBox Content="Education" Tag="education" Checked="Category_Checked" Unchecked="Category_Unchecked"/>
+                            <CheckBox Content="Relationship" Tag="relationship" Checked="Category_Checked" Unchecked="Category_Unchecked"/>
+                            <CheckBox Content="Travel" Tag="travel" Checked="Category_Checked" Unchecked="Category_Unchecked"/>
+                            <CheckBox Content="Achievement" Tag="achievement" Checked="Category_Checked" Unchecked="Category_Unchecked"/>
+                            <CheckBox Content="Challenge" Tag="challenge" Checked="Category_Checked" Unchecked="Category_Unchecked"/>
+                            <CheckBox Content="Era" Tag="era" Checked="Category_Checked" Unchecked="Category_Unchecked"/>
+                            <CheckBox Content="Other" Tag="other" Checked="Category_Checked" Unchecked="Category_Unchecked"/>
+                        </StackPanel>
+                    </Expander>
+
+                    <!-- Date Range -->
+                    <Expander Header="Date Range" IsExpanded="False" HorizontalAlignment="Stretch"
+                              HorizontalContentAlignment="Stretch">
+                        <StackPanel Spacing="8">
+                            <CalendarDatePicker Header="From"
+                                                Date="{x:Bind ViewModel.StartDate, Mode=TwoWay}"
+                                                PlaceholderText="Start date"
+                                                HorizontalAlignment="Stretch"/>
+                            <CalendarDatePicker Header="To"
+                                                Date="{x:Bind ViewModel.EndDate, Mode=TwoWay}"
+                                                PlaceholderText="End date"
+                                                HorizontalAlignment="Stretch"/>
+                            <Button Content="Apply Date Filter" Command="{x:Bind ViewModel.ApplyDateRangeCommand}"
+                                    HorizontalAlignment="Stretch"/>
+                        </StackPanel>
+                    </Expander>
+
+                    <!-- Additional Filters -->
+                    <Expander Header="More Filters" IsExpanded="False" HorizontalAlignment="Stretch"
+                              HorizontalContentAlignment="Stretch">
+                        <StackPanel Spacing="8">
+                            <CheckBox Content="Has Audio Recording" x:Name="HasAudioCheckbox"
+                                      Checked="HasAudio_Checked" Unchecked="HasAudio_Unchecked"/>
+                            <CheckBox Content="Has Transcript" x:Name="HasTranscriptCheckbox"
+                                      Checked="HasTranscript_Checked" Unchecked="HasTranscript_Unchecked"/>
+                        </StackPanel>
+                    </Expander>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Results Panel -->
+            <Grid Grid.Column="1" Padding="16,0,0,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- Results Header -->
+                <Grid Grid.Row="0" Margin="0,0,0,16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="16">
+                        <TextBlock Text="{x:Bind ViewModel.ResultsRangeText, Mode=OneWay}"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <ComboBox Grid.Column="1" Header="Sort by" Width="180"
+                              x:Name="SortByComboBox"
+                              SelectionChanged="SortBy_SelectionChanged">
+                        <ComboBoxItem Content="Date (Newest First)" Tag="date_desc"/>
+                        <ComboBoxItem Content="Date (Oldest First)" Tag="date_asc"/>
+                        <ComboBoxItem Content="Title (A-Z)" Tag="title_asc"/>
+                        <ComboBoxItem Content="Title (Z-A)" Tag="title_desc"/>
+                        <ComboBoxItem Content="Recently Added" Tag="created_desc" IsSelected="True"/>
+                    </ComboBox>
+
+                    <ComboBox Grid.Column="2" Header="Page size" Width="100" Margin="16,0,0,0"
+                              x:Name="PageSizeComboBox"
+                              SelectionChanged="PageSize_SelectionChanged">
+                        <ComboBoxItem Content="10" Tag="10"/>
+                        <ComboBoxItem Content="25" Tag="25" IsSelected="True"/>
+                        <ComboBoxItem Content="50" Tag="50"/>
+                        <ComboBoxItem Content="100" Tag="100"/>
+                    </ComboBox>
+                </Grid>
+
+                <!-- Results List -->
+                <ListView Grid.Row="1"
+                          ItemsSource="{x:Bind ViewModel.SearchResults, Mode=OneWay}"
+                          SelectedItem="{x:Bind ViewModel.SelectedEvent, Mode=TwoWay}"
+                          SelectionMode="Single">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="models:Event">
+                            <Grid Padding="12" Margin="0,4"
+                                  Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                  CornerRadius="8">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <Grid Grid.Row="0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{x:Bind Title}"
+                                               Style="{StaticResource SubtitleTextBlockStyle}"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <Border Grid.Column="1"
+                                            Background="{ThemeResource AccentFillColorDefaultBrush}"
+                                            CornerRadius="4" Padding="8,2">
+                                        <TextBlock Text="{x:Bind Category}" FontSize="11" Foreground="White"/>
+                                    </Border>
+                                </Grid>
+
+                                <TextBlock Grid.Row="1" Text="{x:Bind Description}"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           TextTrimming="CharacterEllipsis" MaxLines="2"
+                                           Margin="0,4,0,0"/>
+
+                                <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="16" Margin="0,8,0,0">
+                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <FontIcon Glyph="&#xE787;" FontSize="12"/>
+                                        <TextBlock Text="{x:Bind StartDate, Converter={StaticResource DateFormatConverter}}"
+                                                   FontSize="12"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+                <!-- Pagination -->
+                <Grid Grid.Row="2" Margin="0,16,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Button Grid.Column="0" Content="Previous"
+                            Command="{x:Bind ViewModel.PreviousPageCommand}"
+                            IsEnabled="{x:Bind ViewModel.CanGoToPreviousPage, Mode=OneWay}"/>
+
+                    <StackPanel Grid.Column="1" Orientation="Horizontal"
+                                HorizontalAlignment="Center" Spacing="8">
+                        <TextBlock Text="Page" VerticalAlignment="Center"/>
+                        <NumberBox Value="{x:Bind ViewModel.CurrentPage, Mode=TwoWay}"
+                                   Minimum="1" Maximum="{x:Bind ViewModel.TotalPages, Mode=OneWay}"
+                                   SpinButtonPlacementMode="Compact" Width="100"
+                                   ValueChanged="PageNumber_ValueChanged"/>
+                        <TextBlock Text="of" VerticalAlignment="Center"/>
+                        <TextBlock Text="{x:Bind ViewModel.TotalPages, Mode=OneWay}"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <Button Grid.Column="2" Content="Next"
+                            Command="{x:Bind ViewModel.NextPageCommand}"
+                            IsEnabled="{x:Bind ViewModel.CanGoToNextPage, Mode=OneWay}"/>
+                </Grid>
+
+                <!-- Loading Indicator -->
+                <ProgressRing Grid.Row="1" IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}"
+                              Width="48" Height="48" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Grid>
+        </Grid>
+
+        <!-- Save Search Dialog -->
+        <ContentDialog x:Name="SaveSearchDialog"
+                       Title="Save Search"
+                       PrimaryButtonText="Save"
+                       CloseButtonText="Cancel"
+                       PrimaryButtonClick="SaveSearchDialog_PrimaryButtonClick">
+            <StackPanel Spacing="16" MinWidth="300">
+                <TextBox Header="Search Name"
+                         x:Name="SaveSearchNameTextBox"
+                         PlaceholderText="Enter a name for this search"/>
+                <CheckBox Content="Add to favorites"
+                          x:Name="SaveSearchFavoriteCheckBox"/>
+            </StackPanel>
+        </ContentDialog>
     </Grid>
 </Page>
