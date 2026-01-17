@@ -134,9 +134,10 @@ public partial class SettingsViewModel : ObservableObject
             await _settingsService.SetThemeAsync(SelectedTheme);
             await _themeService.SetThemeAsync(SelectedTheme switch
             {
-                "Light" => ElementTheme.Light,
-                "Dark" => ElementTheme.Dark,
-                _ => ElementTheme.Default
+                "Light" => AppTheme.Light,
+                "Dark" => AppTheme.Dark,
+                "Solarized Dark" => AppTheme.SolarizedDark,
+                _ => AppTheme.System
             });
 
             // Save zoom level
