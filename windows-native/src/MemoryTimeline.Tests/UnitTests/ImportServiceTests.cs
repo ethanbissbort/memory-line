@@ -57,6 +57,7 @@ public class ImportServiceTests : IDisposable
                 {
                     EventId = "import2",
                     Title = "Imported Event 2",
+                    Description = (string?)null,
                     StartDate = new DateTime(2024, 6, 20),
                     Category = "Personal",
                     CreatedAt = DateTime.UtcNow,

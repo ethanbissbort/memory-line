@@ -143,15 +143,24 @@ public class QueueServiceTests : IDisposable
     {
         // Arrange
         var queueId = "test-queue-id";
+        var queueItem = new RecordingQueue
+        {
+            QueueId = queueId,
+            AudioFilePath = "/path.wav",
+            Status = QueueStatus.Pending
+        };
 
-        _repositoryMock.Setup(r => r.DeleteAsync(queueId))
+        _repositoryMock.Setup(r => r.GetByIdAsync(queueId))
+            .ReturnsAsync(queueItem);
+
+        _repositoryMock.Setup(r => r.DeleteAsync(It.IsAny<RecordingQueue>()))
             .Returns(Task.CompletedTask);
 
         // Act
         await _queueService.RemoveQueueItemAsync(queueId);
 
         // Assert
-        _repositoryMock.Verify(r => r.DeleteAsync(queueId), Times.Once);
+        _repositoryMock.Verify(r => r.DeleteAsync(It.Is<RecordingQueue>(q => q.QueueId == queueId)), Times.Once);
     }
 
     [Fact]
@@ -199,14 +208,14 @@ public class QueueServiceTests : IDisposable
         _repositoryMock.Setup(r => r.GetByStatusAsync(QueueStatus.Completed))
             .ReturnsAsync(completedItems);
 
-        _repositoryMock.Setup(r => r.DeleteAsync(It.IsAny<string>()))
+        _repositoryMock.Setup(r => r.DeleteAsync(It.IsAny<RecordingQueue>()))
             .Returns(Task.CompletedTask);
 
         // Act
         await _queueService.ClearCompletedItemsAsync();
 
         // Assert
-        _repositoryMock.Verify(r => r.DeleteAsync(It.IsAny<string>()), Times.Exactly(3));
+        _repositoryMock.Verify(r => r.DeleteAsync(It.IsAny<RecordingQueue>()), Times.Exactly(3));
     }
 
     [Fact]

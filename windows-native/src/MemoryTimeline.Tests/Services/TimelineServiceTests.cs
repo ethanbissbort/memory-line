@@ -67,7 +67,7 @@ public class TimelineServiceTests : IDisposable
 
         // Assert
         // Viewport should be centered around the provided date
-        var midpoint = viewport.StartDate.AddDays(viewport.TotalDays / 2.0);
+        var midpoint = viewport.StartDate.AddDays(viewport.VisibleDays / 2.0);
         midpoint.Should().BeCloseTo(centerDate, TimeSpan.FromDays(1));
     }
 
@@ -161,7 +161,7 @@ public class TimelineServiceTests : IDisposable
         var zoomedViewport = await _timelineService.ZoomInAsync(viewport, centerDate);
 
         // Assert
-        var midpoint = zoomedViewport.StartDate.AddDays(zoomedViewport.TotalDays / 2.0);
+        var midpoint = zoomedViewport.StartDate.AddDays(zoomedViewport.VisibleDays / 2.0);
         midpoint.Should().BeCloseTo(centerDate, TimeSpan.FromDays(1));
     }
 
@@ -184,7 +184,7 @@ public class TimelineServiceTests : IDisposable
         // Assert
         pannedViewport.StartDate.Should().BeBefore(originalStartDate); // Moving right means earlier dates
         var expectedDaysOffset = pixelOffset / viewport.PixelsPerDay;
-        var actualDaysOffset = (originalStartDate - pannedViewport.StartDate).TotalDays;
+        var actualDaysOffset = (originalStartDate - pannedViewport.StartDate).VisibleDays;
         actualDaysOffset.Should().BeApproximately(expectedDaysOffset, 0.1);
     }
 

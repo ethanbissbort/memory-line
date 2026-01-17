@@ -56,7 +56,7 @@ public class ExportServiceTests : IDisposable
                 Title = "Event 2",
                 Description = "Description 2",
                 StartDate = new DateTime(2024, 6, 20),
-                Category = EventCategory.Personal,
+                Category = EventCategory.Relationship,
                 CreatedAt = DateTime.UtcNow
             },
             new()
