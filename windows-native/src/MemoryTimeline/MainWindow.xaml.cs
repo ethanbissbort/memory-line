@@ -21,9 +21,8 @@ public sealed partial class MainWindow : Window
         _viewModel = viewModel;
         _navigationService = navigationService;
 
-        // Set window title bar customization
-        ExtendsContentIntoTitleBar = true;
-        SetTitleBar(null);
+        // Use standard title bar to avoid overlap with navigation
+        // (ExtendsContentIntoTitleBar causes the drag region to block navigation clicks)
 
         // Initialize navigation service
         _navigationService.Frame = ContentFrame;
