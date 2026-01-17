@@ -15,6 +15,7 @@ public class TimelineEventDto
     public DateTime? EndDate { get; set; }
     public string? Description { get; set; }
     public string? Category { get; set; }
+    public string? Location { get; set; }
     public string? EraId { get; set; }
     public string? EraName { get; set; }
     public string? EraColor { get; set; }
@@ -40,6 +41,7 @@ public class TimelineEventDto
             EndDate = evt.EndDate,
             Description = evt.Description,
             Category = evt.Category,
+            Location = evt.Location,
             EraId = evt.EraId,
             EraName = evt.Era?.Name,
             EraColor = evt.Era?.ColorCode
