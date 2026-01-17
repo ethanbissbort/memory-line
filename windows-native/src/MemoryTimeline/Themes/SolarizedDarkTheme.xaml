@@ -2,18 +2,22 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <!-- Solarized Dark Color Palette -->
-    <!-- Base colors -->
-    <Color x:Key="SolarizedBase03">#FF002B36</Color>
-    <Color x:Key="SolarizedBase02">#FF073642</Color>
-    <Color x:Key="SolarizedBase01">#FF586E75</Color>
-    <Color x:Key="SolarizedBase00">#FF657B83</Color>
-    <Color x:Key="SolarizedBase0">#FF839496</Color>
-    <Color x:Key="SolarizedBase1">#FF93A1A1</Color>
-    <Color x:Key="SolarizedBase2">#FFEEE8D5</Color>
-    <Color x:Key="SolarizedBase3">#FFFDF6E3</Color>
+    <!--
+    Solarized Dark Color Theme
+    Official colors from https://ethanschoonover.com/solarized/
+    -->
 
-    <!-- Accent colors -->
+    <!-- Solarized Base Colors (Monotones) -->
+    <Color x:Key="SolarizedBase03">#FF002B36</Color>  <!-- Dark background -->
+    <Color x:Key="SolarizedBase02">#FF073642</Color>  <!-- Dark background highlights -->
+    <Color x:Key="SolarizedBase01">#FF586E75</Color>  <!-- Comments/secondary (dark) -->
+    <Color x:Key="SolarizedBase00">#FF657B83</Color>  <!-- Body text (light mode) -->
+    <Color x:Key="SolarizedBase0">#FF839496</Color>   <!-- Body text (dark mode) -->
+    <Color x:Key="SolarizedBase1">#FF93A1A1</Color>   <!-- Emphasized content (dark) -->
+    <Color x:Key="SolarizedBase2">#FFEEE8D5</Color>   <!-- Light background highlights -->
+    <Color x:Key="SolarizedBase3">#FFFDF6E3</Color>   <!-- Light background -->
+
+    <!-- Solarized Accent Colors -->
     <Color x:Key="SolarizedYellow">#FFB58900</Color>
     <Color x:Key="SolarizedOrange">#FFCB4B16</Color>
     <Color x:Key="SolarizedRed">#FFDC322F</Color>
@@ -23,7 +27,7 @@
     <Color x:Key="SolarizedCyan">#FF2AA198</Color>
     <Color x:Key="SolarizedGreen">#FF859900</Color>
 
-    <!-- Solarized Dark Theme Brushes -->
+    <!-- Named Solarized Brushes for direct use -->
     <SolidColorBrush x:Key="SolarizedBackgroundBrush" Color="{StaticResource SolarizedBase03}"/>
     <SolidColorBrush x:Key="SolarizedBackgroundAltBrush" Color="{StaticResource SolarizedBase02}"/>
     <SolidColorBrush x:Key="SolarizedForegroundBrush" Color="{StaticResource SolarizedBase0}"/>
@@ -35,14 +39,77 @@
     <SolidColorBrush x:Key="SolarizedErrorBrush" Color="{StaticResource SolarizedRed}"/>
     <SolidColorBrush x:Key="SolarizedSuccessBrush" Color="{StaticResource SolarizedGreen}"/>
 
-    <!-- Override system theme brushes for Solarized -->
+    <!-- WinUI 3 Background Resources -->
     <SolidColorBrush x:Key="ApplicationPageBackgroundThemeBrush" Color="{StaticResource SolarizedBase03}"/>
+    <SolidColorBrush x:Key="SolidBackgroundFillColorBaseBrush" Color="{StaticResource SolarizedBase03}"/>
+    <SolidColorBrush x:Key="SolidBackgroundFillColorSecondaryBrush" Color="{StaticResource SolarizedBase02}"/>
+    <SolidColorBrush x:Key="SolidBackgroundFillColorTertiaryBrush" Color="{StaticResource SolarizedBase02}"/>
+    <SolidColorBrush x:Key="SolidBackgroundFillColorQuarternaryBrush" Color="{StaticResource SolarizedBase02}"/>
+
+    <!-- Layer/Card backgrounds -->
+    <SolidColorBrush x:Key="LayerFillColorDefaultBrush" Color="{StaticResource SolarizedBase02}"/>
+    <SolidColorBrush x:Key="LayerFillColorAltBrush" Color="{StaticResource SolarizedBase03}"/>
+    <SolidColorBrush x:Key="CardBackgroundFillColorDefaultBrush" Color="{StaticResource SolarizedBase02}"/>
+    <SolidColorBrush x:Key="CardBackgroundFillColorSecondaryBrush" Color="{StaticResource SolarizedBase02}"/>
+
+    <!-- Text/Foreground Resources -->
+    <SolidColorBrush x:Key="TextFillColorPrimaryBrush" Color="{StaticResource SolarizedBase0}"/>
+    <SolidColorBrush x:Key="TextFillColorSecondaryBrush" Color="{StaticResource SolarizedBase01}"/>
+    <SolidColorBrush x:Key="TextFillColorTertiaryBrush" Color="{StaticResource SolarizedBase01}"/>
+    <SolidColorBrush x:Key="TextFillColorDisabledBrush" Color="{StaticResource SolarizedBase01}"/>
+
+    <!-- Accent Resources -->
+    <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="{StaticResource SolarizedCyan}"/>
+    <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="{StaticResource SolarizedBlue}"/>
+    <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="{StaticResource SolarizedViolet}"/>
+    <SolidColorBrush x:Key="AccentTextFillColorPrimaryBrush" Color="{StaticResource SolarizedCyan}"/>
+
+    <!-- Control Fill Resources -->
+    <SolidColorBrush x:Key="ControlFillColorDefaultBrush" Color="{StaticResource SolarizedBase02}"/>
+    <SolidColorBrush x:Key="ControlFillColorSecondaryBrush" Color="{StaticResource SolarizedBase02}"/>
+    <SolidColorBrush x:Key="ControlFillColorTertiaryBrush" Color="{StaticResource SolarizedBase02}"/>
+    <SolidColorBrush x:Key="ControlFillColorDisabledBrush" Color="{StaticResource SolarizedBase02}"/>
+    <SolidColorBrush x:Key="ControlFillColorInputActiveBrush" Color="{StaticResource SolarizedBase03}"/>
+
+    <!-- Control Stroke Resources -->
+    <SolidColorBrush x:Key="ControlStrokeColorDefaultBrush" Color="{StaticResource SolarizedBase01}"/>
+    <SolidColorBrush x:Key="ControlStrokeColorSecondaryBrush" Color="{StaticResource SolarizedBase01}"/>
+    <SolidColorBrush x:Key="ControlStrongStrokeColorDefaultBrush" Color="{StaticResource SolarizedBase01}"/>
+    <SolidColorBrush x:Key="ControlStrongStrokeColorDisabledBrush" Color="{StaticResource SolarizedBase01}"/>
+
+    <!-- Subtle Fill (hover states) -->
+    <SolidColorBrush x:Key="SubtleFillColorTransparentBrush" Color="Transparent"/>
+    <SolidColorBrush x:Key="SubtleFillColorSecondaryBrush" Color="{StaticResource SolarizedBase02}"/>
+    <SolidColorBrush x:Key="SubtleFillColorTertiaryBrush" Color="{StaticResource SolarizedBase02}"/>
+
+    <!-- NavigationView specific -->
+    <SolidColorBrush x:Key="NavigationViewContentBackground" Color="{StaticResource SolarizedBase03}"/>
+    <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="{StaticResource SolarizedBase02}"/>
+    <SolidColorBrush x:Key="NavigationViewTopPaneBackground" Color="{StaticResource SolarizedBase02}"/>
+    <SolidColorBrush x:Key="NavigationViewExpandedPaneBackground" Color="{StaticResource SolarizedBase02}"/>
+
+    <!-- Divider/Separator -->
+    <SolidColorBrush x:Key="DividerStrokeColorDefaultBrush" Color="{StaticResource SolarizedBase01}"/>
+
+    <!-- System Control Resources (legacy but still used) -->
     <SolidColorBrush x:Key="SystemControlPageBackgroundChromeLowBrush" Color="{StaticResource SolarizedBase02}"/>
+    <SolidColorBrush x:Key="SystemControlPageBackgroundChromeMediumLowBrush" Color="{StaticResource SolarizedBase02}"/>
     <SolidColorBrush x:Key="SystemControlForegroundBaseHighBrush" Color="{StaticResource SolarizedBase0}"/>
     <SolidColorBrush x:Key="SystemControlForegroundBaseMediumBrush" Color="{StaticResource SolarizedBase01}"/>
+    <SolidColorBrush x:Key="SystemControlForegroundBaseMediumHighBrush" Color="{StaticResource SolarizedBase0}"/>
+    <SolidColorBrush x:Key="SystemControlForegroundBaseMediumLowBrush" Color="{StaticResource SolarizedBase01}"/>
+    <SolidColorBrush x:Key="SystemControlForegroundBaseLowBrush" Color="{StaticResource SolarizedBase01}"/>
     <SolidColorBrush x:Key="SystemControlHighlightAccentBrush" Color="{StaticResource SolarizedCyan}"/>
+    <SolidColorBrush x:Key="SystemControlHighlightBaseHighBrush" Color="{StaticResource SolarizedBase1}"/>
+    <SolidColorBrush x:Key="SystemControlHighlightBaseMediumHighBrush" Color="{StaticResource SolarizedBase0}"/>
+    <SolidColorBrush x:Key="SystemControlBackgroundBaseLowBrush" Color="{StaticResource SolarizedBase02}"/>
+    <SolidColorBrush x:Key="SystemControlBackgroundBaseMediumLowBrush" Color="{StaticResource SolarizedBase02}"/>
+    <SolidColorBrush x:Key="SystemControlBackgroundAltHighBrush" Color="{StaticResource SolarizedBase03}"/>
+    <SolidColorBrush x:Key="SystemControlBackgroundAltMediumHighBrush" Color="{StaticResource SolarizedBase02}"/>
+    <SolidColorBrush x:Key="SystemControlBackgroundListLowBrush" Color="{StaticResource SolarizedBase02}"/>
+    <SolidColorBrush x:Key="SystemControlBackgroundListMediumBrush" Color="{StaticResource SolarizedBase02}"/>
 
-    <!-- Button style for Solarized -->
+    <!-- Custom Solarized Button Styles -->
     <Style x:Key="SolarizedButtonStyle" TargetType="Button">
         <Setter Property="Background" Value="{StaticResource SolarizedBackgroundAltBrush}"/>
         <Setter Property="Foreground" Value="{StaticResource SolarizedForegroundBrush}"/>
@@ -61,7 +128,7 @@
         <Setter Property="CornerRadius" Value="4"/>
     </Style>
 
-    <!-- TextBlock styles -->
+    <!-- Custom Solarized TextBlock Styles -->
     <Style x:Key="SolarizedTitleStyle" TargetType="TextBlock">
         <Setter Property="Foreground" Value="{StaticResource SolarizedForegroundBrightBrush}"/>
         <Setter Property="FontSize" Value="20"/>

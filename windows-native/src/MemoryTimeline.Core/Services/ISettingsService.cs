@@ -189,7 +189,7 @@ public class SettingsService : ISettingsService
 
     public async Task<string> GetThemeAsync()
     {
-        return await GetSettingAsync<string>("theme", "light") ?? "light";
+        return await GetSettingAsync<string>("theme", "dark") ?? "dark";
     }
 
     public async Task SetThemeAsync(string theme)
