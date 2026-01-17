@@ -140,46 +140,64 @@ public partial class App : Application
             // Log the error and show a message to the user
             var errorMessage = $"Failed to start Memory Timeline:\n\n{ex.Message}\n\nStack Trace:\n{ex.StackTrace}";
 
-            // Try to show an error dialog if possible
+            if (ex.InnerException != null)
+            {
+                errorMessage += $"\n\nInner Exception:\n{ex.InnerException.Message}\n{ex.InnerException.StackTrace}";
+            }
+
+            // Always write to log file first for debugging
+            var logPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "MemoryTimeline",
+                "error.log"
+            );
+
             try
             {
-                var dialog = new ContentDialog
-                {
-                    Title = "Startup Error",
-                    Content = new ScrollViewer
-                    {
-                        Content = new TextBlock
-                        {
-                            Text = errorMessage,
-                            TextWrapping = TextWrapping.Wrap,
-                            IsTextSelectionEnabled = true
-                        },
-                        MaxHeight = 400
-                    },
-                    CloseButtonText = "Exit",
-                    XamlRoot = _mainWindow?.Content?.XamlRoot
-                };
-
-                // If we don't have a window yet, create a minimal one for the dialog
-                if (_mainWindow == null)
-                {
-                    _mainWindow = new Window();
-                    _mainWindow.Activate();
-                    dialog.XamlRoot = _mainWindow.Content.XamlRoot;
-                }
-
-                await dialog.ShowAsync();
+                Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+                File.AppendAllText(logPath, $"\n\n{'='.ToString().PadRight(50, '=')}\n{DateTime.Now:yyyy-MM-dd HH:mm:ss}\n{errorMessage}\n");
             }
             catch
             {
-                // If dialog fails, write to a log file
-                var logPath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "MemoryTimeline",
-                    "error.log"
-                );
-                Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
-                File.WriteAllText(logPath, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}\n{errorMessage}\n\n");
+                // Ignore logging failures
+            }
+
+            // Try to show an error dialog if possible
+            try
+            {
+                // Create a minimal window with content for the dialog
+                if (_mainWindow == null)
+                {
+                    _mainWindow = new Window();
+                    _mainWindow.Content = new Grid(); // Must set content before accessing XamlRoot
+                    _mainWindow.Activate();
+                }
+
+                if (_mainWindow.Content?.XamlRoot != null)
+                {
+                    var dialog = new ContentDialog
+                    {
+                        Title = "Startup Error",
+                        Content = new ScrollViewer
+                        {
+                            Content = new TextBlock
+                            {
+                                Text = errorMessage,
+                                TextWrapping = TextWrapping.Wrap,
+                                IsTextSelectionEnabled = true
+                            },
+                            MaxHeight = 400
+                        },
+                        CloseButtonText = "Exit",
+                        XamlRoot = _mainWindow.Content.XamlRoot
+                    };
+
+                    await dialog.ShowAsync();
+                }
+            }
+            catch
+            {
+                // Dialog failed - error is already logged
             }
 
             // Exit the application
