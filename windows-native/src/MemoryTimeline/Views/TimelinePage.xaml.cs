@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml.Controls;
 using MemoryTimeline.ViewModels;
 
@@ -8,14 +9,14 @@ namespace MemoryTimeline.Views;
 /// </summary>
 public sealed partial class TimelinePage : Page
 {
-    private readonly TimelineViewModel _viewModel;
+    public TimelineViewModel ViewModel { get; }
 
-    public TimelinePage(TimelineViewModel viewModel)
+    public TimelinePage()
     {
         InitializeComponent();
-        _viewModel = viewModel;
+        ViewModel = App.Current.Services.GetRequiredService<TimelineViewModel>();
 
         // Set the ViewModel on the TimelineControl
-        TimelineControl.ViewModel = _viewModel;
+        TimelineControl.ViewModel = ViewModel;
     }
 }

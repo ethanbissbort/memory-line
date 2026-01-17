@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
 using MemoryTimeline.ViewModels;
@@ -8,10 +9,10 @@ public sealed partial class QueuePage : Page
 {
     public QueueViewModel ViewModel { get; }
 
-    public QueuePage(QueueViewModel viewModel)
+    public QueuePage()
     {
-        ViewModel = viewModel;
         InitializeComponent();
+        ViewModel = App.Current.Services.GetRequiredService<QueueViewModel>();
     }
 
     protected override async void OnNavigatedTo(NavigationEventArgs e)
