@@ -1,211 +1,171 @@
-# Memory Timeline Application
+# Memory Timeline
 
-A modern desktop application that functions as a personal memory and event timeline with audio recording, LLM-powered event extraction, and RAG-based cross-referencing capabilities.
+A personal memory and event timeline application with audio recording, LLM-powered event extraction, and RAG-based cross-referencing capabilities.
+
+**Status:** Production Ready (Electron v1.0.0-rc1) | Windows Native Beta (86% complete)
+
+---
+
+## Overview
+
+Memory Timeline helps you capture, organize, and discover connections in your personal history through:
+
+- **Audio Recording** - Record memories with voice, transcribe automatically
+- **AI Event Extraction** - LLM extracts structured events from your recordings
+- **Smart Connections** - RAG technology discovers relationships between events
+- **Rich Timeline** - Visualize your life with interactive zoom/pan controls
+- **Advanced Search** - Find memories with powerful filtering and faceted search
+- **Analytics** - Gain insights with visualizations and statistics
+
+### Two Implementations
+
+| Version | Platform | Status | Tech Stack |
+|---------|----------|--------|------------|
+| **Electron** | Windows, macOS, Linux | v1.0.0-rc1 (100%) | React, Electron, SQLite |
+| **Windows Native** | Windows 11 | Beta (86%) | .NET 8, WinUI 3, SQLite |
+
+---
 
 ## Features
 
-### Core Functionality
+### Core Features (Both Versions)
 
-✅ **Implemented (Phases 1-4 Complete!)**:
-- SQLite database with comprehensive schema for events, eras, tags, people, and locations
-- Full-text search support for events
-- Database service layer with migrations support
-- Electron app shell with secure IPC communication
-- React-based user interface with Zustand state management
-- **Advanced timeline visualization with zoom/pan controls (year/month/week/day views)**
-- **Intelligent date markers and labels that adapt to zoom level**
-- **Enhanced event bubbles with category icons and hover tooltips**
-- **Smooth transitions and animations for zoom changes**
-- **Keyboard shortcuts for navigation (←/→ navigate, +/- zoom, T for today)**
-- Era-based organization with enhanced gradient backgrounds
-- Event CRUD operations (Create, Read, Update, Delete)
-- Event details modal with editing capabilities
-- Settings panel for app configuration
-- Database backup and optimization tools
-- Audio recording with pause/resume/cancel controls
-- File management with automatic save to user data directory
-- Recording queue system with database persistence
-- Audio playback from queue with metadata display (duration, file size, timestamps)
-- Remove/cancel functionality for queue items
-- **Anthropic API integration with secure key storage**
-- **LLM-powered event extraction from transcripts**
-- **Structured prompt engineering for accurate data extraction**
-- **Multi-engine STT service with 9 engine options (local and remote)**
-- **STT engine selection UI in Settings with per-engine configuration**
-- **Event edit modal for modifying extracted data before approval**
-- **Batch processing of queue items**
-- **Review queue with extracted event details (title, dates, description, category, tags, people, locations, confidence scores)**
-- **Approve/edit/reject workflow that creates timeline events with full relationships**
-- **Process Queue button with API key validation**
-- **Retry logic with exponential backoff for API calls**
-- **Enhanced error handling with detailed error messages**
-- **Vector embedding generation with multiple provider support (OpenAI, Voyage AI, Cohere, Local)**
-- **Semantic similarity search for finding related events**
-- **RAG-powered cross-reference analysis with LLM-determined relationships**
-- **Automatic pattern detection (recurring categories, temporal clusters, era transitions)**
-- **Smart tag suggestions based on similar events**
-- **Cross-reference panel showing connections, similar events, and suggested tags**
-- **RAG configuration UI in Settings with embedding provider selection**
+- **Timeline Visualization**
+  - Interactive timeline with zoom levels (Year/Month/Week/Day)
+  - Smooth pan and zoom with keyboard shortcuts
+  - Event bubbles with category icons and tooltips
+  - Era-based organization with gradient backgrounds
 
-✅ **Phase 6 Complete!**
-- **Performance optimizations with pagination and caching for 1000+ events**
-- **Comprehensive error handling with ErrorBoundary component**
-- **Export functionality (JSON, CSV, Markdown) with import support**
-- **Database optimization tools with automatic index management**
-- **Crash recovery and error logging**
-- **Installer configuration for Windows, macOS, and Linux**
-- **Complete deployment and installation documentation**
+- **Audio Recording & Processing**
+  - Record audio with pause/resume/cancel controls
+  - Queue system with background processing
+  - Multiple STT engines (9 in Electron, Windows Speech Recognition in Native)
+  - Audio playback and metadata display
 
-✅ **Phase 7 Complete! (Extended Features)**
-- **Enhanced search and filtering with multi-dimensional facets**
-  - Full-text search with autocomplete suggestions
-  - Filter by categories, tags, people, locations, eras, date ranges
-  - Advanced filters: transcript presence, cross-references, duration
-  - Dynamic facet counts showing available options
-  - Save and manage favorite searches
+- **LLM Event Extraction**
+  - Anthropic Claude API integration
+  - Extract title, dates, description, category
+  - Extract tags, people, locations
+  - Confidence scoring per field
+  - Review queue with approve/edit/reject workflow
+
+- **RAG Cross-Referencing**
+  - Vector embeddings (OpenAI, Voyage AI, Cohere)
+  - Semantic similarity search
+  - 6 relationship types (causal, thematic, temporal, person, location, follow-up)
+  - Pattern detection (recurring categories, clusters, era transitions)
+  - Smart tag suggestions
+
+- **Data Management**
+  - SQLite database with full-text search
+  - Export to JSON, CSV, Markdown
+  - Import from JSON with duplicate detection
+  - Database backup and optimization
+
+### Electron-Exclusive Features
+
+- **Advanced Search & Filtering**
+  - Multi-dimensional faceted search
+  - Autocomplete suggestions
+  - Save favorite searches
   - Pagination with customizable page sizes
-  - Sort by date, title, category, or duration
-- **Batch audio import functionality**
+
+- **Batch Audio Import**
   - Import multiple audio files at once
-  - Scan entire directories for audio files (recursive)
-  - Configure default categories, eras, tags for batch imports
-  - Real-time progress tracking with file status
-  - Auto-process with STT and event extraction
-  - Cancel/retry failed imports
-- **Advanced analytics and visualizations**
-  - Summary statistics dashboard with key metrics
-  - Category distribution with pie charts and bar graphs
-  - Timeline density analysis with trend detection
-  - Tag cloud visualization sized by usage frequency
-  - People network graph showing connections
-  - Location heatmap with geographic data
-  - Era statistics with comprehensive breakdowns
-  - Activity heatmap by day of week and hour
-  - Time period comparison tools
-  - All visualizations built with native SVG/CSS (no dependencies)
+  - Directory scanning (recursive)
+  - Auto-process with STT and extraction
 
-✅ **Completed**: All 7 phases complete! Feature-rich and production-ready!
+- **Analytics & Visualizations**
+  - Category distribution charts
+  - Timeline density analysis
+  - Tag cloud visualization
+  - People network graph
+  - Activity heatmaps
 
-**Current Status**: Release Candidate (v1.0.0-rc1)
-- Core functionality: Complete
-- LLM integration: Complete
-- RAG cross-referencing: Complete
-- Advanced features: Complete (search, batch import, analytics)
-- Polish & optimization: Complete
+### Windows Native-Exclusive Features
 
-📋 **Planned (Future Enhancements)**:
-- Native Windows implementation with touch/pen support (see MIGRATION-TO-NATIVE-WIN.md - 86% complete)
-- Mobile companion apps (iOS/Android)
-- Cloud sync and backup options
-- Collaborative timeline sharing
-- Enhanced AI features (automatic event clustering, smart summaries)
+- **Deep Windows Integration**
+  - Toast notifications with action buttons
+  - JumpList (recent events, quick actions)
+  - Windows Timeline integration
+  - Protocol handler (memory-timeline://)
 
-## Technology Stack
+- **Performance**
+  - 60 FPS timeline rendering
+  - 5x better memory efficiency
+  - 2x faster cold start
+  - 4x smaller package size
 
-- **Frontend**: React 18 with Hooks
-- **State Management**: Zustand
-- **Desktop Framework**: Electron
-- **Database**: SQLite with better-sqlite3
-- **Build Tool**: Webpack with Babel
-- **Styling**: Custom CSS with CSS Variables
-- **Date Handling**: date-fns
-- **AI/LLM**: Anthropic Claude API (planned)
+- **Input Support**
+  - Full touch gestures (pinch, swipe)
+  - Windows Ink ready
+  - High-DPI support
 
-## Project Structure
+---
 
-```
-memory-line/
-├── src/
-│   ├── main/                    # Electron main process
-│   │   ├── main.js             # Main process entry point
-│   │   └── preload.js          # Preload script for secure IPC
-│   ├── renderer/                # React renderer process
-│   │   ├── components/
-│   │   │   ├── audio/          # Audio recording components
-│   │   │   ├── common/         # Shared components (Header, Sidebar)
-│   │   │   ├── events/         # Event display and editing
-│   │   │   ├── settings/       # Settings panel
-│   │   │   └── timeline/       # Timeline visualization
-│   │   ├── store/              # Zustand state stores
-│   │   ├── styles/             # CSS stylesheets
-│   │   ├── utils/              # Utility functions
-│   │   ├── App.jsx             # Main App component
-│   │   └── index.jsx           # React entry point
-│   └── database/
-│       ├── database.js         # Database service layer
-│       └── schemas/
-│           └── schema.sql      # Database schema
-├── public/
-│   └── index.html              # HTML template
-├── assets/                      # Static assets (audio files, etc.)
-├── package.json
-├── webpack.renderer.config.js
-└── .babelrc
-```
+## Quick Start
 
-## Database Schema
+### Electron Version
 
-The application uses SQLite with the following main tables:
-
-- **events**: Core timeline events with dates, descriptions, categories
-- **eras**: Life phases/periods with color coding
-- **tags**: Categorization tags for events
-- **people**: People mentioned in events
-- **locations**: Significant places
-- **recording_queue**: Audio files awaiting processing
-- **pending_events**: Extracted events awaiting user review
-- **cross_references**: Relationships between events (RAG-generated)
-- **app_settings**: Application configuration
-
-Full-text search is supported via SQLite FTS5 virtual tables.
-
-## Installation & Setup
-
-### Prerequisites
-
+**Prerequisites:**
 - Node.js 16+ and npm
-- Windows 11 (primary target), macOS or Linux for development
+- Windows 11, macOS, or Linux
 
-### Installation Steps
-
-1. **Clone the repository**:
-   ```bash
-   git clone <repository-url>
-   cd memory-line
-   ```
-
-2. **Install dependencies**:
-   ```bash
-   npm install
-   ```
-
-   Note: If you encounter Electron download issues in restricted environments, use:
-   ```bash
-   npm install --ignore-scripts
-   ```
-
-3. **Configure Anthropic API** (for LLM features):
-   - Get an API key from https://console.anthropic.com/
-   - Enter the key in Settings panel once the app is running
-   - Keys are stored securely using OS-native credential storage
-
-### Running the Application
-
-**Development Mode**:
+**Installation:**
 ```bash
+# Clone repository
+git clone <repository-url>
+cd memory-line
+
+# Install dependencies
+npm install
+
+# Run in development mode
 npm run dev
 ```
-This starts both the webpack dev server and Electron in watch mode.
 
-**Production Build**:
+**Production Build:**
 ```bash
 npm run build
 npm run package
 ```
 
+### Windows Native Version
+
+**Prerequisites:**
+- Windows 11 (22H2+)
+- Visual Studio 2022 (17.8+)
+- .NET 8 SDK
+
+**Installation:**
+```powershell
+# Navigate to windows-native
+cd windows-native/src
+
+# Restore packages
+dotnet restore
+
+# Build
+dotnet build
+
+# Or open MemoryTimeline.sln in Visual Studio and press F5
+```
+
+See [`windows-native/README.md`](./windows-native/README.md) for detailed Windows native setup.
+
+---
+
 ## Configuration
 
-Settings are stored in the SQLite database and can be modified through the Settings panel or directly:
+### API Keys Required
+
+1. **Anthropic API Key** (for Claude LLM)
+   - Get from: https://console.anthropic.com/
+   - Used for: Event extraction, cross-reference analysis
+
+2. **OpenAI API Key** (optional, for embeddings)
+   - Get from: https://platform.openai.com/api-keys
+   - Used for: Vector embeddings for similarity search
 
 ### Default Settings
 
@@ -216,382 +176,227 @@ Settings are stored in the SQLite database and can be modified through the Setti
   "audio_quality": "high",
   "llm_provider": "anthropic",
   "llm_model": "claude-sonnet-4-20250514",
-  "llm_max_tokens": "4000",
-  "llm_temperature": "0.3",
-  "rag_auto_run_enabled": "false",
-  "rag_schedule": "weekly",
-  "rag_similarity_threshold": "0.75",
-  "send_transcripts_only": "true",
-  "require_confirmation": "true"
+  "rag_similarity_threshold": "0.75"
 }
 ```
 
-### Audio Quality Settings
+Configure via Settings panel in the application.
 
-- **High**: 16kHz, 16-bit (recommended for best speech-to-text results)
-- **Medium**: 8kHz, 16-bit
-- **Low**: 8kHz, 8-bit
+---
+
+## Project Structure
+
+```
+memory-line/
+├── src/                           # Electron source code
+│   ├── main/                      # Main process
+│   │   ├── main.js               # Entry point, IPC handlers
+│   │   └── preload.js            # Secure bridge
+│   ├── renderer/                  # React UI
+│   │   ├── components/           # UI components
+│   │   ├── store/                # Zustand state
+│   │   ├── styles/               # CSS
+│   │   └── App.jsx               # Main component
+│   └── database/
+│       ├── database.js           # Database service
+│       └── schemas/schema.sql    # Database schema
+│
+├── windows-native/                # Windows native implementation
+│   ├── src/
+│   │   ├── MemoryTimeline/       # WinUI 3 app
+│   │   ├── MemoryTimeline.Core/  # Business logic
+│   │   ├── MemoryTimeline.Data/  # Data access
+│   │   └── MemoryTimeline.Tests/ # Tests
+│   ├── README.md
+│   ├── DEVELOPMENT-STATUS.md
+│   ├── DEVELOPMENT-HISTORY.md
+│   ├── TESTING.md
+│   └── DEPLOYMENT.md
+│
+├── package.json                   # npm dependencies
+├── README.md                      # This file
+├── claude.md                      # AI assistant guide
+├── DEPLOYMENT-INSTALL.md          # Electron deployment
+└── MIGRATION-TO-NATIVE-WIN.md     # Windows migration roadmap
+```
+
+---
+
+## Technology Stack
+
+### Electron Version
+
+| Component | Technology |
+|-----------|------------|
+| Frontend | React 18, Zustand |
+| Desktop | Electron |
+| Database | SQLite (better-sqlite3), FTS5 |
+| Build | Webpack, Babel |
+| AI/LLM | Anthropic Claude API |
+| Date Handling | date-fns |
+
+### Windows Native Version
+
+| Component | Technology |
+|-----------|------------|
+| UI Framework | WinUI 3 + XAML |
+| Runtime | .NET 8 |
+| Database | SQLite + EF Core 8 |
+| MVVM | CommunityToolkit.Mvvm |
+| Audio | Windows.Media.Capture |
+| STT | Windows.Media.SpeechRecognition |
+| AI/LLM | Anthropic Claude API |
+
+---
+
+## Database Schema
+
+Both versions use the same SQLite schema for compatibility:
+
+**Core Tables:**
+- `events` - Timeline events
+- `eras` - Life phases/periods
+- `tags`, `people`, `locations` - Categorization
+
+**Processing Tables:**
+- `recording_queue` - Audio awaiting processing
+- `pending_events` - Extracted events awaiting review
+
+**RAG Tables:**
+- `embeddings` / `event_embeddings` - Vector embeddings
+- `cross_references` - Event relationships
+
+**Database Location:**
+- Electron: `userData/memory-timeline.db`
+- Windows: `%LOCALAPPDATA%\MemoryTimeline\memory-timeline.db`
+
+---
 
 ## Usage Guide
-
-### Creating Events Manually
-
-1. Click on the timeline or use the "New Event" button
-2. Fill in event details (title, dates, description, category)
-3. Add tags, people, and locations
-4. Assign to an era (optional)
-5. Save
 
 ### Recording Audio Memories
 
 1. Navigate to the "Record" panel
 2. Click "Start Recording"
-3. Speak clearly about the memory, including:
-   - Dates and timeframes
-   - Names of people involved
-   - Locations
-   - Significance of the event
+3. Speak clearly about the memory, including dates, names, locations
 4. Stop recording when finished
-5. Preview the audio
-6. Submit to queue for processing
-
-### Managing Eras
-
-Eras are life phases (e.g., "College Years", "First Job", "Living in NYC") that provide context and visual organization:
-
-1. Open Settings → Era Management (planned)
-2. Create new era with:
-   - Name
-   - Start/end dates
-   - Color code (for timeline visualization)
-   - Description
-3. Events within the date range will be associated with the era
-
-### Timeline Navigation
-
-- **Zoom**: Use +/- buttons or scroll wheel
-- **Pan**: Click and drag the timeline
-- **Jump**: Use Previous/Next/Today buttons
-- **Zoom Levels**: Year (3-year view), Month (3-month view), Week (3-week view), Day (7-day view)
-
-### Search & Filter
-
-- Use the search box for full-text search across titles, descriptions, and transcripts
-- Filter by category, era, tags, people, or locations (UI pending)
-- Date range filtering (UI pending)
-
-## LLM Event Extraction
-
-When audio recordings are processed, the system:
-
-1. Transcribes audio using speech-to-text
-2. Sends transcript to Claude with structured prompt
-3. Extracts structured event data:
-   - Title
-   - Start/end dates
-   - Description
-   - Category
-   - Suggested era, tags, people, locations
-   - Confidence score
-4. Presents extracted data to user for review
-5. User can edit, approve, or reject
-6. Approved events are added to timeline
-
-### Extraction Prompt Template
-
-The system uses a carefully crafted prompt that instructs Claude to:
-- Extract factual information
-- Preserve the user's voice
-- Provide structured JSON output
-- Include confidence scores
-- Handle ambiguity gracefully
-
-### Event Editing
-
-Before approving extracted events, you can edit them:
-1. Click "Edit" on any event in the Review Queue
-2. Modify any field (title, dates, description, category, tags, people, locations)
-3. Add or remove tags, people, and locations
-4. Save changes to approve and add to timeline
-5. Or approve without editing for quick workflow
-
-## Speech-to-Text (STT) Configuration
-
-The app supports multiple STT engines for audio transcription. Configure your preferred engine in Settings → Speech-to-Text Engine.
-
-### Available Engines
-
-**Local (Free) Engines:**
-- **Mock (Demo)** - Returns demo transcript for testing
-- **Whisper.cpp (Recommended)** - OpenAI Whisper running locally
-  - Cost: Free
-  - Accuracy: Excellent
-  - Setup: `npm install whisper-node`
-  - Models: tiny (39MB), base (74MB), small (244MB), medium (769MB), large (1.5GB)
-- **Vosk** - Lightweight offline recognition
-  - Cost: Free
-  - Accuracy: Good
-  - Setup: `npm install vosk` + download model from https://alphacephei.com/vosk/models
-  - Models: Small (50MB), Large (1.8GB)
-
-**Remote (Paid) Engines:**
-- **OpenAI Whisper API (Recommended for ease)** - Cloud version
-  - Cost: $0.006/minute
-  - Accuracy: Excellent
-  - Setup: API key from https://platform.openai.com/api-keys
-- **Google Cloud Speech-to-Text**
-  - Cost: $0.006-0.024/15 seconds
-  - Accuracy: Excellent
-  - Setup: Google Cloud account + credentials.json
-  - Features: 120+ languages, punctuation, real-time
-- **Deepgram**
-  - Cost: $0.0125/minute
-  - Accuracy: Very good
-  - Setup: API key from https://deepgram.com/
-- **AssemblyAI**
-  - Cost: $0.00025/second ($0.015/minute)
-  - Accuracy: Very good
-  - Setup: API key from https://www.assemblyai.com/
-
-### Configuring STT Engine
-
-1. Open Settings → Speech-to-Text Engine
-2. Select your preferred engine
-3. Enter engine-specific configuration:
-   - **Whisper API**: OpenAI API key
-   - **Whisper Local**: Model size (base recommended)
-   - **Vosk**: Path to downloaded model
-   - **Google Cloud**: Path to credentials.json
-   - **Deepgram/AssemblyAI**: API key
-4. Click "Initialize STT Engine"
-5. The engine will be used for all future transcriptions
-
-### Error Handling & Retry Logic
-
-The app includes robust error handling:
-- **Automatic retries** with exponential backoff for failed API calls
-- **Up to 3 retries** for LLM extraction (1s, 2s, 4s delays)
-- **Up to 2 retries** for STT transcription (2s, 4s delays)
-- **Detailed error messages** showing what failed and why
-- **Database tracking** of failed items with timestamps
-- **No retry** on authentication errors (401) or invalid requests (400)
-
-## RAG Cross-Referencing
-
-The RAG (Retrieval-Augmented Generation) system analyzes your entire timeline to find connections using vector embeddings and LLM analysis.
-
-### Features
-
-- **Causal relationships**: Event A led to Event B
-- **Thematic connections**: Similar themes or topics
-- **Temporal patterns**: Recurring events or cycles
-- **Person/location links**: Shared people or places
-- **Tag suggestions**: Context-aware tagging based on similar events
-- **Semantic similarity**: Find related events using embedding-based search
-
-### Setup
-
-1. **Configure Embedding Provider** (Settings → RAG Settings):
-   - Choose provider: OpenAI, Voyage AI, Cohere, or Local
-   - Select model (e.g., text-embedding-ada-002 for OpenAI)
-   - Enter API key (if using cloud provider)
-   - Click "Initialize Embedding Service"
-
-2. **Generate Embeddings**:
-   - Click "Generate All Embeddings" to process all events
-   - Or enable "Auto-generate embeddings for new events"
-   - Embeddings are vector representations of event text
-
-3. **Analyze Timeline**:
-   - Click "Analyze Timeline for Cross-References" to discover connections
-   - Set similarity threshold (0.5-0.95) - higher = more strict
-   - LLM will analyze similar events and determine relationships
-
-### Using Cross-References
-
-When viewing an event's details, the Cross-Reference Panel shows:
-
-**Connections Tab**:
-- Discovered relationships between events
-- Relationship types: causal, thematic, temporal, person, location
-- Confidence scores and explanations
-
-**Similar Events Tab**:
-- Events with similar content (based on embeddings)
-- Similarity scores (cosine similarity)
-- Quick preview of event details
-
-**Suggested Tags Tab**:
-- Tags commonly used on similar events
-- Confidence scores based on frequency
-- One-click tag addition
-
-### Pattern Detection
-
-Click "Detect Patterns" to find:
-- **Recurring Categories**: Event types that appear frequently
-- **Temporal Clusters**: Time periods with high event density
-- **Era Transitions**: Milestone events near era boundaries
-
-### Privacy & Control
-
-- **Explicit user consent required** - Never runs automatically without permission
-- **Manual trigger** - Run on-demand with confirmation dialog
-- **Transparent** - Shows confidence scores and reasoning
-- **Local storage** - Embeddings and cross-references stored in local SQLite database
-
-## Data Privacy
-
-- **Local-first**: All data stored locally in SQLite
-- **No automatic cloud sync**
-- **Selective API calls**: Only transcripts sent to LLM (configurable)
-- **User confirmation**: Required for all LLM operations (configurable)
-- **Secure storage**: API keys stored using OS credential manager
-- **Audio retention**: Original recordings never deleted
-
-## Performance Considerations
-
-### Timeline Rendering
-
-For large timelines (110+ years of data), the app uses:
-
-- **Lazy loading**: Only loads events in current view range
-- **Efficient queries**: Indexed date ranges in SQLite
-- **DOM virtualization**: Renders only visible events
-- **Memory threshold**: Keeps database < 132MB for in-RAM operation
-
-### Database Size Management
-
-- Regular vacuum to reclaim space
-- Efficient blob storage for audio (external files, not in DB)
-- Indexed columns for fast queries
-- Full-text search virtual tables
-
-## Development Roadmap
-
-### Phase 1: Core Infrastructure ✅ (COMPLETED)
-- Database schema and migrations
-- Basic GUI shell with timeline view
-- Event CRUD operations
-- Era management foundation
-- Settings system
-
-### Phase 2: Audio & Recording ✅ (COMPLETED)
-- Audio recording functionality with MediaRecorder API
-- Queue system implementation with database integration
-- File management with auto-save to user data directory
-- Audio playback from queue
-- Remove/cancel queue items
-- Review queue with approve/reject functionality
-
-### Phase 3: LLM Integration - Extraction ✅ (COMPLETED)
-- Anthropic API integration with @anthropic-ai/sdk
-- Secure API key storage in database
-- Mock transcription service (placeholder for STT integration)
-- Event extraction with structured prompts
-- JSON parsing and validation
-- Batch processing of queue items
-- IPC handlers for LLM operations
-- Settings UI for API key management
-- Process Queue button with validation
-- Automatic pending event creation
-- Full approval workflow to timeline
-
-### Phase 4: Timeline Visualization Enhancement ✅ (COMPLETED)
-- Advanced zoom/pan controls with smooth transitions
-- Enhanced event bubbles with category icons and interactive hover tooltips
-- Intelligent date markers and labels that adapt to zoom level
-- Era visualization with enhanced gradients and backdrop effects
-- Keyboard shortcuts for navigation (←/→, +/-, T)
-- Responsive sizing based on zoom level
-- Duration events shown differently from point events
-- Keyboard hints displayed in timeline info panel
-
-### Phase 5: RAG Cross-Referencing ✅ (COMPLETED)
-- Vector embedding generation with multiple providers (OpenAI, Voyage, Cohere, Local)
-- Cosine similarity calculation for semantic event matching
-- RAG-powered cross-reference analysis using LLM
-- Cross-reference UI panel with connections, similar events, and tag suggestions
-- Pattern detection system (recurring categories, temporal clusters, era transitions)
-- Smart tag suggestion based on similar events
-- RAG configuration in Settings panel
-- Database schema for embeddings and cross-references
-
-### Phase 6: Polish & Optimization ✅ (COMPLETED)
-- Performance optimization for 1000+ events with pagination and caching
-- Comprehensive error handling with ErrorBoundary component
-- Export functionality (JSON, CSV, Markdown) with import support
-- Error boundaries and crash recovery
-- Installer creation configured for Windows, macOS, and Linux
-- Comprehensive deployment and installation documentation
-
-### Native Windows Implementation (Separate Branch)
-
-A native Windows 11 application is being developed in parallel on the `windows-native` branch. See **MIGRATION-TO-NATIVE-WIN.md** for complete details.
-
-**Status**: 86% complete (6 of 7 phases done)
-- ✅ Phases 0-6 complete (Core, Timeline, Audio, LLM, RAG, Windows Integration)
-- ⬜ Phase 7 pending (Testing & Deployment)
-
-**Key Features Implemented**:
-- WinUI 3 native UI with 60 FPS timeline rendering
-- Full database compatibility with Electron version
-- NPU-ready architecture (DirectML stubs)
-- Windows 11 integration (Notifications, JumpList, Timeline)
-- Export/Import functionality
-- Complete RAG implementation with embeddings
-
-**Tech Stack**:
-- .NET 8 + WinUI 3
-- EF Core 8 + SQLite
-- Windows App SDK
-- DirectML for future NPU support
-
-## Future Enhancements
-
-- Photo/document attachments
-- Collaborative timelines (multi-user)
-- Mobile companion app
-- Voice commands for recording
-- Multi-language support
-- Import from other sources (social media, calendar)
-- Timeline templates
-- Advanced analytics and insights
-
-## Cross-Platform Support
-
-**Current**: Windows 11 (primary target)
-
-**Planned**:
-- macOS via Electron
-- iOS via Marzipan/Mac Catalyst (long-term)
-- Linux via Electron
-
-The current Electron + React architecture supports easy cross-platform deployment.
+5. Preview and submit to queue
+
+### Processing Queue
+
+1. Ensure API key is configured in Settings
+2. Click "Process Queue"
+3. STT transcribes audio
+4. LLM extracts structured events
+5. Review extracted events in Review Queue
+
+### Managing Timeline
+
+- **Zoom:** Use +/- buttons or scroll wheel
+- **Pan:** Click and drag
+- **Navigate:** Use Previous/Next/Today buttons
+- **Keyboard:** ←/→ navigate, +/- zoom, T for today
+
+### RAG Cross-References
+
+1. Configure embedding provider in Settings
+2. Generate embeddings for events
+3. Use "Analyze Timeline" to discover connections
+4. View connections in event details panel
+
+---
+
+## Development Status
+
+### Electron Version - Complete (v1.0.0-rc1)
+
+All 7 phases complete:
+- Phase 1: Core Infrastructure
+- Phase 2: Audio & Recording
+- Phase 3: LLM Integration
+- Phase 4: Timeline Visualization
+- Phase 5: RAG Cross-Referencing
+- Phase 6: Polish & Optimization
+- Phase 7: Extended Features (Search, Batch Import, Analytics)
+
+### Windows Native Version - 86% Complete
+
+| Phase | Status |
+|-------|--------|
+| Phase 0: Preparation | ✅ Complete |
+| Phase 1: Core Infrastructure | ✅ Complete |
+| Phase 2: Timeline Visualization | ✅ Complete |
+| Phase 3: Audio & Processing | ✅ Complete |
+| Phase 4: LLM Integration | ✅ Complete |
+| Phase 5: RAG & Embeddings | ✅ Complete |
+| Phase 6: Polish & Integration | ✅ Complete |
+| Phase 7: Testing & Deployment | ⬜ Pending |
+
+See [`windows-native/DEVELOPMENT-STATUS.md`](./windows-native/DEVELOPMENT-STATUS.md) for details.
+
+---
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [`README.md`](./README.md) | This file - project overview |
+| [`claude.md`](./claude.md) | AI assistant development guide |
+| [`DEPLOYMENT-INSTALL.md`](./DEPLOYMENT-INSTALL.md) | Electron deployment guide |
+| [`MIGRATION-TO-NATIVE-WIN.md`](./MIGRATION-TO-NATIVE-WIN.md) | Windows migration roadmap |
+| [`windows-native/README.md`](./windows-native/README.md) | Windows native overview |
+| [`windows-native/DEVELOPMENT-STATUS.md`](./windows-native/DEVELOPMENT-STATUS.md) | Windows development status |
+| [`windows-native/DEVELOPMENT-HISTORY.md`](./windows-native/DEVELOPMENT-HISTORY.md) | Consolidated phase reports |
+| [`windows-native/TESTING.md`](./windows-native/TESTING.md) | Windows testing guide |
+| [`windows-native/DEPLOYMENT.md`](./windows-native/DEPLOYMENT.md) | Windows deployment guide |
+
+---
+
+## Privacy & Security
+
+- **Local-First:** All data stored locally in SQLite
+- **No Automatic Cloud Sync:** You control when data leaves your device
+- **Selective API Calls:** Only transcripts sent to LLM (configurable)
+- **User Confirmation:** Required for all LLM operations (configurable)
+- **Secure Storage:** API keys stored using OS credential manager
+- **Audio Retention:** Original recordings never automatically deleted
+
+---
 
 ## Troubleshooting
 
-### Database Issues
+### Electron
 
-- **Backup regularly** using Settings → Database Management
-- If corrupted, restore from backup
-- Use "Optimize Database" to reclaim space
+**npm install fails:**
+```bash
+npm install --ignore-scripts  # For restricted environments
+```
 
-### Audio Recording Problems
+**Database issues:**
+- Backup database before troubleshooting
+- Delete `memory-timeline.db` to reset (data loss!)
+- Use "Optimize Database" in Settings
 
-- Check microphone permissions in OS settings
-- Verify correct input device is selected
-- Test audio quality with preview before submitting
+**Audio recording issues:**
+- Check microphone permissions
+- Verify input device in Settings
 
-### Performance Issues
+### Windows Native
 
-- Vacuum database regularly
-- Limit timeline view to smaller date ranges
-- Clear browser cache (Dev Tools → Application → Storage)
+**Build errors:**
+- Ensure Visual Studio 2022 17.8+
+- Install .NET 8 SDK
+- Run `dotnet restore --force-evaluate`
+
+**Runtime errors:**
+- Check `%LOCALAPPDATA%\MemoryTimeline\` exists
+- Verify microphone permissions
+
+See respective documentation for detailed troubleshooting.
+
+---
 
 ## Contributing
-
-This is a personal project but contributions are welcome! Please:
 
 1. Fork the repository
 2. Create a feature branch
@@ -599,26 +404,39 @@ This is a personal project but contributions are welcome! Please:
 4. Test thoroughly
 5. Submit a pull request
 
-## License
+### Guidelines
 
-MIT License (see LICENSE file)
-
-## Acknowledgments
-
-- Anthropic for Claude API
-- Electron team for the framework
-- better-sqlite3 for SQLite bindings
-- React team for the UI library
-
-## Support
-
-For issues, questions, or suggestions:
-- Open an issue on GitHub
-- Check documentation in `/docs` (planned)
-- Review the prompt template for LLM customization
+- Follow existing code style
+- Add tests for new features
+- Update documentation as needed
+- Maintain feature parity between versions when appropriate
 
 ---
 
-**Version**: 1.0.0-rc1 (Electron)
-**Status**: Release Candidate - All 7 phases complete! Production-ready with full feature set including advanced search, batch import, analytics, polish, optimization, error handling, export functionality, and comprehensive deployment documentation.
-**Last Updated**: 2025-11-25
+## Future Enhancements
+
+- Mobile companion apps (iOS/Android)
+- Cloud sync and backup options
+- Collaborative timeline sharing
+- Photo/document attachments
+- Enhanced AI features (automatic clustering, smart summaries)
+- Multi-language support
+
+---
+
+## License
+
+MIT License - See LICENSE file
+
+---
+
+## Support
+
+- **Issues:** GitHub Issues
+- **Discussions:** GitHub Discussions
+- **Documentation:** See links above
+
+---
+
+**Version:** 1.0.0-rc1 (Electron) | 0.9.0-beta (Windows Native)
+**Last Updated:** 2026-01-17
