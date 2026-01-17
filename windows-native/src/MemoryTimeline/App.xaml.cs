@@ -17,83 +17,160 @@ namespace MemoryTimeline;
 public partial class App : Application
 {
     private Window? _mainWindow;
-    private readonly IHost _host;
+    private IHost? _host;
+    private static readonly string LogPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "MemoryTimeline",
+        "error.log"
+    );
+
+    /// <summary>
+    /// Writes a message to the error log file.
+    /// </summary>
+    private static void WriteToLog(string message)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(LogPath)!);
+            File.AppendAllText(LogPath, $"\n[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}\n");
+        }
+        catch
+        {
+            // Ignore logging failures
+        }
+    }
+
+    /// <summary>
+    /// Writes an exception to the error log file.
+    /// </summary>
+    private static void LogException(string context, Exception ex)
+    {
+        var message = $"=== {context} ===\n{ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}";
+
+        if (ex.InnerException != null)
+        {
+            message += $"\n\nInner Exception:\n{ex.InnerException.GetType().Name}: {ex.InnerException.Message}\n{ex.InnerException.StackTrace}";
+        }
+
+        WriteToLog(message);
+    }
 
     /// <summary>
     /// Initializes the singleton application object.
     /// </summary>
     public App()
     {
-        InitializeComponent();
+        WriteToLog("App constructor starting...");
 
-        // Configure dependency injection
-        _host = Host.CreateDefaultBuilder()
-            .ConfigureServices((context, services) =>
-            {
-                // Register DbContext
-                services.AddDbContext<AppDbContext>();
+        try
+        {
+            InitializeComponent();
+            WriteToLog("InitializeComponent completed");
 
-                // Register repositories
-                services.AddScoped<IEventRepository, EventRepository>();
-                services.AddScoped<IEraRepository, EraRepository>();
-                services.AddScoped<IRecordingQueueRepository, RecordingQueueRepository>();
-                services.AddScoped<ITagRepository, TagRepository>();
-                services.AddScoped<IPersonRepository, PersonRepository>();
-                services.AddScoped<ILocationRepository, LocationRepository>();
-                services.AddScoped<ICrossReferenceRepository, CrossReferenceRepository>();
-                services.AddScoped<IEventEmbeddingRepository, EventEmbeddingRepository>();
-                services.AddScoped<IAppSettingRepository, AppSettingRepository>();
-                services.AddScoped<IPendingEventRepository, PendingEventRepository>();
+            // Set up global exception handlers
+            UnhandledException += App_UnhandledException;
+            System.AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
+            TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;
 
-                // Register core services
-                services.AddSingleton<ISettingsService, SettingsService>();
-                services.AddScoped<IEventService, EventService>();
-                services.AddScoped<ITimelineService, TimelineService>();
+            // Configure dependency injection
+            _host = Host.CreateDefaultBuilder()
+                .ConfigureServices((context, services) =>
+                {
+                    // Register DbContext
+                    services.AddDbContext<AppDbContext>();
 
-                // Phase 3: Audio & Queue services
-                services.AddSingleton<IAudioRecordingService, AudioRecordingService>();
-                services.AddSingleton<IAudioPlaybackService, AudioPlaybackService>();
-                services.AddScoped<IQueueService, QueueService>();
-                services.AddScoped<ISpeechToTextService, WindowsSpeechRecognitionService>();
+                    // Register repositories
+                    services.AddScoped<IEventRepository, EventRepository>();
+                    services.AddScoped<IEraRepository, EraRepository>();
+                    services.AddScoped<IRecordingQueueRepository, RecordingQueueRepository>();
+                    services.AddScoped<ITagRepository, TagRepository>();
+                    services.AddScoped<IPersonRepository, PersonRepository>();
+                    services.AddScoped<ILocationRepository, LocationRepository>();
+                    services.AddScoped<ICrossReferenceRepository, CrossReferenceRepository>();
+                    services.AddScoped<IEventEmbeddingRepository, EventEmbeddingRepository>();
+                    services.AddScoped<IAppSettingRepository, AppSettingRepository>();
+                    services.AddScoped<IPendingEventRepository, PendingEventRepository>();
 
-                // Phase 4: LLM & Event Extraction services
-                services.AddSingleton<ILlmService, AnthropicLlmService>();
-                services.AddScoped<IEventExtractionService, EventExtractionService>();
+                    // Register core services
+                    services.AddSingleton<ISettingsService, SettingsService>();
+                    services.AddScoped<IEventService, EventService>();
+                    services.AddScoped<ITimelineService, TimelineService>();
 
-                // Phase 5: RAG & Embedding services
-                services.AddHttpClient<IEmbeddingService, OpenAIEmbeddingService>();
-                services.AddScoped<IRagService, RagService>();
+                    // Phase 3: Audio & Queue services
+                    services.AddSingleton<IAudioRecordingService, AudioRecordingService>();
+                    services.AddSingleton<IAudioPlaybackService, AudioPlaybackService>();
+                    services.AddScoped<IQueueService, QueueService>();
+                    services.AddScoped<ISpeechToTextService, WindowsSpeechRecognitionService>();
 
-                // Phase 6: Export/Import & Windows Integration services
-                services.AddScoped<IExportService, ExportService>();
-                services.AddScoped<IImportService, ImportService>();
-                services.AddSingleton<Services.INotificationService, Services.NotificationService>();
-                services.AddSingleton<IWindowsTimelineService, WindowsTimelineService>();
-                services.AddSingleton<IJumpListService, JumpListService>();
+                    // Phase 4: LLM & Event Extraction services
+                    services.AddSingleton<ILlmService, AnthropicLlmService>();
+                    services.AddScoped<IEventExtractionService, EventExtractionService>();
 
-                // Register app services
-                services.AddSingleton<INavigationService, NavigationService>();
-                services.AddSingleton<IThemeService, ThemeService>();
+                    // Phase 5: RAG & Embedding services
+                    services.AddHttpClient<IEmbeddingService, OpenAIEmbeddingService>();
+                    services.AddScoped<IRagService, RagService>();
 
-                // Register ViewModels
-                services.AddTransient<MainViewModel>();
-                services.AddTransient<TimelineViewModel>();
-                services.AddTransient<SettingsViewModel>();
-                services.AddTransient<QueueViewModel>();
-                services.AddTransient<ReviewViewModel>();
-                services.AddTransient<ConnectionsViewModel>();
+                    // Phase 6: Export/Import & Windows Integration services
+                    services.AddScoped<IExportService, ExportService>();
+                    services.AddScoped<IImportService, ImportService>();
+                    services.AddSingleton<Services.INotificationService, Services.NotificationService>();
+                    services.AddSingleton<IWindowsTimelineService, WindowsTimelineService>();
+                    services.AddSingleton<IJumpListService, JumpListService>();
 
-                // Register Views
-                services.AddTransient<MainWindow>();
-                services.AddTransient<TimelinePage>();
-                services.AddTransient<QueuePage>();
-                services.AddTransient<ReviewPage>();
-                services.AddTransient<SearchPage>();
-                services.AddTransient<AnalyticsPage>();
-                services.AddTransient<SettingsPage>();
-                services.AddTransient<ConnectionsPage>();
-            })
-            .Build();
+                    // Register app services
+                    services.AddSingleton<INavigationService, NavigationService>();
+                    services.AddSingleton<IThemeService, ThemeService>();
+
+                    // Register ViewModels
+                    services.AddTransient<MainViewModel>();
+                    services.AddTransient<TimelineViewModel>();
+                    services.AddTransient<SettingsViewModel>();
+                    services.AddTransient<QueueViewModel>();
+                    services.AddTransient<ReviewViewModel>();
+                    services.AddTransient<ConnectionsViewModel>();
+
+                    // Register Views
+                    services.AddTransient<MainWindow>();
+                    services.AddTransient<TimelinePage>();
+                    services.AddTransient<QueuePage>();
+                    services.AddTransient<ReviewPage>();
+                    services.AddTransient<SearchPage>();
+                    services.AddTransient<AnalyticsPage>();
+                    services.AddTransient<SettingsPage>();
+                    services.AddTransient<ConnectionsPage>();
+                })
+                .Build();
+
+            WriteToLog("Host built successfully");
+        }
+        catch (Exception ex)
+        {
+            LogException("App Constructor Failed", ex);
+            throw; // Re-throw to let the app crash (but now we have a log)
+        }
+    }
+
+    private void App_UnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
+    {
+        LogException("Unhandled UI Exception", e.Exception);
+        e.Handled = false; // Let it crash, but we have the log
+    }
+
+    private void CurrentDomain_UnhandledException(object sender, System.UnhandledExceptionEventArgs e)
+    {
+        if (e.ExceptionObject is Exception ex)
+        {
+            LogException("AppDomain Unhandled Exception", ex);
+        }
+        else
+        {
+            WriteToLog($"AppDomain Unhandled Exception (non-Exception): {e.ExceptionObject}");
+        }
+    }
+
+    private void TaskScheduler_UnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+    {
+        LogException("Unobserved Task Exception", e.Exception);
     }
 
     /// <summary>
@@ -104,7 +181,7 @@ public partial class App : Application
     /// <summary>
     /// Gets the <see cref="IServiceProvider"/> instance to resolve application services.
     /// </summary>
-    public IServiceProvider Services => _host.Services;
+    public IServiceProvider Services => _host?.Services ?? throw new InvalidOperationException("Host not initialized");
 
     /// <summary>
     /// Gets the main application window.
@@ -117,50 +194,44 @@ public partial class App : Application
     /// <param name="args">Details about the launch request and process.</param>
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
+        WriteToLog("OnLaunched starting...");
+
         try
         {
+            if (_host == null)
+            {
+                throw new InvalidOperationException("Host was not initialized in constructor");
+            }
+
+            WriteToLog("Starting host...");
             await _host.StartAsync();
+            WriteToLog("Host started");
 
             // Ensure database is created and migrated
+            WriteToLog("Creating database scope...");
             using (var scope = Services.CreateScope())
             {
                 var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                WriteToLog("Ensuring database created...");
                 await dbContext.Database.EnsureCreatedAsync();
+                WriteToLog("Database ready");
             }
 
+            WriteToLog("Creating MainWindow...");
             _mainWindow = Services.GetRequiredService<MainWindow>();
+            WriteToLog("Activating MainWindow...");
             _mainWindow.Activate();
+            WriteToLog("MainWindow activated");
 
             // Initialize theme
+            WriteToLog("Initializing theme...");
             var themeService = Services.GetRequiredService<IThemeService>();
             await themeService.InitializeAsync();
+            WriteToLog("Theme initialized - startup complete!");
         }
         catch (Exception ex)
         {
-            // Log the error and show a message to the user
-            var errorMessage = $"Failed to start Memory Timeline:\n\n{ex.Message}\n\nStack Trace:\n{ex.StackTrace}";
-
-            if (ex.InnerException != null)
-            {
-                errorMessage += $"\n\nInner Exception:\n{ex.InnerException.Message}\n{ex.InnerException.StackTrace}";
-            }
-
-            // Always write to log file first for debugging
-            var logPath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "MemoryTimeline",
-                "error.log"
-            );
-
-            try
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
-                File.AppendAllText(logPath, $"\n\n{'='.ToString().PadRight(50, '=')}\n{DateTime.Now:yyyy-MM-dd HH:mm:ss}\n{errorMessage}\n");
-            }
-            catch
-            {
-                // Ignore logging failures
-            }
+            LogException("OnLaunched Failed", ex);
 
             // Try to show an error dialog if possible
             try
@@ -169,12 +240,19 @@ public partial class App : Application
                 if (_mainWindow == null)
                 {
                     _mainWindow = new Window();
-                    _mainWindow.Content = new Grid(); // Must set content before accessing XamlRoot
+                    _mainWindow.Content = new Grid();
                     _mainWindow.Activate();
                 }
 
                 if (_mainWindow.Content?.XamlRoot != null)
                 {
+                    var errorMessage = $"Failed to start Memory Timeline:\n\n{ex.Message}";
+                    if (ex.InnerException != null)
+                    {
+                        errorMessage += $"\n\nInner: {ex.InnerException.Message}";
+                    }
+                    errorMessage += $"\n\nSee log file for details:\n{LogPath}";
+
                     var dialog = new ContentDialog
                     {
                         Title = "Startup Error",
@@ -195,9 +273,9 @@ public partial class App : Application
                     await dialog.ShowAsync();
                 }
             }
-            catch
+            catch (Exception dialogEx)
             {
-                // Dialog failed - error is already logged
+                LogException("Error Dialog Failed", dialogEx);
             }
 
             // Exit the application
