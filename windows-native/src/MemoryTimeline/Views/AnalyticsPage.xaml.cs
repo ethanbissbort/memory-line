@@ -13,7 +13,7 @@ public sealed partial class AnalyticsPage : Page
     public AnalyticsPage()
     {
         InitializeComponent();
-        ViewModel = App.Services.GetRequiredService<AnalyticsViewModel>();
+        ViewModel = App.Current.Services.GetRequiredService<AnalyticsViewModel>();
     }
 
     private async void Page_Loaded(object sender, RoutedEventArgs e)

@@ -13,7 +13,7 @@ public sealed partial class SearchPage : Page
     public SearchPage()
     {
         InitializeComponent();
-        ViewModel = App.Services.GetRequiredService<SearchViewModel>();
+        ViewModel = App.Current.Services.GetRequiredService<SearchViewModel>();
     }
 
     private async void Page_Loaded(object sender, RoutedEventArgs e)
