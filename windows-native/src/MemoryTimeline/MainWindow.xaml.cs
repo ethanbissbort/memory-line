@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using MemoryTimeline.Services;
 using MemoryTimeline.Views;
 using MemoryTimeline.ViewModels;
@@ -28,8 +29,9 @@ public sealed partial class MainWindow : Window
         _navigationService.Frame = ContentFrame;
         RegisterPages();
 
-        // Navigate to Timeline page by default
+        // Navigate to Timeline page by default and select the item
         _navigationService.NavigateTo("Timeline");
+        SelectNavigationItem("Timeline");
     }
 
     private void RegisterPages()
@@ -58,4 +60,102 @@ public sealed partial class MainWindow : Window
             }
         }
     }
+
+    #region Keyboard Navigation Handlers
+
+    private void NavigateTo(string pageTag)
+    {
+        _navigationService.NavigateTo(pageTag);
+        SelectNavigationItem(pageTag);
+    }
+
+    private void SelectNavigationItem(string tag)
+    {
+        if (tag == "Settings")
+        {
+            NavigationView.SelectedItem = NavigationView.SettingsItem;
+            return;
+        }
+
+        foreach (var item in NavigationView.MenuItems)
+        {
+            if (item is NavigationViewItem navItem && navItem.Tag?.ToString() == tag)
+            {
+                NavigationView.SelectedItem = navItem;
+                return;
+            }
+        }
+    }
+
+    private void NavigateToTimeline_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        NavigateTo("Timeline");
+        args.Handled = true;
+    }
+
+    private void NavigateToQueue_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        NavigateTo("Queue");
+        args.Handled = true;
+    }
+
+    private void NavigateToReview_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        NavigateTo("Review");
+        args.Handled = true;
+    }
+
+    private void NavigateToConnections_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        NavigateTo("Connections");
+        args.Handled = true;
+    }
+
+    private void NavigateToSearch_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        NavigateTo("Search");
+        args.Handled = true;
+    }
+
+    private void NavigateToAnalytics_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        NavigateTo("Analytics");
+        args.Handled = true;
+    }
+
+    private void NavigateToSettings_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        NavigateTo("Settings");
+        args.Handled = true;
+    }
+
+    private void Refresh_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        // Refresh the current page by re-navigating to it
+        if (ContentFrame.CurrentSourcePageType != null)
+        {
+            ContentFrame.Navigate(ContentFrame.CurrentSourcePageType);
+        }
+        args.Handled = true;
+    }
+
+    private void GoBack_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (_navigationService.CanGoBack)
+        {
+            _navigationService.GoBack();
+        }
+        args.Handled = true;
+    }
+
+    private void GoForward_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (ContentFrame.CanGoForward)
+        {
+            ContentFrame.GoForward();
+        }
+        args.Handled = true;
+    }
+
+    #endregion
 }
