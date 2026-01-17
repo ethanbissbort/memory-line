@@ -4,12 +4,355 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    mc:Ignorable="d">
+    xmlns:core="using:MemoryTimeline.Core.Models"
+    mc:Ignorable="d"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+    Loaded="Page_Loaded">
 
-    <Grid>
-        <TextBlock Text="Analytics View - TODO: Implement"
-                   HorizontalAlignment="Center"
-                   VerticalAlignment="Center"
-                   FontSize="24"/>
+    <Grid Padding="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Grid Grid.Row="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0">
+                <TextBlock Text="Analytics" Style="{StaticResource TitleTextBlockStyle}"/>
+                <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+            </StackPanel>
+
+            <Button Grid.Column="1" Command="{x:Bind ViewModel.RefreshCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE72C;" FontSize="14"/>
+                    <TextBlock Text="Refresh"/>
+                </StackPanel>
+            </Button>
+        </Grid>
+
+        <!-- Main Content -->
+        <ScrollViewer Grid.Row="1" Margin="0,16,0,0">
+            <StackPanel Spacing="24">
+
+                <!-- Overview Stats -->
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Border Grid.Column="0" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            CornerRadius="8" Padding="16" Margin="0,0,8,0">
+                        <StackPanel>
+                            <TextBlock Text="{x:Bind ViewModel.TotalEvents, Mode=OneWay}"
+                                       Style="{StaticResource TitleLargeTextBlockStyle}"/>
+                            <TextBlock Text="Events" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Column="1" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            CornerRadius="8" Padding="16" Margin="4,0">
+                        <StackPanel>
+                            <TextBlock Text="{x:Bind ViewModel.TotalPeople, Mode=OneWay}"
+                                       Style="{StaticResource TitleLargeTextBlockStyle}"/>
+                            <TextBlock Text="People" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Column="2" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            CornerRadius="8" Padding="16" Margin="4,0">
+                        <StackPanel>
+                            <TextBlock Text="{x:Bind ViewModel.TotalTags, Mode=OneWay}"
+                                       Style="{StaticResource TitleLargeTextBlockStyle}"/>
+                            <TextBlock Text="Tags" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Column="3" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            CornerRadius="8" Padding="16" Margin="4,0">
+                        <StackPanel>
+                            <TextBlock Text="{x:Bind ViewModel.EventsWithAudio, Mode=OneWay}"
+                                       Style="{StaticResource TitleLargeTextBlockStyle}"/>
+                            <TextBlock Text="With Audio" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Column="4" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            CornerRadius="8" Padding="16" Margin="8,0,0,0">
+                        <StackPanel>
+                            <TextBlock Text="{x:Bind ViewModel.TimelineSpanText, Mode=OneWay}"
+                                       Style="{StaticResource SubtitleTextBlockStyle}"/>
+                            <TextBlock Text="Timeline Span" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <!-- Category Distribution -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        CornerRadius="8" Padding="16">
+                    <StackPanel Spacing="16">
+                        <Grid>
+                            <TextBlock Text="Category Distribution" Style="{StaticResource SubtitleTextBlockStyle}"/>
+                            <Button HorizontalAlignment="Right" Content="Toggle"
+                                    Command="{x:Bind ViewModel.ToggleCategoryChartCommand}"/>
+                        </Grid>
+
+                        <ItemsRepeater ItemsSource="{x:Bind ViewModel.CategoryDistribution, Mode=OneWay}"
+                                       Visibility="{x:Bind ViewModel.ShowCategoryChart, Mode=OneWay}">
+                            <ItemsRepeater.Layout>
+                                <StackLayout Orientation="Vertical" Spacing="8"/>
+                            </ItemsRepeater.Layout>
+                            <ItemsRepeater.ItemTemplate>
+                                <DataTemplate x:DataType="core:CategoryDistribution">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="120"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="80"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <TextBlock Grid.Column="0" Text="{x:Bind DisplayName}"
+                                                   VerticalAlignment="Center"/>
+
+                                        <Grid Grid.Column="1" Height="24" Margin="8,0"
+                                              Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                              CornerRadius="4">
+                                            <Border HorizontalAlignment="Left"
+                                                    CornerRadius="4"
+                                                    Background="{x:Bind Color}">
+                                                <Border.Width>
+                                                    <Binding Path="Percentage" Converter="{StaticResource PercentageToWidthConverter}"/>
+                                                </Border.Width>
+                                            </Border>
+                                        </Grid>
+
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal"
+                                                    HorizontalAlignment="Right" Spacing="4">
+                                            <TextBlock Text="{x:Bind Count}" FontWeight="SemiBold"/>
+                                            <TextBlock Text="{x:Bind Percentage, StringFormat='{0:F1}%'}"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                       FontSize="12"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsRepeater.ItemTemplate>
+                        </ItemsRepeater>
+                    </StackPanel>
+                </Border>
+
+                <!-- Timeline Density -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        CornerRadius="8" Padding="16">
+                    <StackPanel Spacing="16">
+                        <Grid>
+                            <TextBlock Text="Timeline Density" Style="{StaticResource SubtitleTextBlockStyle}"/>
+                            <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
+                                <Button Content="Monthly" Click="MonthlyDensity_Click"/>
+                                <Button Content="Yearly" Click="YearlyDensity_Click"/>
+                            </StackPanel>
+                        </Grid>
+
+                        <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                                      VerticalScrollBarVisibility="Disabled"
+                                      Visibility="{x:Bind ViewModel.ShowDensityChart, Mode=OneWay}">
+                            <ItemsRepeater ItemsSource="{x:Bind ViewModel.CurrentDensity, Mode=OneWay}">
+                                <ItemsRepeater.Layout>
+                                    <StackLayout Orientation="Horizontal" Spacing="4"/>
+                                </ItemsRepeater.Layout>
+                                <ItemsRepeater.ItemTemplate>
+                                    <DataTemplate x:DataType="core:TimelineDensityPoint">
+                                        <StackPanel Width="40" ToolTipService.ToolTip="{x:Bind Label}">
+                                            <Border Height="100" VerticalAlignment="Bottom"
+                                                    Background="{ThemeResource AccentFillColorDefaultBrush}"
+                                                    CornerRadius="4,4,0,0">
+                                                <Border.Height>
+                                                    <Binding Path="NormalizedValue" Converter="{StaticResource NormalizedToHeightConverter}"/>
+                                                </Border.Height>
+                                            </Border>
+                                            <TextBlock Text="{x:Bind EventCount}" HorizontalAlignment="Center"
+                                                       FontSize="10" Margin="0,4,0,0"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsRepeater.ItemTemplate>
+                            </ItemsRepeater>
+                        </ScrollViewer>
+                    </StackPanel>
+                </Border>
+
+                <!-- Tag Cloud -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        CornerRadius="8" Padding="16">
+                    <StackPanel Spacing="16">
+                        <Grid>
+                            <TextBlock Text="Tag Cloud" Style="{StaticResource SubtitleTextBlockStyle}"/>
+                            <Button HorizontalAlignment="Right" Content="Toggle"
+                                    Command="{x:Bind ViewModel.ToggleTagCloudCommand}"/>
+                        </Grid>
+
+                        <ItemsRepeater ItemsSource="{x:Bind ViewModel.TagCloud, Mode=OneWay}"
+                                       Visibility="{x:Bind ViewModel.ShowTagCloud, Mode=OneWay}">
+                            <ItemsRepeater.Layout>
+                                <UniformGridLayout MinItemWidth="80" MinItemHeight="32"
+                                                   MinColumnSpacing="8" MinRowSpacing="8"/>
+                            </ItemsRepeater.Layout>
+                            <ItemsRepeater.ItemTemplate>
+                                <DataTemplate x:DataType="core:TagCloudItem">
+                                    <Border Background="{x:Bind Color}" CornerRadius="4" Padding="8,4"
+                                            ToolTipService.ToolTip="{x:Bind Count}">
+                                        <TextBlock Text="{x:Bind Name}" Foreground="White"
+                                                   FontSize="{x:Bind FontSize}"/>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsRepeater.ItemTemplate>
+                        </ItemsRepeater>
+                    </StackPanel>
+                </Border>
+
+                <!-- People Network -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        CornerRadius="8" Padding="16">
+                    <StackPanel Spacing="16">
+                        <Grid>
+                            <TextBlock Text="People Network" Style="{StaticResource SubtitleTextBlockStyle}"/>
+                            <Button HorizontalAlignment="Right" Content="Toggle"
+                                    Command="{x:Bind ViewModel.TogglePeopleNetworkCommand}"/>
+                        </Grid>
+
+                        <Grid Visibility="{x:Bind ViewModel.ShowPeopleNetwork, Mode=OneWay}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="300"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Network Nodes (simplified list view) -->
+                            <ListView Grid.Column="0" ItemsSource="{x:Bind ViewModel.NetworkNodes, Mode=OneWay}"
+                                      MaxHeight="300" SelectionMode="Single"
+                                      SelectedItem="{x:Bind ViewModel.SelectedPerson, Mode=TwoWay}">
+                                <ListView.ItemTemplate>
+                                    <DataTemplate x:DataType="core:PersonNode">
+                                        <Grid Padding="8">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <Ellipse Grid.Column="0" Width="{x:Bind Size}" Height="{x:Bind Size}"
+                                                     Fill="{x:Bind Color}" Margin="0,0,8,0"/>
+
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold"/>
+                                                <TextBlock Text="{x:Bind Relationship}"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                           FontSize="12"/>
+                                            </StackPanel>
+
+                                            <TextBlock Grid.Column="2" Text="{x:Bind EventCount, StringFormat='{0} events'}"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                       FontSize="12" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+
+                            <!-- Connection Details -->
+                            <Border Grid.Column="1" Margin="16,0,0,0" Padding="16"
+                                    Background="{ThemeResource LayerFillColorDefaultBrush}"
+                                    CornerRadius="8">
+                                <StackPanel>
+                                    <TextBlock Text="Connections" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                                    <ListView ItemsSource="{x:Bind ViewModel.NetworkEdges, Mode=OneWay}"
+                                              MaxHeight="250" SelectionMode="None">
+                                        <ListView.ItemTemplate>
+                                            <DataTemplate x:DataType="core:PersonEdge">
+                                                <Grid Padding="4">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0"
+                                                               Text="{x:Bind SourceId}"
+                                                               FontSize="12"/>
+                                                    <TextBlock Grid.Column="1"
+                                                               Text="{x:Bind SharedEventCount, StringFormat='{0} shared'}"
+                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                               FontSize="11"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ListView.ItemTemplate>
+                                    </ListView>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Activity Heatmap -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        CornerRadius="8" Padding="16">
+                    <StackPanel Spacing="16">
+                        <Grid>
+                            <TextBlock Text="Activity Heatmap" Style="{StaticResource SubtitleTextBlockStyle}"/>
+                            <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
+                                <Button Content="Day of Week" Click="DayOfWeekHeatmap_Click"/>
+                                <Button Content="Month" Click="MonthHeatmap_Click"/>
+                                <Button Content="Year" Click="YearHeatmap_Click"/>
+                            </StackPanel>
+                        </Grid>
+
+                        <ItemsRepeater ItemsSource="{x:Bind ViewModel.CurrentHeatmap, Mode=OneWay}"
+                                       Visibility="{x:Bind ViewModel.ShowActivityHeatmap, Mode=OneWay}">
+                            <ItemsRepeater.Layout>
+                                <StackLayout Orientation="Horizontal" Spacing="4"/>
+                            </ItemsRepeater.Layout>
+                            <ItemsRepeater.ItemTemplate>
+                                <DataTemplate x:DataType="core:ActivityHeatmapCell">
+                                    <StackPanel Width="50">
+                                        <Border Height="40" Background="{x:Bind Color}" CornerRadius="4"
+                                                ToolTipService.ToolTip="{x:Bind Value}">
+                                            <TextBlock Text="{x:Bind Value}" HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center" FontSize="11"
+                                                       Foreground="White"/>
+                                        </Border>
+                                        <TextBlock Text="{x:Bind XLabel}" HorizontalAlignment="Center"
+                                                   FontSize="10" Margin="0,4,0,0"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsRepeater.ItemTemplate>
+                        </ItemsRepeater>
+
+                        <!-- Heatmap Legend -->
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="4">
+                            <TextBlock Text="Less" FontSize="10" VerticalAlignment="Center"/>
+                            <Border Width="16" Height="16" Background="#EBEDF0" CornerRadius="2"/>
+                            <Border Width="16" Height="16" Background="#9BE9A8" CornerRadius="2"/>
+                            <Border Width="16" Height="16" Background="#40C463" CornerRadius="2"/>
+                            <Border Width="16" Height="16" Background="#30A14E" CornerRadius="2"/>
+                            <Border Width="16" Height="16" Background="#216E39" CornerRadius="2"/>
+                            <TextBlock Text="More" FontSize="10" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Loading Overlay -->
+        <Grid Grid.RowSpan="2" Visibility="{x:Bind ViewModel.IsLoading, Mode=OneWay}"
+              Background="{ThemeResource AcrylicBackgroundFillColorDefaultBrush}">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
+                <ProgressRing IsActive="True" Width="48" Height="48"/>
+                <TextBlock Text="Loading analytics..." HorizontalAlignment="Center"/>
+            </StackPanel>
+        </Grid>
     </Grid>
 </Page>

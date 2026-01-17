@@ -1,0 +1,519 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using MemoryTimeline.Core.Models;
+using MemoryTimeline.Data;
+using MemoryTimeline.Data.Models;
+
+namespace MemoryTimeline.Core.Services;
+
+/// <summary>
+/// Service interface for timeline analytics and visualizations.
+/// </summary>
+public interface IAnalyticsService
+{
+    /// <summary>
+    /// Get comprehensive timeline analytics.
+    /// </summary>
+    Task<TimelineAnalytics> GetTimelineAnalyticsAsync();
+
+    /// <summary>
+    /// Get category distribution data.
+    /// </summary>
+    Task<List<CategoryDistribution>> GetCategoryDistributionAsync();
+
+    /// <summary>
+    /// Get timeline density data.
+    /// </summary>
+    Task<List<TimelineDensityPoint>> GetTimelineDensityAsync(DensityGranularity granularity);
+
+    /// <summary>
+    /// Get tag cloud data.
+    /// </summary>
+    Task<List<TagCloudItem>> GetTagCloudAsync(int maxTags = 50);
+
+    /// <summary>
+    /// Get people network graph data.
+    /// </summary>
+    Task<PeopleNetwork> GetPeopleNetworkAsync();
+
+    /// <summary>
+    /// Get activity heatmap data.
+    /// </summary>
+    Task<List<ActivityHeatmapCell>> GetActivityHeatmapAsync(HeatmapType type);
+}
+
+/// <summary>
+/// Density granularity options.
+/// </summary>
+public enum DensityGranularity
+{
+    Daily,
+    Weekly,
+    Monthly,
+    Yearly
+}
+
+/// <summary>
+/// Heatmap type options.
+/// </summary>
+public enum HeatmapType
+{
+    DayOfWeek,      // X: day of week (0-6), Y: events
+    MonthOfYear,    // X: month (0-11), Y: events
+    YearOverTime    // X: month, Y: year
+}
+
+/// <summary>
+/// Analytics service implementation.
+/// </summary>
+public class AnalyticsService : IAnalyticsService
+{
+    private readonly AppDbContext _dbContext;
+    private readonly ILogger<AnalyticsService> _logger;
+
+    public AnalyticsService(AppDbContext dbContext, ILogger<AnalyticsService> logger)
+    {
+        _dbContext = dbContext;
+        _logger = logger;
+    }
+
+    public async Task<TimelineAnalytics> GetTimelineAnalyticsAsync()
+    {
+        _logger.LogInformation("Generating timeline analytics");
+
+        var analytics = new TimelineAnalytics();
+
+        try
+        {
+            // Overview statistics
+            analytics.TotalEvents = await _dbContext.Events.CountAsync();
+            analytics.TotalEras = await _dbContext.Eras.CountAsync();
+            analytics.TotalTags = await _dbContext.Tags.CountAsync();
+            analytics.TotalPeople = await _dbContext.People.CountAsync();
+            analytics.TotalLocations = await _dbContext.Locations.CountAsync();
+
+            analytics.EventsWithAudio = await _dbContext.Events
+                .CountAsync(e => e.AudioFilePath != null && e.AudioFilePath != "");
+            analytics.EventsWithTranscript = await _dbContext.Events
+                .CountAsync(e => e.RawTranscript != null && e.RawTranscript != "");
+
+            // Date range
+            var dates = await _dbContext.Events
+                .Select(e => e.StartDate)
+                .ToListAsync();
+
+            if (dates.Any())
+            {
+                analytics.EarliestEventDate = dates.Min();
+                analytics.LatestEventDate = dates.Max();
+                analytics.TimelineSpan = analytics.LatestEventDate - analytics.EarliestEventDate;
+            }
+
+            // Get all component analytics
+            analytics.CategoryDistribution = await GetCategoryDistributionAsync();
+            analytics.MonthlyDensity = await GetTimelineDensityAsync(DensityGranularity.Monthly);
+            analytics.YearlyDensity = await GetTimelineDensityAsync(DensityGranularity.Yearly);
+            analytics.TagCloud = await GetTagCloudAsync();
+            analytics.PeopleNetwork = await GetPeopleNetworkAsync();
+            analytics.ActivityByDayOfWeek = await GetActivityHeatmapAsync(HeatmapType.DayOfWeek);
+            analytics.ActivityByMonth = await GetActivityHeatmapAsync(HeatmapType.MonthOfYear);
+            analytics.ActivityByYear = await GetActivityHeatmapAsync(HeatmapType.YearOverTime);
+
+            _logger.LogInformation("Analytics generated: {EventCount} events analyzed", analytics.TotalEvents);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating timeline analytics");
+            throw;
+        }
+
+        return analytics;
+    }
+
+    public async Task<List<CategoryDistribution>> GetCategoryDistributionAsync()
+    {
+        var distribution = new List<CategoryDistribution>();
+
+        try
+        {
+            var categoryCounts = await _dbContext.Events
+                .Where(e => e.Category != null)
+                .GroupBy(e => e.Category!)
+                .Select(g => new { Category = g.Key, Count = g.Count() })
+                .ToListAsync();
+
+            var totalCount = categoryCounts.Sum(c => c.Count);
+
+            foreach (var item in categoryCounts.OrderByDescending(c => c.Count))
+            {
+                distribution.Add(new CategoryDistribution
+                {
+                    Category = item.Category,
+                    DisplayName = GetCategoryDisplayName(item.Category),
+                    Count = item.Count,
+                    Percentage = totalCount > 0 ? (double)item.Count / totalCount * 100 : 0,
+                    Color = AnalyticsColors.GetCategoryColor(item.Category)
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting category distribution");
+        }
+
+        return distribution;
+    }
+
+    public async Task<List<TimelineDensityPoint>> GetTimelineDensityAsync(DensityGranularity granularity)
+    {
+        var points = new List<TimelineDensityPoint>();
+
+        try
+        {
+            var events = await _dbContext.Events
+                .Select(e => e.StartDate)
+                .ToListAsync();
+
+            if (!events.Any())
+                return points;
+
+            var grouped = granularity switch
+            {
+                DensityGranularity.Daily => events.GroupBy(d => d.Date),
+                DensityGranularity.Weekly => events.GroupBy(d => StartOfWeek(d)),
+                DensityGranularity.Monthly => events.GroupBy(d => new DateTime(d.Year, d.Month, 1)),
+                DensityGranularity.Yearly => events.GroupBy(d => new DateTime(d.Year, 1, 1)),
+                _ => events.GroupBy(d => new DateTime(d.Year, d.Month, 1))
+            };
+
+            var counts = grouped
+                .Select(g => new { Date = g.Key, Count = g.Count() })
+                .OrderBy(x => x.Date)
+                .ToList();
+
+            var maxCount = counts.Max(c => c.Count);
+
+            foreach (var item in counts)
+            {
+                points.Add(new TimelineDensityPoint
+                {
+                    Date = item.Date,
+                    Label = granularity switch
+                    {
+                        DensityGranularity.Daily => item.Date.ToString("MMM d, yyyy"),
+                        DensityGranularity.Weekly => $"Week of {item.Date:MMM d, yyyy}",
+                        DensityGranularity.Monthly => item.Date.ToString("MMM yyyy"),
+                        DensityGranularity.Yearly => item.Date.Year.ToString(),
+                        _ => item.Date.ToString("MMM yyyy")
+                    },
+                    EventCount = item.Count,
+                    NormalizedValue = maxCount > 0 ? (double)item.Count / maxCount : 0
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting timeline density");
+        }
+
+        return points;
+    }
+
+    public async Task<List<TagCloudItem>> GetTagCloudAsync(int maxTags = 50)
+    {
+        var tagCloud = new List<TagCloudItem>();
+
+        try
+        {
+            var tagCounts = await _dbContext.EventTags
+                .Include(et => et.Tag)
+                .GroupBy(et => new { et.TagId, et.Tag.Name, et.Tag.Color })
+                .Select(g => new { g.Key.TagId, g.Key.Name, g.Key.Color, Count = g.Count() })
+                .OrderByDescending(x => x.Count)
+                .Take(maxTags)
+                .ToListAsync();
+
+            if (!tagCounts.Any())
+                return tagCloud;
+
+            var maxCount = tagCounts.Max(t => t.Count);
+            var minCount = tagCounts.Min(t => t.Count);
+            var range = maxCount - minCount;
+
+            foreach (var tag in tagCounts)
+            {
+                // Calculate weight (1-5 scale)
+                double weight = range > 0
+                    ? 1 + ((double)(tag.Count - minCount) / range * 4)
+                    : 3;
+
+                // Calculate font size (12-36px)
+                int fontSize = (int)(12 + (weight - 1) * 6);
+
+                tagCloud.Add(new TagCloudItem
+                {
+                    TagId = tag.TagId,
+                    Name = tag.Name,
+                    Color = tag.Color ?? "#808080",
+                    Count = tag.Count,
+                    Weight = weight,
+                    FontSize = fontSize
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting tag cloud");
+        }
+
+        return tagCloud;
+    }
+
+    public async Task<PeopleNetwork> GetPeopleNetworkAsync()
+    {
+        var network = new PeopleNetwork();
+
+        try
+        {
+            // Get all people with their event counts
+            var people = await _dbContext.People
+                .Include(p => p.EventPeople)
+                .ToListAsync();
+
+            if (!people.Any())
+                return network;
+
+            var maxEventCount = people.Max(p => p.EventPeople.Count);
+
+            // Create nodes
+            foreach (var person in people.Where(p => p.EventPeople.Any()))
+            {
+                var eventCount = person.EventPeople.Count;
+                network.Nodes.Add(new PersonNode
+                {
+                    PersonId = person.PersonId,
+                    Name = person.Name,
+                    Relationship = person.Relationship,
+                    EventCount = eventCount,
+                    Size = maxEventCount > 0 ? 10 + ((double)eventCount / maxEventCount * 40) : 20,
+                    Color = GetRelationshipColor(person.Relationship)
+                });
+            }
+
+            // Create edges (people who share events)
+            var personEventMap = people
+                .Where(p => p.EventPeople.Any())
+                .ToDictionary(
+                    p => p.PersonId,
+                    p => p.EventPeople.Select(ep => ep.EventId).ToHashSet());
+
+            var personIds = personEventMap.Keys.ToList();
+            var maxSharedCount = 1;
+
+            for (int i = 0; i < personIds.Count; i++)
+            {
+                for (int j = i + 1; j < personIds.Count; j++)
+                {
+                    var person1 = personIds[i];
+                    var person2 = personIds[j];
+                    var sharedEvents = personEventMap[person1]
+                        .Intersect(personEventMap[person2])
+                        .ToList();
+
+                    if (sharedEvents.Any())
+                    {
+                        if (sharedEvents.Count > maxSharedCount)
+                            maxSharedCount = sharedEvents.Count;
+
+                        network.Edges.Add(new PersonEdge
+                        {
+                            SourceId = person1,
+                            TargetId = person2,
+                            SharedEventCount = sharedEvents.Count,
+                            SharedEventIds = sharedEvents
+                        });
+                    }
+                }
+            }
+
+            // Calculate edge weights
+            foreach (var edge in network.Edges)
+            {
+                edge.Weight = 1 + ((double)edge.SharedEventCount / maxSharedCount * 4);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting people network");
+        }
+
+        return network;
+    }
+
+    public async Task<List<ActivityHeatmapCell>> GetActivityHeatmapAsync(HeatmapType type)
+    {
+        var cells = new List<ActivityHeatmapCell>();
+
+        try
+        {
+            var events = await _dbContext.Events
+                .Select(e => e.StartDate)
+                .ToListAsync();
+
+            if (!events.Any())
+                return cells;
+
+            switch (type)
+            {
+                case HeatmapType.DayOfWeek:
+                    cells = GenerateDayOfWeekHeatmap(events);
+                    break;
+                case HeatmapType.MonthOfYear:
+                    cells = GenerateMonthOfYearHeatmap(events);
+                    break;
+                case HeatmapType.YearOverTime:
+                    cells = GenerateYearOverTimeHeatmap(events);
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting activity heatmap");
+        }
+
+        return cells;
+    }
+
+    private List<ActivityHeatmapCell> GenerateDayOfWeekHeatmap(List<DateTime> events)
+    {
+        var cells = new List<ActivityHeatmapCell>();
+        var dayNames = new[] { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+
+        var grouped = events
+            .GroupBy(d => (int)d.DayOfWeek)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        var maxCount = grouped.Values.DefaultIfEmpty(0).Max();
+
+        for (int day = 0; day < 7; day++)
+        {
+            var count = grouped.GetValueOrDefault(day, 0);
+            var intensity = maxCount > 0 ? (double)count / maxCount : 0;
+
+            cells.Add(new ActivityHeatmapCell
+            {
+                X = day,
+                Y = 0,
+                XLabel = dayNames[day],
+                YLabel = "",
+                Value = count,
+                Intensity = intensity,
+                Color = AnalyticsColors.GetHeatmapColor(intensity)
+            });
+        }
+
+        return cells;
+    }
+
+    private List<ActivityHeatmapCell> GenerateMonthOfYearHeatmap(List<DateTime> events)
+    {
+        var cells = new List<ActivityHeatmapCell>();
+        var monthNames = new[] { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+
+        var grouped = events
+            .GroupBy(d => d.Month - 1)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        var maxCount = grouped.Values.DefaultIfEmpty(0).Max();
+
+        for (int month = 0; month < 12; month++)
+        {
+            var count = grouped.GetValueOrDefault(month, 0);
+            var intensity = maxCount > 0 ? (double)count / maxCount : 0;
+
+            cells.Add(new ActivityHeatmapCell
+            {
+                X = month,
+                Y = 0,
+                XLabel = monthNames[month],
+                YLabel = "",
+                Value = count,
+                Intensity = intensity,
+                Color = AnalyticsColors.GetHeatmapColor(intensity)
+            });
+        }
+
+        return cells;
+    }
+
+    private List<ActivityHeatmapCell> GenerateYearOverTimeHeatmap(List<DateTime> events)
+    {
+        var cells = new List<ActivityHeatmapCell>();
+        var monthNames = new[] { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+
+        if (!events.Any())
+            return cells;
+
+        var minYear = events.Min(e => e.Year);
+        var maxYear = events.Max(e => e.Year);
+
+        var grouped = events
+            .GroupBy(d => new { d.Year, d.Month })
+            .ToDictionary(g => (g.Key.Year, g.Key.Month), g => g.Count());
+
+        var maxCount = grouped.Values.DefaultIfEmpty(0).Max();
+
+        for (int year = minYear; year <= maxYear; year++)
+        {
+            for (int month = 1; month <= 12; month++)
+            {
+                var count = grouped.GetValueOrDefault((year, month), 0);
+                var intensity = maxCount > 0 ? (double)count / maxCount : 0;
+
+                cells.Add(new ActivityHeatmapCell
+                {
+                    X = month - 1,
+                    Y = year - minYear,
+                    XLabel = monthNames[month - 1],
+                    YLabel = year.ToString(),
+                    Value = count,
+                    Intensity = intensity,
+                    Color = AnalyticsColors.GetHeatmapColor(intensity)
+                });
+            }
+        }
+
+        return cells;
+    }
+
+    private static DateTime StartOfWeek(DateTime date)
+    {
+        int diff = (7 + (date.DayOfWeek - DayOfWeek.Sunday)) % 7;
+        return date.AddDays(-diff).Date;
+    }
+
+    private static string GetCategoryDisplayName(string category) => category switch
+    {
+        "milestone" => "Milestone",
+        "work" => "Work",
+        "education" => "Education",
+        "relationship" => "Relationship",
+        "travel" => "Travel",
+        "achievement" => "Achievement",
+        "challenge" => "Challenge",
+        "era" => "Era",
+        "other" => "Other",
+        _ => category
+    };
+
+    private static string GetRelationshipColor(string? relationship) => relationship?.ToLower() switch
+    {
+        "family" => "#FF6B6B",
+        "friend" => "#4ECDC4",
+        "colleague" => "#45B7D1",
+        "partner" => "#F7DC6F",
+        "mentor" => "#82E0AA",
+        "acquaintance" => "#AEB6BF",
+        _ => "#4A90D9"
+    };
+}
