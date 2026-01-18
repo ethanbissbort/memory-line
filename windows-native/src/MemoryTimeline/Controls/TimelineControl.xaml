@@ -141,7 +141,7 @@
                 </Grid.ContextFlyout>
 
                 <!-- Events layer - map pins in the upper area, stacking upward -->
-                <Canvas x:Name="EventsCanvas" Grid.Row="0" Grid.RowSpan="2" ClipToBounds="True">
+                <Canvas x:Name="EventsCanvas" Grid.Row="0" Grid.RowSpan="2">
                     <ItemsControl x:Name="EventsLayer"
                                  ItemsSource="{x:Bind ViewModel.Events, Mode=OneWay}">
                         <ItemsControl.ItemsPanel>
@@ -217,7 +217,7 @@
                 </ItemsControl>
 
                 <!-- Timeline axis and ticks (bottom area) -->
-                <Grid Grid.Row="2" ClipToBounds="True">
+                <Grid Grid.Row="2">
                     <!-- Timeline axis line -->
                     <Canvas x:Name="AxisCanvas">
                         <Line x:Name="TimelineAxis"
