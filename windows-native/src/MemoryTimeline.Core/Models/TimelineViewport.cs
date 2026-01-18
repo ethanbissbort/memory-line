@@ -6,22 +6,28 @@ namespace MemoryTimeline.Core.Models;
 public class TimelineViewport
 {
     /// <summary>
-    /// Minimum allowed date for the timeline (default: January 1, 1900).
+    /// Default soft scroll boundary for panning into the past.
+    /// This is NOT a limit on event visibility or CRUD operations - it only affects
+    /// the scrolling behavior (soft resistance when panning past this date).
+    /// Direct navigation via GoToDate or CenterOn can go to any date.
     /// </summary>
     public static readonly DateTime DefaultMinDate = new DateTime(1900, 1, 1);
 
     /// <summary>
-    /// Maximum allowed date for the timeline (default: current date).
+    /// Default soft scroll boundary for panning into the future.
+    /// This is NOT a limit on event visibility or CRUD operations.
     /// </summary>
     public static DateTime DefaultMaxDate => DateTime.Now.Date.AddDays(1);
 
     /// <summary>
-    /// Gets or sets the minimum date boundary for this viewport.
+    /// Gets or sets the minimum date soft scroll boundary for panning.
+    /// Does NOT limit event visibility or direct navigation.
     /// </summary>
     public DateTime MinDate { get; set; } = DefaultMinDate;
 
     /// <summary>
-    /// Gets or sets the maximum date boundary for this viewport.
+    /// Gets or sets the maximum date soft scroll boundary for panning.
+    /// Does NOT limit event visibility or direct navigation.
     /// </summary>
     public DateTime MaxDate { get; set; } = DefaultMaxDate;
 
@@ -125,6 +131,8 @@ public class TimelineViewport
 
     /// <summary>
     /// Creates a viewport centered on the given date.
+    /// Note: This method does NOT clamp to MinDate/MaxDate boundaries.
+    /// MinDate/MaxDate only affect panning behavior, not direct navigation.
     /// </summary>
     public static TimelineViewport CreateCentered(DateTime centerDate, ZoomLevel zoom, double viewportWidth)
     {
@@ -133,29 +141,10 @@ public class TimelineViewport
         var visibleDays = TimelineScale.GetVisibleDays(zoom, viewportWidth);
         var halfDays = visibleDays / 2.0;
 
-        // Clamp center date to boundaries
-        centerDate = viewport.ClampDate(centerDate);
-
-        // Ensure we don't show dates outside boundaries
+        // Calculate viewport dates centered on the requested date
+        // No clamping to MinDate/MaxDate - those are only for scroll limits
         var startDate = centerDate.AddDays(-halfDays);
         var endDate = centerDate.AddDays(halfDays);
-
-        // Adjust if start is before min
-        if (startDate < viewport.MinDate)
-        {
-            startDate = viewport.MinDate;
-            endDate = startDate.AddDays(visibleDays);
-            centerDate = startDate.AddDays(halfDays);
-        }
-
-        // Adjust if end is after max
-        if (endDate > viewport.MaxDate)
-        {
-            endDate = viewport.MaxDate;
-            startDate = endDate.AddDays(-visibleDays);
-            if (startDate < viewport.MinDate) startDate = viewport.MinDate;
-            centerDate = startDate.AddDays((endDate - startDate).TotalDays / 2.0);
-        }
 
         viewport.CenterDate = centerDate;
         viewport.StartDate = startDate;
@@ -171,6 +160,7 @@ public class TimelineViewport
 
     /// <summary>
     /// Updates the viewport after a zoom change, maintaining the center date.
+    /// Note: Does NOT clamp to MinDate/MaxDate - those only affect panning.
     /// </summary>
     public void UpdateForZoom(ZoomLevel newZoom)
     {
@@ -182,9 +172,6 @@ public class TimelineViewport
 
         StartDate = CenterDate.AddDays(-halfDays);
         EndDate = CenterDate.AddDays(halfDays);
-
-        // Clamp to boundaries
-        ClampToBoundaries();
     }
 
     /// <summary>
@@ -279,18 +266,16 @@ public class TimelineViewport
 
     /// <summary>
     /// Sets the viewport to center on a specific date.
+    /// Note: This method does NOT clamp to MinDate/MaxDate boundaries.
+    /// MinDate/MaxDate only affect panning behavior, not direct navigation.
     /// </summary>
     public void CenterOn(DateTime date)
     {
-        date = ClampDate(date);
-
         var visibleDays = TimelineScale.GetVisibleDays(ZoomLevel, ViewportWidth);
         var halfDays = visibleDays / 2.0;
 
         CenterDate = date;
         StartDate = date.AddDays(-halfDays);
         EndDate = date.AddDays(halfDays);
-
-        ClampToBoundaries();
     }
 }

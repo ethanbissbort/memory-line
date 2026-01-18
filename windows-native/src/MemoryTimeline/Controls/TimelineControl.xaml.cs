@@ -418,8 +418,9 @@ public sealed partial class TimelineControl : UserControl
     #region Date Navigation Helpers
 
     /// <summary>
-    /// Parses a date string in mmddyy or yyyy format.
+    /// Parses a date string in mmddyy, mmddyyyy, or yyyy format.
     /// Returns null if parsing fails.
+    /// Note: No artificial date restrictions - any valid DateTime year (1-9999) is accepted.
     /// </summary>
     private (DateTime? date, bool isYearOnly) ParseDateString(string input)
     {
@@ -428,10 +429,11 @@ public sealed partial class TimelineControl : UserControl
 
         input = input.Trim();
 
-        // Check for 4-digit year only (e.g., "2006")
+        // Check for 4-digit year only (e.g., "2006", "1850")
         if (input.Length == 4 && int.TryParse(input, out int year))
         {
-            if (year >= 1900 && year <= 2100)
+            // Accept any valid DateTime year (1-9999)
+            if (year >= 1 && year <= 9999)
             {
                 return (new DateTime(year, 1, 1), true);
             }
