@@ -128,7 +128,7 @@ public partial class App : Application
 
                     // Register ViewModels
                     services.AddTransient<MainViewModel>();
-                    services.AddTransient<TimelineViewModel>();
+                    services.AddSingleton<TimelineViewModel>(); // Singleton to preserve state across navigation
                     services.AddTransient<SettingsViewModel>();
                     services.AddTransient<QueueViewModel>();
                     services.AddTransient<ReviewViewModel>();
