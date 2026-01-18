@@ -42,6 +42,9 @@ public sealed partial class TimelineControl : UserControl
         InitializeComponent();
         Loaded += TimelineControl_Loaded;
         SizeChanged += TimelineControl_SizeChanged;
+
+        // Wire up pointer wheel for cursor-anchored zoom
+        TimelineCanvas.PointerWheelChanged += TimelineCanvas_PointerWheelChanged;
     }
 
     private async void TimelineControl_Loaded(object sender, RoutedEventArgs e)
@@ -377,6 +380,49 @@ public sealed partial class TimelineControl : UserControl
     #endregion
 
     #region Pointer/Cursor Handlers
+
+    /// <summary>
+    /// Height of the time ruler zone (in pixels from top).
+    /// Wheel zoom over this area triggers cursor-anchored zoom.
+    /// </summary>
+    private const double TimeRulerZoneHeight = 70.0;
+
+    /// <summary>
+    /// Handles mouse wheel for cursor-anchored zoom (Premiere-style).
+    /// When cursor is over time ruler: cursor-anchored zoom
+    /// When cursor is over track area: horizontal scroll (Alt+wheel = cursor-anchored zoom)
+    /// </summary>
+    private async void TimelineCanvas_PointerWheelChanged(object sender, PointerRoutedEventArgs e)
+    {
+        if (_viewModel?.Viewport == null)
+            return;
+
+        var point = e.GetCurrentPoint(TimelineCanvas);
+        var position = point.Position;
+        var wheelDelta = point.Properties.MouseWheelDelta;
+
+        // Check if cursor is in the time ruler zone (top area)
+        bool isInTimeRulerZone = position.Y <= TimeRulerZoneHeight;
+
+        // Check for Alt key (alternative zoom modifier for track area)
+        var keyState = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Menu);
+        bool isAltPressed = (keyState & Windows.UI.Core.CoreVirtualKeyStates.Down) == Windows.UI.Core.CoreVirtualKeyStates.Down;
+
+        if (isInTimeRulerZone || isAltPressed)
+        {
+            // Cursor-anchored zoom: timecode under cursor stays fixed
+            await _viewModel.CursorAnchoredZoomAsync(position.X, wheelDelta);
+            e.Handled = true;
+        }
+        else
+        {
+            // Default: horizontal scroll
+            // Let the ScrollViewer handle it, or implement custom scroll
+            // For now, do center-anchored zoom for consistency
+            await _viewModel.CenterAnchoredZoomAsync(wheelDelta);
+            e.Handled = true;
+        }
+    }
 
     private void TimelineCanvas_PointerMoved(object sender, PointerRoutedEventArgs e)
     {
@@ -731,6 +777,20 @@ public sealed partial class TimelineControl : UserControl
                 category,
                 EventLocationBox.Text);
         }
+    }
+
+    #endregion
+
+    #region Era Filter Handlers
+
+    private void ShowAllEras_Click(object sender, RoutedEventArgs e)
+    {
+        _viewModel?.ShowAllEras();
+    }
+
+    private void HideAllEras_Click(object sender, RoutedEventArgs e)
+    {
+        _viewModel?.HideAllEras();
     }
 
     #endregion

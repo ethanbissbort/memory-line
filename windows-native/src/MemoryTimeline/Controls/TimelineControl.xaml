@@ -11,8 +11,18 @@
     d:DesignWidth="1000">
 
     <Grid x:Name="RootGrid" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        <Grid.RowDefinitions>
+            <!-- Era filter panel (collapsible) -->
+            <RowDefinition Height="Auto"/>
+            <!-- Main timeline area with era bars and events -->
+            <RowDefinition Height="*"/>
+            <!-- Bottom command bar -->
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
         <!-- Loading overlay -->
         <Grid x:Name="LoadingOverlay"
+              Grid.RowSpan="3"
               Visibility="Collapsed"
               Background="#80000000"
               Canvas.ZIndex="1000">
@@ -25,26 +35,82 @@
             </StackPanel>
         </Grid>
 
+        <!-- Era filter panel -->
+        <Border Grid.Row="0"
+                Background="{ThemeResource LayerFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="12,8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Text="Era Filters:"
+                          VerticalAlignment="Center"
+                          FontWeight="SemiBold"
+                          Margin="0,0,12,0"/>
+
+                <!-- Era filter checkboxes (populated dynamically) -->
+                <ItemsControl x:Name="EraFiltersPanel"
+                             Grid.Column="1"
+                             ItemsSource="{x:Bind ViewModel.EraFilters, Mode=OneWay}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" Spacing="16"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="dto:EraFilterDto">
+                            <CheckBox Content="{x:Bind Name}"
+                                     IsChecked="{x:Bind IsVisible, Mode=TwoWay}"
+                                     Foreground="{x:Bind ColorBrush, Mode=OneWay}"/>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+                    <Button Content="All"
+                           Click="ShowAllEras_Click"
+                           Padding="8,4"/>
+                    <Button Content="None"
+                           Click="HideAllEras_Click"
+                           Padding="8,4"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
         <!-- Main timeline container -->
         <ScrollViewer x:Name="TimelineScrollViewer"
+                     Grid.Row="1"
                      HorizontalScrollBarVisibility="Auto"
-                     VerticalScrollBarVisibility="Auto"
+                     VerticalScrollBarVisibility="Disabled"
                      HorizontalScrollMode="Enabled"
-                     VerticalScrollMode="Enabled"
+                     VerticalScrollMode="Disabled"
                      ZoomMode="Disabled"
-                     ManipulationMode="TranslateX,TranslateY,Scale,TranslateInertia"
+                     ManipulationMode="TranslateX,TranslateInertia"
                      ViewChanged="TimelineScrollViewer_ViewChanged">
 
             <Grid x:Name="TimelineCanvas"
                   Width="10000"
-                  Height="1000"
                   Background="Transparent"
-                  ManipulationMode="TranslateX,TranslateY,Scale,TranslateInertia"
+                  ManipulationMode="TranslateX,TranslateInertia"
                   ManipulationDelta="TimelineCanvas_ManipulationDelta"
                   ManipulationCompleted="TimelineCanvas_ManipulationCompleted"
                   DoubleTapped="TimelineCanvas_DoubleTapped"
                   RightTapped="TimelineCanvas_RightTapped"
                   PointerMoved="TimelineCanvas_PointerMoved">
+
+                <Grid.RowDefinitions>
+                    <!-- Events area (map pins stack upward from era bars) -->
+                    <RowDefinition Height="*" MinHeight="200"/>
+                    <!-- Era bars area (thin horizontal colored lines) -->
+                    <RowDefinition Height="Auto"/>
+                    <!-- Timeline axis and ticks (bottom quarter) -->
+                    <RowDefinition Height="80"/>
+                </Grid.RowDefinitions>
 
                 <!-- Context menu for timeline canvas (add event) -->
                 <Grid.ContextFlyout>
@@ -78,124 +144,131 @@
                     </MenuFlyout>
                 </Grid.ContextFlyout>
 
-                <!-- Era background layer - using Canvas with manual positioning via RenderTransform -->
-                <ItemsControl x:Name="ErasLayer"
-                             ItemsSource="{x:Bind ViewModel.Eras, Mode=OneWay}"
-                             Canvas.ZIndex="0">
+                <!-- Events layer - map pins in the upper area, stacking upward -->
+                <Canvas x:Name="EventsCanvas" Grid.Row="0" Grid.RowSpan="2">
+                    <ItemsControl x:Name="EventsLayer"
+                                 ItemsSource="{x:Bind ViewModel.Events, Mode=OneWay}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <Canvas/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="dto:TimelineEventDto">
+                                <controls:EventBubble Event="{x:Bind Mode=OneWay}"
+                                                     Width="{x:Bind Width}"
+                                                     Height="{x:Bind Height}"
+                                                     Tapped="EventBubble_Tapped"
+                                                     RightTapped="EventBubble_RightTapped"
+                                                     PointerEntered="EventBubble_PointerEntered"
+                                                     PointerExited="EventBubble_PointerExited">
+                                    <controls:EventBubble.RenderTransform>
+                                        <TranslateTransform X="{x:Bind PixelX}" Y="{x:Bind PixelY}"/>
+                                    </controls:EventBubble.RenderTransform>
+                                    <controls:EventBubble.ContextFlyout>
+                                        <MenuFlyout>
+                                            <MenuFlyoutItem Text="View Details"
+                                                           Click="ViewEventMenuItem_Click">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="&#xE8A7;"/>
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                            <MenuFlyoutItem Text="Edit Event"
+                                                           Click="EditEventMenuItem_Click">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="&#xE70F;"/>
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                            <MenuFlyoutSeparator/>
+                                            <MenuFlyoutItem Text="Delete Event"
+                                                           Click="DeleteEventMenuItem_Click">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="&#xE74D;"/>
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                        </MenuFlyout>
+                                    </controls:EventBubble.ContextFlyout>
+                                </controls:EventBubble>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Canvas>
+
+                <!-- Era bars layer - thin horizontal colored lines showing time spans -->
+                <ItemsControl x:Name="EraBarsLayer"
+                             Grid.Row="1"
+                             ItemsSource="{x:Bind ViewModel.VisibleEraBars, Mode=OneWay}"
+                             Height="{x:Bind ViewModel.EraBarsHeight, Mode=OneWay}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
                             <Canvas/>
                         </ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="dto:TimelineEraDto">
+                        <DataTemplate x:DataType="dto:EraBarDto">
                             <Rectangle Fill="{x:Bind ColorBrush, Mode=OneWay}"
-                                      Opacity="0.1"
                                       Width="{x:Bind Width}"
-                                      Height="1000">
+                                      Height="4"
+                                      RadiusX="2"
+                                      RadiusY="2"
+                                      Opacity="0.9">
                                 <Rectangle.RenderTransform>
-                                    <TranslateTransform X="{x:Bind PixelX}" Y="0"/>
+                                    <TranslateTransform X="{x:Bind PixelX}" Y="{x:Bind TrackY}"/>
                                 </Rectangle.RenderTransform>
                             </Rectangle>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
-                <!-- Timeline axis -->
-                <Canvas x:Name="AxisCanvas" Canvas.ZIndex="5">
-                    <Line x:Name="TimelineAxis"
-                          X1="0" Y1="50"
-                          X2="10000" Y2="50"
-                          Stroke="{ThemeResource SystemControlForegroundBaseMediumBrush}"
-                          StrokeThickness="2"/>
-                </Canvas>
+                <!-- Timeline axis and ticks (bottom area) -->
+                <Grid Grid.Row="2">
+                    <!-- Timeline axis line -->
+                    <Canvas x:Name="AxisCanvas">
+                        <Line x:Name="TimelineAxis"
+                              X1="0" Y1="0"
+                              X2="10000" Y2="0"
+                              Stroke="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                              StrokeThickness="2"/>
+                    </Canvas>
 
-                <!-- Time ruler ticks layer - Adobe Premiere style adaptive density -->
-                <ItemsControl x:Name="TimeRulerLayer"
-                             ItemsSource="{x:Bind ViewModel.TimeRulerTicks, Mode=OneWay}"
-                             Canvas.ZIndex="6">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <Canvas/>
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="dto:TimeRulerTickDto">
-                            <StackPanel Orientation="Vertical">
-                                <!-- Tick mark -->
-                                <Rectangle Width="1"
-                                          Height="{x:Bind TickHeight}"
-                                          Fill="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
-                                <!-- Label (only visible for major ticks) -->
-                                <TextBlock Text="{x:Bind Label}"
-                                          FontSize="10"
-                                          Opacity="{x:Bind LabelOpacity}"
-                                          Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
-                                          Margin="-20,2,0,0"/>
-                                <StackPanel.RenderTransform>
-                                    <TranslateTransform X="{x:Bind PixelX}" Y="50"/>
-                                </StackPanel.RenderTransform>
-                            </StackPanel>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-
-                <!-- Events layer - using Canvas with manual positioning via RenderTransform -->
-                <ItemsControl x:Name="EventsLayer"
-                             ItemsSource="{x:Bind ViewModel.Events, Mode=OneWay}"
-                             Canvas.ZIndex="10">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <Canvas/>
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="dto:TimelineEventDto">
-                            <controls:EventBubble Event="{x:Bind Mode=OneWay}"
-                                                 Width="{x:Bind Width}"
-                                                 Height="{x:Bind Height}"
-                                                 Tapped="EventBubble_Tapped"
-                                                 RightTapped="EventBubble_RightTapped"
-                                                 PointerEntered="EventBubble_PointerEntered"
-                                                 PointerExited="EventBubble_PointerExited">
-                                <controls:EventBubble.RenderTransform>
-                                    <TranslateTransform X="{x:Bind PixelX}" Y="{x:Bind PixelY}"/>
-                                </controls:EventBubble.RenderTransform>
-                                <controls:EventBubble.ContextFlyout>
-                                    <MenuFlyout>
-                                        <MenuFlyoutItem Text="View Details"
-                                                       Click="ViewEventMenuItem_Click">
-                                            <MenuFlyoutItem.Icon>
-                                                <FontIcon Glyph="&#xE8A7;"/>
-                                            </MenuFlyoutItem.Icon>
-                                        </MenuFlyoutItem>
-                                        <MenuFlyoutItem Text="Edit Event"
-                                                       Click="EditEventMenuItem_Click">
-                                            <MenuFlyoutItem.Icon>
-                                                <FontIcon Glyph="&#xE70F;"/>
-                                            </MenuFlyoutItem.Icon>
-                                        </MenuFlyoutItem>
-                                        <MenuFlyoutSeparator/>
-                                        <MenuFlyoutItem Text="Delete Event"
-                                                       Click="DeleteEventMenuItem_Click">
-                                            <MenuFlyoutItem.Icon>
-                                                <FontIcon Glyph="&#xE74D;"/>
-                                            </MenuFlyoutItem.Icon>
-                                        </MenuFlyoutItem>
-                                    </MenuFlyout>
-                                </controls:EventBubble.ContextFlyout>
-                            </controls:EventBubble>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                    <!-- Time ruler ticks layer - Adobe Premiere style adaptive density -->
+                    <ItemsControl x:Name="TimeRulerLayer"
+                                 ItemsSource="{x:Bind ViewModel.TimeRulerTicks, Mode=OneWay}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <Canvas/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="dto:TimeRulerTickDto">
+                                <StackPanel Orientation="Vertical">
+                                    <!-- Tick mark -->
+                                    <Rectangle Width="1"
+                                              Height="{x:Bind TickHeight}"
+                                              Fill="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
+                                    <!-- Label (only visible for major ticks) -->
+                                    <TextBlock Text="{x:Bind Label}"
+                                              FontSize="10"
+                                              Opacity="{x:Bind LabelOpacity}"
+                                              Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                                              Margin="-20,2,0,0"/>
+                                    <StackPanel.RenderTransform>
+                                        <TranslateTransform X="{x:Bind PixelX}" Y="0"/>
+                                    </StackPanel.RenderTransform>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Grid>
             </Grid>
         </ScrollViewer>
 
         <!-- Zoom controls overlay -->
-        <StackPanel Orientation="Horizontal"
+        <StackPanel Grid.Row="1"
+                   Orientation="Horizontal"
                    HorizontalAlignment="Right"
-                   VerticalAlignment="Bottom"
-                   Margin="0,0,20,80"
+                   VerticalAlignment="Top"
+                   Margin="0,12,20,0"
                    Spacing="8"
                    Canvas.ZIndex="100">
 
@@ -234,7 +307,7 @@
         </StackPanel>
 
         <!-- Navigation controls -->
-        <CommandBar VerticalAlignment="Bottom"
+        <CommandBar Grid.Row="2"
                    DefaultLabelPosition="Right"
                    Canvas.ZIndex="100">
 
@@ -279,6 +352,7 @@
 
         <!-- Event details panel (slides in from right) -->
         <Grid x:Name="EventDetailsPanel"
+              Grid.Row="1"
               HorizontalAlignment="Right"
               Width="320"
               Background="{ThemeResource AcrylicBackgroundFillColorDefaultBrush}"

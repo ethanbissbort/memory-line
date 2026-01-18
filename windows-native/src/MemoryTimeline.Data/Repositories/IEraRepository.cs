@@ -21,4 +21,19 @@ public interface IEraRepository : IRepository<Era>
     /// Gets era that contains a specific date.
     /// </summary>
     Task<Era?> GetByDateAsync(DateTime date);
+
+    /// <summary>
+    /// Gets eras by category ID.
+    /// </summary>
+    Task<IEnumerable<Era>> GetByCategoryIdAsync(string categoryId);
+
+    /// <summary>
+    /// Gets eras within a date range.
+    /// </summary>
+    Task<IEnumerable<Era>> GetByDateRangeAsync(DateTime startDate, DateTime endDate);
+
+    /// <summary>
+    /// Gets eras grouped by category.
+    /// </summary>
+    Task<IEnumerable<IGrouping<EraCategory?, Era>>> GetGroupedByCategoryAsync();
 }

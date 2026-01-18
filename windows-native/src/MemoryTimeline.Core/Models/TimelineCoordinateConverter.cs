@@ -295,8 +295,78 @@ public class TimeRulerTick
 public static class ZoomHelper
 {
     /// <summary>
+    /// Zoom base for exponential scaling (per wheel tick).
+    /// Lower = slower zoom, Higher = faster zoom. Premiere typically uses 1.1 to 1.3.
+    /// </summary>
+    public const double ZoomBase = 1.15;
+
+    /// <summary>
+    /// Standard Windows wheel delta per tick.
+    /// </summary>
+    public const double WheelDeltaNormalization = 120.0;
+
+    /// <summary>
+    /// Performs cursor-anchored zoom following Adobe Premiere's algorithm.
+    /// The timecode under the cursor stays visually fixed while the timeline expands/contracts.
+    /// </summary>
+    /// <param name="viewport">Current viewport state</param>
+    /// <param name="cursorScreenX">Cursor X position in pixels relative to viewport</param>
+    /// <param name="wheelDelta">Raw mouse wheel delta (typically ±120 per tick)</param>
+    /// <param name="minPixelsPerDay">Minimum zoom level (most zoomed out)</param>
+    /// <param name="maxPixelsPerDay">Maximum zoom level (most zoomed in)</param>
+    /// <returns>New viewport state after zoom</returns>
+    public static (DateTime newStartDate, double newPixelsPerDay) CalculateCursorAnchoredZoom(
+        TimelineViewport viewport,
+        double cursorScreenX,
+        double wheelDelta,
+        double minPixelsPerDay = 0.01,
+        double maxPixelsPerDay = 100.0)
+    {
+        // Normalize wheel delta (Windows reports ±120 per tick)
+        var normalizedDelta = wheelDelta / WheelDeltaNormalization;
+
+        // Step 1: Convert cursor position to date-space (anchor point)
+        var anchorDate = viewport.PixelToDate(cursorScreenX);
+
+        // Step 2: Calculate cursor's fractional position within viewport (0.0 = left, 1.0 = right)
+        var cursorFraction = cursorScreenX / viewport.ViewportWidth;
+        cursorFraction = Math.Clamp(cursorFraction, 0.0, 1.0);
+
+        // Step 3: Calculate new pixels per day using exponential scaling
+        // Positive delta = zoom in (more pixels per day)
+        var zoomFactor = Math.Pow(ZoomBase, normalizedDelta);
+        var newPixelsPerDay = viewport.PixelsPerDay * zoomFactor;
+
+        // Step 4: Clamp to zoom limits
+        newPixelsPerDay = Math.Clamp(newPixelsPerDay, minPixelsPerDay, maxPixelsPerDay);
+
+        // Step 5: Calculate new visible duration
+        var newVisibleDays = viewport.ViewportWidth / newPixelsPerDay;
+
+        // Step 6: Calculate new start date to keep anchor at same screen position
+        // Key insight: anchorDate must remain at cursorFraction of the new viewport
+        var newStartDate = anchorDate.AddDays(-cursorFraction * newVisibleDays);
+
+        return (newStartDate, newPixelsPerDay);
+    }
+
+    /// <summary>
+    /// Performs center-anchored zoom (traditional zoom behavior).
+    /// </summary>
+    public static (DateTime newStartDate, double newPixelsPerDay) CalculateCenterAnchoredZoom(
+        TimelineViewport viewport,
+        double wheelDelta,
+        double minPixelsPerDay = 0.01,
+        double maxPixelsPerDay = 100.0)
+    {
+        // Anchor at center of viewport
+        var centerScreenX = viewport.ViewportWidth / 2.0;
+        return CalculateCursorAnchoredZoom(viewport, centerScreenX, wheelDelta, minPixelsPerDay, maxPixelsPerDay);
+    }
+
+    /// <summary>
     /// Zooms the viewport while keeping a specific date at the same screen position.
-    /// This is the Premiere-style zoom anchoring behavior.
+    /// This is the Premiere-style zoom anchoring behavior for discrete zoom levels.
     /// </summary>
     /// <param name="viewport">Current viewport</param>
     /// <param name="anchorDate">Date to keep at same screen position</param>
@@ -339,5 +409,28 @@ public static class ZoomHelper
     {
         var anchorDate = viewport.PixelToDate(screenX);
         ZoomCenteredOn(viewport, anchorDate, newZoomLevel);
+    }
+
+    /// <summary>
+    /// Gets the closest discrete zoom level for a given pixels per day value.
+    /// </summary>
+    public static ZoomLevel GetClosestZoomLevel(double pixelsPerDay)
+    {
+        var levels = new[] { ZoomLevel.Year, ZoomLevel.Quarter, ZoomLevel.Month, ZoomLevel.Week, ZoomLevel.Day };
+        ZoomLevel closest = ZoomLevel.Month;
+        double closestDiff = double.MaxValue;
+
+        foreach (var level in levels)
+        {
+            var levelPpd = TimelineScale.GetPixelsPerDay(level);
+            var diff = Math.Abs(pixelsPerDay - levelPpd);
+            if (diff < closestDiff)
+            {
+                closestDiff = diff;
+                closest = level;
+            }
+        }
+
+        return closest;
     }
 }

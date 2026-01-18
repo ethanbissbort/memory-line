@@ -82,6 +82,8 @@ public partial class App : Application
                     // Register repositories
                     services.AddScoped<IEventRepository, EventRepository>();
                     services.AddScoped<IEraRepository, EraRepository>();
+                    services.AddScoped<IEraCategoryRepository, EraCategoryRepository>();
+                    services.AddScoped<IMilestoneRepository, MilestoneRepository>();
                     services.AddScoped<IRecordingQueueRepository, RecordingQueueRepository>();
                     services.AddScoped<ITagRepository, TagRepository>();
                     services.AddScoped<IPersonRepository, PersonRepository>();
@@ -135,6 +137,7 @@ public partial class App : Application
                     services.AddTransient<ConnectionsViewModel>();
                     services.AddTransient<SearchViewModel>();
                     services.AddTransient<AnalyticsViewModel>();
+                    services.AddTransient<ErasViewModel>();
 
                     // Register Views
                     services.AddTransient<MainWindow>();
@@ -145,6 +148,7 @@ public partial class App : Application
                     services.AddTransient<AnalyticsPage>();
                     services.AddTransient<SettingsPage>();
                     services.AddTransient<ConnectionsPage>();
+                    services.AddTransient<ErasPage>();
                 })
                 .Build();
 

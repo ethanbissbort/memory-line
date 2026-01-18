@@ -259,16 +259,24 @@ public class TimelineService : ITimelineService
 
     /// <summary>
     /// Calculates pixel positions for events based on viewport.
-    /// Events are displayed as map pins pointing down to the timeline axis.
+    /// Events are displayed as map pins pointing down toward the era bars.
     /// Uses the TimelineCoordinateConverter for Premiere-style coordinate transformations.
+    ///
+    /// New layout: Events area at top, era bars in middle, timeline axis at bottom.
+    /// Pin tips point downward toward the era bars baseline.
     /// </summary>
     public void CalculateEventPositions(IEnumerable<TimelineEventDto> events, TimelineViewport viewport)
     {
         // Pin dimensions
         const double pinWidth = 30.0;
         const double pinHeight = 40.0;
-        const double timelineAxisY = 50.0; // Y position of the timeline axis
         const double pinSpacing = 5.0; // Spacing between stacked pins
+
+        // The baseline is near the bottom of the events area (above era bars).
+        // Era bars area is ~40px, timeline axis is 80px, so events area is viewport height - 120px.
+        // Position pins so their tips point to the baseline.
+        var eventsAreaHeight = Math.Max(200, viewport.ViewportHeight - 120);
+        var baselineY = eventsAreaHeight - 10; // 10px padding from bottom
 
         // Use the coordinate converter for date-to-screen transformations
         var converter = TimelineCoordinateConverter.FromViewport(viewport);
@@ -294,8 +302,8 @@ public class TimelineService : ITimelineService
         {
             // Find a track for this event
             var trackIndex = FindAvailableTrack(tracks, evt);
-            // Position so pin tip touches the timeline axis, stacking upward for overlapping events
-            evt.PixelY = timelineAxisY - pinHeight - (trackIndex * (pinHeight + pinSpacing));
+            // Position so pin tip touches the baseline, stacking upward for overlapping events
+            evt.PixelY = baselineY - pinHeight - (trackIndex * (pinHeight + pinSpacing));
         }
     }
 
