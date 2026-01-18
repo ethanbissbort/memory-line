@@ -47,35 +47,5 @@
                      HorizontalAlignment="Center"
                      VerticalAlignment="Center"/>
         </Canvas>
-
-        <!-- Tooltip with event details -->
-        <ToolTipService.ToolTip>
-            <ToolTip>
-                <StackPanel Spacing="4" MaxWidth="300">
-                    <TextBlock Text="{x:Bind Event.Title, Mode=OneWay}"
-                              FontWeight="SemiBold"
-                              FontSize="14"
-                              TextWrapping="Wrap"/>
-
-                    <TextBlock FontSize="12" Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}">
-                        <Run Text="{x:Bind FormatDate(Event.StartDate), Mode=OneWay}"/>
-                        <Run x:Name="EndDateRun"
-                             Text="{x:Bind FormatEndDate(Event.EndDate), Mode=OneWay}"/>
-                    </TextBlock>
-
-                    <TextBlock Text="{x:Bind Event.Description, Mode=OneWay}"
-                              FontSize="12"
-                              TextWrapping="Wrap"
-                              MaxLines="5"
-                              TextTrimming="CharacterEllipsis"
-                              Visibility="{x:Bind Event.Description, Mode=OneWay, Converter={StaticResource NullToVisibilityConverter}}"/>
-
-                    <TextBlock Text="{x:Bind Event.Category, Mode=OneWay}"
-                              FontSize="11"
-                              Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
-                              FontStyle="Italic"/>
-                </StackPanel>
-            </ToolTip>
-        </ToolTipService.ToolTip>
     </Grid>
 </UserControl>

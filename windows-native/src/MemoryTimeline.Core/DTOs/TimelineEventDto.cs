@@ -161,3 +161,17 @@ public class TimelineEraDto
         };
     }
 }
+
+/// <summary>
+/// DTO for time ruler tick marks.
+/// Follows Adobe Premiere's adaptive tick density model.
+/// </summary>
+public class TimeRulerTickDto
+{
+    public DateTime Date { get; set; }
+    public double PixelX { get; set; }
+    public bool IsMajor { get; set; }
+    public string? Label { get; set; }
+    public double TickHeight => IsMajor ? 15.0 : 8.0;
+    public double LabelOpacity => IsMajor ? 1.0 : 0.0;
+}
