@@ -259,41 +259,42 @@ public class TimelineService : ITimelineService
 
     /// <summary>
     /// Calculates pixel positions for events based on viewport.
+    /// Events are displayed as map pins pointing down to the timeline axis.
     /// </summary>
     public void CalculateEventPositions(IEnumerable<TimelineEventDto> events, TimelineViewport viewport)
     {
-        const double trackHeight = 35.0;
-        const double topOffset = 60.0; // Offset from top for timeline axis
+        // Pin dimensions
+        const double pinWidth = 30.0;
+        const double pinHeight = 40.0;
+        const double timelineAxisY = 50.0; // Y position of the timeline axis
+        const double pinSpacing = 5.0; // Spacing between stacked pins
 
         foreach (var evt in events.OrderBy(e => e.StartDate))
         {
-            // Calculate horizontal position
-            evt.PixelX = TimelineScale.GetPixelPosition(
+            // Calculate horizontal position - center the pin on the date
+            var datePixelX = TimelineScale.GetPixelPosition(
                 evt.StartDate,
                 viewport.StartDate,
                 viewport.ZoomLevel);
+            evt.PixelX = datePixelX - (pinWidth / 2); // Center the pin on the date
 
-            // Calculate width based on duration
-            evt.Width = TimelineScale.GetEventWidth(
-                evt.StartDate,
-                evt.EndDate,
-                viewport.ZoomLevel);
-
-            // Standard event height
-            evt.Height = 24.0;
+            // Fixed pin dimensions
+            evt.Width = pinWidth;
+            evt.Height = pinHeight;
 
             // Check visibility
             evt.IsVisible = viewport.IsEventVisible(evt.StartDate, evt.EndDate);
         }
 
-        // Use EventLayoutEngine for overlap detection and vertical positioning
+        // Use tracks to stack overlapping pins above each other
         var tracks = new List<List<TimelineEventDto>>();
 
         foreach (var evt in events.OrderBy(e => e.StartDate))
         {
             // Find a track for this event
             var trackIndex = FindAvailableTrack(tracks, evt);
-            evt.PixelY = trackIndex * trackHeight + topOffset;
+            // Position so pin tip touches the timeline axis, stacking upward for overlapping events
+            evt.PixelY = timelineAxisY - pinHeight - (trackIndex * (pinHeight + pinSpacing));
         }
     }
 

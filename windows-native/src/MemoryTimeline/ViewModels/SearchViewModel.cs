@@ -14,6 +14,7 @@ namespace MemoryTimeline.ViewModels;
 public partial class SearchViewModel : ObservableObject
 {
     private readonly IAdvancedSearchService _searchService;
+    private readonly IEventService _eventService;
     private readonly ILogger<SearchViewModel> _logger;
 
     #region Observable Properties
@@ -146,9 +147,13 @@ public partial class SearchViewModel : ObservableObject
 
     #endregion
 
-    public SearchViewModel(IAdvancedSearchService searchService, ILogger<SearchViewModel> logger)
+    public SearchViewModel(
+        IAdvancedSearchService searchService,
+        IEventService eventService,
+        ILogger<SearchViewModel> logger)
     {
         _searchService = searchService;
+        _eventService = eventService;
         _logger = logger;
     }
 
@@ -550,6 +555,56 @@ public partial class SearchViewModel : ObservableObject
     public void SelectEvent(Event? evt)
     {
         SelectedEvent = evt;
+    }
+
+    /// <summary>
+    /// Update an event and refresh the search results.
+    /// </summary>
+    public async Task UpdateEventAsync(Event evt)
+    {
+        try
+        {
+            IsLoading = true;
+            await _eventService.UpdateEventAsync(evt);
+            StatusMessage = "Event updated successfully";
+
+            // Refresh search results
+            await SearchAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating event {EventId}", evt.EventId);
+            StatusMessage = "Error updating event";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    /// <summary>
+    /// Delete an event and refresh the search results.
+    /// </summary>
+    public async Task DeleteEventAsync(string eventId)
+    {
+        try
+        {
+            IsLoading = true;
+            await _eventService.DeleteEventAsync(eventId);
+            StatusMessage = "Event deleted successfully";
+
+            // Refresh search results
+            await SearchAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting event {EventId}", eventId);
+            StatusMessage = "Error deleting event";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
     }
 
     #region Private Methods
