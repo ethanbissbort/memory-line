@@ -294,6 +294,65 @@ public partial class TimelineViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Performs cursor-anchored zoom following Adobe Premiere's algorithm.
+    /// The timecode under the cursor stays visually fixed while the timeline expands/contracts.
+    /// </summary>
+    /// <param name="cursorScreenX">Cursor X position in pixels relative to viewport</param>
+    /// <param name="wheelDelta">Raw mouse wheel delta (typically ±120 per tick)</param>
+    public async Task CursorAnchoredZoomAsync(double cursorScreenX, double wheelDelta)
+    {
+        if (Viewport == null) return;
+
+        try
+        {
+            // Calculate new viewport state using Premiere-style zoom
+            var (newStartDate, newPixelsPerDay) = ZoomHelper.CalculateCursorAnchoredZoom(
+                Viewport,
+                cursorScreenX,
+                wheelDelta,
+                minPixelsPerDay: 0.01,  // ~100 years visible
+                maxPixelsPerDay: 50.0    // ~20 days visible at most
+            );
+
+            // Calculate new end date
+            var newVisibleDays = Viewport.ViewportWidth / newPixelsPerDay;
+            var newEndDate = newStartDate.AddDays(newVisibleDays);
+            var newCenterDate = newStartDate.AddDays(newVisibleDays / 2);
+
+            // Update viewport
+            Viewport.StartDate = newStartDate;
+            Viewport.EndDate = newEndDate;
+            Viewport.CenterDate = newCenterDate;
+            Viewport.PixelsPerDay = newPixelsPerDay;
+            Viewport.ZoomLevel = ZoomHelper.GetClosestZoomLevel(newPixelsPerDay);
+
+            // Update current zoom level display
+            CurrentZoomLevel = Viewport.ZoomLevel;
+
+            // Reload events and ticks
+            await LoadEventsForViewportAsync();
+            await LoadErasForViewportAsync();
+            GenerateTimeRulerTicks();
+
+            StatusText = $"Zoom: {newPixelsPerDay:F2} px/day";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error performing cursor-anchored zoom");
+        }
+    }
+
+    /// <summary>
+    /// Performs center-anchored zoom (wheel zoom without cursor position).
+    /// </summary>
+    /// <param name="wheelDelta">Raw mouse wheel delta (typically ±120 per tick)</param>
+    public async Task CenterAnchoredZoomAsync(double wheelDelta)
+    {
+        if (Viewport == null) return;
+        await CursorAnchoredZoomAsync(Viewport.ViewportWidth / 2.0, wheelDelta);
+    }
+
+    /// <summary>
     /// Sets a specific zoom level.
     /// </summary>
     [RelayCommand]
