@@ -38,7 +38,7 @@ public sealed partial class ErasPage : Page
 
     private async void Page_Loaded(object sender, RoutedEventArgs e)
     {
-        await ViewModel.LoadErasAsync();
+        await ViewModel.InitializeAsync();
     }
 
     /// <summary>

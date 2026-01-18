@@ -11,6 +11,9 @@ public class AppDbContext : DbContext
 {
     public DbSet<Event> Events { get; set; } = null!;
     public DbSet<Era> Eras { get; set; } = null!;
+    public DbSet<EraCategory> EraCategories { get; set; } = null!;
+    public DbSet<EraTag> EraTags { get; set; } = null!;
+    public DbSet<Milestone> Milestones { get; set; } = null!;
     public DbSet<RecordingQueue> RecordingQueues { get; set; } = null!;
     public DbSet<PendingEvent> PendingEvents { get; set; } = null!;
     public DbSet<Tag> Tags { get; set; } = null!;
@@ -73,6 +76,48 @@ public class AppDbContext : DbContext
             entity.HasKey(e => e.EraId);
             entity.HasIndex(e => e.Name).IsUnique();
             entity.HasIndex(e => new { e.StartDate, e.EndDate });
+            entity.HasIndex(e => e.CategoryId);
+
+            entity.HasOne(e => e.Category)
+                .WithMany(c => c.Eras)
+                .HasForeignKey(e => e.CategoryId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // Configure EraCategory entity
+        modelBuilder.Entity<EraCategory>(entity =>
+        {
+            entity.HasKey(c => c.CategoryId);
+            entity.HasIndex(c => c.Name).IsUnique();
+            entity.HasIndex(c => c.SortOrder);
+        });
+
+        // Configure EraTag entity
+        modelBuilder.Entity<EraTag>(entity =>
+        {
+            entity.HasKey(et => new { et.EraId, et.Tag });
+
+            entity.HasOne(et => et.Era)
+                .WithMany(e => e.EraTags)
+                .HasForeignKey(et => et.EraId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(et => et.EraId);
+            entity.HasIndex(et => et.Tag);
+        });
+
+        // Configure Milestone entity
+        modelBuilder.Entity<Milestone>(entity =>
+        {
+            entity.HasKey(m => m.MilestoneId);
+            entity.HasIndex(m => m.Date);
+            entity.HasIndex(m => m.LinkedEraId);
+            entity.HasIndex(m => m.Type);
+
+            entity.HasOne(m => m.LinkedEra)
+                .WithMany(e => e.Milestones)
+                .HasForeignKey(m => m.LinkedEraId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         // Configure RecordingQueue entity
@@ -242,6 +287,23 @@ public class AppDbContext : DbContext
             new AppSetting { SettingKey = "send_transcripts_only", SettingValue = "true" },
             new AppSetting { SettingKey = "require_confirmation", SettingValue = "true" }
         );
+
+        // Seed default era categories
+        SeedDefaultEraCategories(modelBuilder);
+    }
+
+    private void SeedDefaultEraCategories(ModelBuilder modelBuilder)
+    {
+        var now = DateTime.UtcNow;
+        modelBuilder.Entity<EraCategory>().HasData(
+            new EraCategory { CategoryId = "cat-education", Name = "Education", DefaultColor = "#0078D4", IconGlyph = "\uE7BE", SortOrder = 1, CreatedAt = now, UpdatedAt = now },
+            new EraCategory { CategoryId = "cat-employment", Name = "Employment", DefaultColor = "#107C10", IconGlyph = "\uE821", SortOrder = 2, CreatedAt = now, UpdatedAt = now },
+            new EraCategory { CategoryId = "cat-relationship", Name = "Relationship", DefaultColor = "#E74856", IconGlyph = "\uEB51", SortOrder = 3, CreatedAt = now, UpdatedAt = now },
+            new EraCategory { CategoryId = "cat-residence", Name = "Residence", DefaultColor = "#8764B8", IconGlyph = "\uE80F", SortOrder = 4, CreatedAt = now, UpdatedAt = now },
+            new EraCategory { CategoryId = "cat-health", Name = "Health", DefaultColor = "#00B7C3", IconGlyph = "\uE95E", SortOrder = 5, CreatedAt = now, UpdatedAt = now },
+            new EraCategory { CategoryId = "cat-project", Name = "Project", DefaultColor = "#FF8C00", IconGlyph = "\uE8F1", SortOrder = 6, CreatedAt = now, UpdatedAt = now },
+            new EraCategory { CategoryId = "cat-other", Name = "Other", DefaultColor = "#6B6B6B", IconGlyph = "\uE7C3", SortOrder = 7, CreatedAt = now, UpdatedAt = now }
+        );
     }
 
     /// <summary>
@@ -276,6 +338,14 @@ public class AppDbContext : DbContext
             else if (entry.Entity is Era era)
             {
                 era.UpdatedAt = DateTime.UtcNow;
+            }
+            else if (entry.Entity is EraCategory category)
+            {
+                category.UpdatedAt = DateTime.UtcNow;
+            }
+            else if (entry.Entity is Milestone milestone)
+            {
+                milestone.UpdatedAt = DateTime.UtcNow;
             }
             else if (entry.Entity is AppSetting setting)
             {

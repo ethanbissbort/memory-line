@@ -82,6 +82,8 @@ public partial class App : Application
                     // Register repositories
                     services.AddScoped<IEventRepository, EventRepository>();
                     services.AddScoped<IEraRepository, EraRepository>();
+                    services.AddScoped<IEraCategoryRepository, EraCategoryRepository>();
+                    services.AddScoped<IMilestoneRepository, MilestoneRepository>();
                     services.AddScoped<IRecordingQueueRepository, RecordingQueueRepository>();
                     services.AddScoped<ITagRepository, TagRepository>();
                     services.AddScoped<IPersonRepository, PersonRepository>();
