@@ -125,8 +125,12 @@ public sealed partial class TimelineControl : UserControl
             ? _viewModel.Events.Max(e => e.PixelY + e.Height)
             : 600;
 
-        // Update axis line to span the full width
-        TimelineAxis.X2 = TimelineContainer.ActualWidth;
+        // Update axis line to span the full width (only if width is valid)
+        var containerWidth = TimelineContainer.ActualWidth;
+        if (containerWidth > 0 && !double.IsNaN(containerWidth))
+        {
+            TimelineAxis.X2 = containerWidth;
+        }
     }
 
     /// <summary>
@@ -170,6 +174,11 @@ public sealed partial class TimelineControl : UserControl
         if (_viewModel?.Viewport == null)
             return;
 
+        // Get container width - must be valid before drawing
+        var containerWidth = TimelineContainer.ActualWidth;
+        if (containerWidth <= 0 || double.IsNaN(containerWidth))
+            return;
+
         // Clear existing markers
         AxisCanvas.Children.Clear();
 
@@ -178,7 +187,7 @@ public sealed partial class TimelineControl : UserControl
         {
             X1 = 0,
             Y1 = 50,
-            X2 = TimelineCanvas.Width,
+            X2 = containerWidth,
             Y2 = 50,
             Stroke = (Microsoft.UI.Xaml.Media.Brush)Resources["SystemControlForegroundBaseMediumBrush"],
             StrokeThickness = 2
