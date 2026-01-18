@@ -175,3 +175,118 @@ public class TimeRulerTickDto
     public double TickHeight => IsMajor ? 15.0 : 8.0;
     public double LabelOpacity => IsMajor ? 1.0 : 0.0;
 }
+
+/// <summary>
+/// DTO for era bar display - thin horizontal colored lines showing time spans.
+/// </summary>
+public class EraBarDto
+{
+    public string EraId { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public DateTime StartDate { get; set; }
+    public DateTime? EndDate { get; set; }
+    public string ColorCode { get; set; } = "#808080";
+
+    // Display properties
+    public double PixelX { get; set; }
+    public double Width { get; set; }
+    public double TrackY { get; set; } // Y position within era bars area (stacked)
+    public int TrackIndex { get; set; }
+    public bool IsVisible { get; set; } = true;
+
+    /// <summary>
+    /// Gets the color as a Brush for XAML binding.
+    /// </summary>
+    public SolidColorBrush ColorBrush
+    {
+        get
+        {
+            try
+            {
+                var hex = ColorCode.Replace("#", string.Empty);
+
+                if (hex.Length == 6)
+                {
+                    return new SolidColorBrush(Windows.UI.Color.FromArgb(
+                        255,
+                        Convert.ToByte(hex.Substring(0, 2), 16),
+                        Convert.ToByte(hex.Substring(2, 2), 16),
+                        Convert.ToByte(hex.Substring(4, 2), 16)));
+                }
+            }
+            catch { }
+
+            return new SolidColorBrush(Colors.Gray);
+        }
+    }
+
+    /// <summary>
+    /// Creates an EraBarDto from a TimelineEraDto.
+    /// </summary>
+    public static EraBarDto FromEraDto(TimelineEraDto era)
+    {
+        return new EraBarDto
+        {
+            EraId = era.EraId,
+            Name = era.Name,
+            StartDate = era.StartDate,
+            EndDate = era.EndDate,
+            ColorCode = era.ColorCode,
+            PixelX = era.PixelX,
+            Width = era.Width,
+            IsVisible = era.IsVisible
+        };
+    }
+}
+
+/// <summary>
+/// DTO for era visibility filtering in the filter panel.
+/// </summary>
+public class EraFilterDto : System.ComponentModel.INotifyPropertyChanged
+{
+    public string EraId { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string ColorCode { get; set; } = "#808080";
+
+    private bool _isVisible = true;
+    public bool IsVisible
+    {
+        get => _isVisible;
+        set
+        {
+            if (_isVisible != value)
+            {
+                _isVisible = value;
+                PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IsVisible)));
+            }
+        }
+    }
+
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>
+    /// Gets the color as a Brush for XAML binding.
+    /// </summary>
+    public SolidColorBrush ColorBrush
+    {
+        get
+        {
+            try
+            {
+                var hex = ColorCode.Replace("#", string.Empty);
+
+                if (hex.Length == 6)
+                {
+                    return new SolidColorBrush(Windows.UI.Color.FromArgb(
+                        255,
+                        Convert.ToByte(hex.Substring(0, 2), 16),
+                        Convert.ToByte(hex.Substring(2, 2), 16),
+                        Convert.ToByte(hex.Substring(4, 2), 16)));
+                }
+            }
+            catch { }
+
+            return new SolidColorBrush(Colors.Gray);
+        }
+    }
+}

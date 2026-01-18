@@ -780,4 +780,18 @@ public sealed partial class TimelineControl : UserControl
     }
 
     #endregion
+
+    #region Era Filter Handlers
+
+    private void ShowAllEras_Click(object sender, RoutedEventArgs e)
+    {
+        _viewModel?.ShowAllEras();
+    }
+
+    private void HideAllEras_Click(object sender, RoutedEventArgs e)
+    {
+        _viewModel?.HideAllEras();
+    }
+
+    #endregion
 }

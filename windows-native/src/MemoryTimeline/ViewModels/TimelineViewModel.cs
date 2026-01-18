@@ -32,6 +32,25 @@ public partial class TimelineViewModel : ObservableObject
     private ObservableCollection<TimeRulerTickDto> _timeRulerTicks = new();
 
     [ObservableProperty]
+    private ObservableCollection<EraBarDto> _eraBars = new();
+
+    [ObservableProperty]
+    private ObservableCollection<EraFilterDto> _eraFilters = new();
+
+    /// <summary>
+    /// Gets the visible era bars (filtered by user selection).
+    /// </summary>
+    public IEnumerable<EraBarDto> VisibleEraBars =>
+        EraBars.Where(eb => EraFilters.FirstOrDefault(f => f.EraId == eb.EraId)?.IsVisible ?? true);
+
+    /// <summary>
+    /// Gets the height needed for era bars based on number of tracks.
+    /// </summary>
+    public double EraBarsHeight => Math.Max(20, _eraBarTrackCount * 8);
+
+    private int _eraBarTrackCount = 1;
+
+    [ObservableProperty]
     private ZoomLevel _currentZoomLevel = ZoomLevel.Month;
 
     partial void OnCurrentZoomLevelChanged(ZoomLevel value)
@@ -179,12 +198,109 @@ public partial class TimelineViewModel : ObservableObject
                 Eras.Add(era);
             }
 
+            // Generate era bars and update filters
+            GenerateEraBars(eras);
+
             _logger.LogDebug("Loaded {Count} visible eras", Eras.Count);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error loading eras for viewport");
         }
+    }
+
+    /// <summary>
+    /// Generates era bar data for display as thin horizontal lines.
+    /// Stacks overlapping eras on different tracks.
+    /// </summary>
+    private void GenerateEraBars(IEnumerable<TimelineEraDto> eras)
+    {
+        EraBars.Clear();
+
+        // Track assignment for non-overlapping display
+        var tracks = new List<List<EraBarDto>>();
+        const double barHeight = 4.0;
+        const double trackSpacing = 8.0;
+
+        foreach (var era in eras.OrderBy(e => e.StartDate))
+        {
+            var eraBar = EraBarDto.FromEraDto(era);
+
+            // Find available track (non-overlapping)
+            int trackIndex = FindAvailableEraTrack(tracks, eraBar);
+            eraBar.TrackIndex = trackIndex;
+            eraBar.TrackY = trackIndex * trackSpacing;
+
+            EraBars.Add(eraBar);
+
+            // Update filters if this is a new era
+            if (!EraFilters.Any(f => f.EraId == era.EraId))
+            {
+                EraFilters.Add(new EraFilterDto
+                {
+                    EraId = era.EraId,
+                    Name = era.Name,
+                    ColorCode = era.ColorCode,
+                    IsVisible = true
+                });
+            }
+        }
+
+        _eraBarTrackCount = tracks.Count > 0 ? tracks.Count : 1;
+        OnPropertyChanged(nameof(EraBarsHeight));
+        OnPropertyChanged(nameof(VisibleEraBars));
+    }
+
+    /// <summary>
+    /// Finds an available track for an era bar that doesn't overlap with existing bars.
+    /// </summary>
+    private int FindAvailableEraTrack(List<List<EraBarDto>> tracks, EraBarDto newBar)
+    {
+        for (int i = 0; i < tracks.Count; i++)
+        {
+            var track = tracks[i];
+            bool hasOverlap = track.Any(existing =>
+            {
+                // Check if date ranges overlap
+                var existingEnd = existing.PixelX + existing.Width;
+                var newEnd = newBar.PixelX + newBar.Width;
+                return !(newBar.PixelX >= existingEnd || newEnd <= existing.PixelX);
+            });
+
+            if (!hasOverlap)
+            {
+                track.Add(newBar);
+                return i;
+            }
+        }
+
+        // Create new track
+        tracks.Add(new List<EraBarDto> { newBar });
+        return tracks.Count - 1;
+    }
+
+    /// <summary>
+    /// Shows all eras.
+    /// </summary>
+    public void ShowAllEras()
+    {
+        foreach (var filter in EraFilters)
+        {
+            filter.IsVisible = true;
+        }
+        OnPropertyChanged(nameof(VisibleEraBars));
+    }
+
+    /// <summary>
+    /// Hides all eras.
+    /// </summary>
+    public void HideAllEras()
+    {
+        foreach (var filter in EraFilters)
+        {
+            filter.IsVisible = false;
+        }
+        OnPropertyChanged(nameof(VisibleEraBars));
     }
 
     /// <summary>
