@@ -487,7 +487,7 @@
                         PlaceholderText="e.g., 010190 or 1990"
                         KeyDown="GoToDateTextBox_KeyDown"/>
                 <TextBlock x:Name="GoToDateHint"
-                          Text="Tip: Enter just a year (e.g., 2006) to switch to Year view"
+                          Text="Tip: Enter just a year (e.g., 2006) to show that year centered with surrounding years"
                           FontSize="12"
                           Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
                           TextWrapping="Wrap"/>
