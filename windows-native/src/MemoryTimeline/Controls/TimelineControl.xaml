@@ -78,7 +78,7 @@
                     </MenuFlyout>
                 </Grid.ContextFlyout>
 
-                <!-- Era background layer -->
+                <!-- Era background layer - using Canvas with manual positioning via RenderTransform -->
                 <ItemsControl x:Name="ErasLayer"
                              ItemsSource="{x:Bind ViewModel.Eras, Mode=OneWay}"
                              Canvas.ZIndex="0">
@@ -87,18 +87,16 @@
                             <Canvas/>
                         </ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemContainerStyle>
-                        <Style TargetType="ContentPresenter">
-                            <Setter Property="Canvas.Left" Value="{Binding PixelX}"/>
-                            <Setter Property="Canvas.Top" Value="0"/>
-                        </Style>
-                    </ItemsControl.ItemContainerStyle>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="dto:TimelineEraDto">
                             <Rectangle Fill="{x:Bind ColorBrush, Mode=OneWay}"
                                       Opacity="0.1"
                                       Width="{x:Bind Width}"
-                                      Height="1000"/>
+                                      Height="1000">
+                                <Rectangle.RenderTransform>
+                                    <TranslateTransform X="{x:Bind PixelX}" Y="0"/>
+                                </Rectangle.RenderTransform>
+                            </Rectangle>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
@@ -112,7 +110,37 @@
                           StrokeThickness="2"/>
                 </Canvas>
 
-                <!-- Events layer -->
+                <!-- Time ruler ticks layer - Adobe Premiere style adaptive density -->
+                <ItemsControl x:Name="TimeRulerLayer"
+                             ItemsSource="{x:Bind ViewModel.TimeRulerTicks, Mode=OneWay}"
+                             Canvas.ZIndex="6">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <Canvas/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="dto:TimeRulerTickDto">
+                            <StackPanel Orientation="Vertical">
+                                <!-- Tick mark -->
+                                <Rectangle Width="1"
+                                          Height="{x:Bind TickHeight}"
+                                          Fill="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
+                                <!-- Label (only visible for major ticks) -->
+                                <TextBlock Text="{x:Bind Label}"
+                                          FontSize="10"
+                                          Opacity="{x:Bind LabelOpacity}"
+                                          Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                                          Margin="-20,2,0,0"/>
+                                <StackPanel.RenderTransform>
+                                    <TranslateTransform X="{x:Bind PixelX}" Y="50"/>
+                                </StackPanel.RenderTransform>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- Events layer - using Canvas with manual positioning via RenderTransform -->
                 <ItemsControl x:Name="EventsLayer"
                              ItemsSource="{x:Bind ViewModel.Events, Mode=OneWay}"
                              Canvas.ZIndex="10">
@@ -121,12 +149,6 @@
                             <Canvas/>
                         </ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemContainerStyle>
-                        <Style TargetType="ContentPresenter">
-                            <Setter Property="Canvas.Left" Value="{Binding PixelX}"/>
-                            <Setter Property="Canvas.Top" Value="{Binding PixelY}"/>
-                        </Style>
-                    </ItemsControl.ItemContainerStyle>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="dto:TimelineEventDto">
                             <controls:EventBubble Event="{x:Bind Mode=OneWay}"
@@ -136,6 +158,9 @@
                                                  RightTapped="EventBubble_RightTapped"
                                                  PointerEntered="EventBubble_PointerEntered"
                                                  PointerExited="EventBubble_PointerExited">
+                                <controls:EventBubble.RenderTransform>
+                                    <TranslateTransform X="{x:Bind PixelX}" Y="{x:Bind PixelY}"/>
+                                </controls:EventBubble.RenderTransform>
                                 <controls:EventBubble.ContextFlyout>
                                     <MenuFlyout>
                                         <MenuFlyoutItem Text="View Details"

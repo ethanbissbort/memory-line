@@ -260,6 +260,7 @@ public class TimelineService : ITimelineService
     /// <summary>
     /// Calculates pixel positions for events based on viewport.
     /// Events are displayed as map pins pointing down to the timeline axis.
+    /// Uses the TimelineCoordinateConverter for Premiere-style coordinate transformations.
     /// </summary>
     public void CalculateEventPositions(IEnumerable<TimelineEventDto> events, TimelineViewport viewport)
     {
@@ -269,21 +270,21 @@ public class TimelineService : ITimelineService
         const double timelineAxisY = 50.0; // Y position of the timeline axis
         const double pinSpacing = 5.0; // Spacing between stacked pins
 
+        // Use the coordinate converter for date-to-screen transformations
+        var converter = TimelineCoordinateConverter.FromViewport(viewport);
+
         foreach (var evt in events.OrderBy(e => e.StartDate))
         {
-            // Calculate horizontal position - center the pin on the date
-            var datePixelX = TimelineScale.GetPixelPosition(
-                evt.StartDate,
-                viewport.StartDate,
-                viewport.ZoomLevel);
+            // Calculate horizontal position using coordinate converter - center the pin on the date
+            var datePixelX = converter.DateToScreen(evt.StartDate);
             evt.PixelX = datePixelX - (pinWidth / 2); // Center the pin on the date
 
             // Fixed pin dimensions
             evt.Width = pinWidth;
             evt.Height = pinHeight;
 
-            // Check visibility
-            evt.IsVisible = viewport.IsEventVisible(evt.StartDate, evt.EndDate);
+            // Check visibility using coordinate converter
+            evt.IsVisible = converter.IsRangeVisible(evt.StartDate, evt.EndDate);
         }
 
         // Use tracks to stack overlapping pins above each other
@@ -300,24 +301,21 @@ public class TimelineService : ITimelineService
 
     /// <summary>
     /// Calculates pixel positions for eras based on viewport.
+    /// Uses the TimelineCoordinateConverter for Premiere-style coordinate transformations.
     /// </summary>
     public void CalculateEraPositions(IEnumerable<TimelineEraDto> eras, TimelineViewport viewport)
     {
+        var converter = TimelineCoordinateConverter.FromViewport(viewport);
+
         foreach (var era in eras)
         {
-            era.PixelX = TimelineScale.GetPixelPosition(
-                era.StartDate,
-                viewport.StartDate,
-                viewport.ZoomLevel);
+            era.PixelX = converter.DateToScreen(era.StartDate);
 
             var endDate = era.EndDate ?? viewport.EndDate;
-            var endPixel = TimelineScale.GetPixelPosition(
-                endDate,
-                viewport.StartDate,
-                viewport.ZoomLevel);
+            var endPixel = converter.DateToScreen(endDate);
 
             era.Width = Math.Max(0, endPixel - era.PixelX);
-            era.IsVisible = viewport.IsEventVisible(era.StartDate, era.EndDate);
+            era.IsVisible = converter.IsRangeVisible(era.StartDate, era.EndDate);
         }
     }
 

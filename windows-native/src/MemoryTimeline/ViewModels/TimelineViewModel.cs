@@ -6,6 +6,7 @@ using MemoryTimeline.Core.Models;
 using MemoryTimeline.Core.Services;
 using MemoryTimeline.Data.Models;
 using System.Collections.ObjectModel;
+using System.Linq;
 
 namespace MemoryTimeline.ViewModels;
 
@@ -26,6 +27,9 @@ public partial class TimelineViewModel : ObservableObject
 
     [ObservableProperty]
     private ObservableCollection<TimelineEraDto> _eras = new();
+
+    [ObservableProperty]
+    private ObservableCollection<TimeRulerTickDto> _timeRulerTicks = new();
 
     [ObservableProperty]
     private ZoomLevel _currentZoomLevel = ZoomLevel.Month;
@@ -132,6 +136,7 @@ public partial class TimelineViewModel : ObservableObject
 
         await LoadEventsForViewportAsync();
         await LoadErasForViewportAsync();
+        GenerateTimeRulerTicks();
     }
 
     /// <summary>
@@ -179,6 +184,46 @@ public partial class TimelineViewModel : ObservableObject
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error loading eras for viewport");
+        }
+    }
+
+    /// <summary>
+    /// Generates time ruler ticks based on current viewport.
+    /// Uses Adobe Premiere-style adaptive tick density algorithm.
+    /// </summary>
+    private void GenerateTimeRulerTicks()
+    {
+        if (Viewport == null) return;
+
+        try
+        {
+            TimeRulerTicks.Clear();
+
+            // Create coordinate converter from viewport
+            var converter = TimelineCoordinateConverter.FromViewport(Viewport);
+
+            // Get optimal ruler configuration based on zoom level
+            var rulerConfig = TimeRulerConfig.Calculate(Viewport.PixelsPerDay);
+
+            // Generate ticks
+            var ticks = rulerConfig.GenerateTicks(converter);
+
+            foreach (var tick in ticks)
+            {
+                TimeRulerTicks.Add(new TimeRulerTickDto
+                {
+                    Date = tick.Date,
+                    PixelX = tick.ScreenX,
+                    IsMajor = tick.IsMajor,
+                    Label = tick.Label
+                });
+            }
+
+            _logger.LogDebug("Generated {Count} time ruler ticks", TimeRulerTicks.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating time ruler ticks");
         }
     }
 
@@ -306,6 +351,7 @@ public partial class TimelineViewModel : ObservableObject
             Viewport = await _timelineService.PanAsync(Viewport, pixelOffset);
             await LoadEventsForViewportAsync();
             await LoadErasForViewportAsync();
+            GenerateTimeRulerTicks();
         }
         catch (Exception ex)
         {
@@ -429,6 +475,7 @@ public partial class TimelineViewModel : ObservableObject
 
             await LoadEventsForViewportAsync();
             await LoadErasForViewportAsync();
+            GenerateTimeRulerTicks();
         }
     }
 
