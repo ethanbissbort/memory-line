@@ -9,7 +9,7 @@ using Windows.UI;
 namespace MemoryTimeline.Controls;
 
 /// <summary>
-/// Represents a single event on the timeline.
+/// Represents a single event on the timeline as a map pin.
 /// </summary>
 public sealed partial class EventBubble : UserControl
 {
@@ -30,14 +30,14 @@ public sealed partial class EventBubble : UserControl
     }
 
     /// <summary>
-    /// Gets the category brush for the event.
+    /// Gets the category brush for the event (pin color).
     /// </summary>
     public SolidColorBrush CategoryBrush
     {
         get
         {
             if (Event == null)
-                return new SolidColorBrush(Colors.Gray);
+                return new SolidColorBrush(ConvertHexToColor("#E74C3C")); // Default red
 
             var colorHex = Event.GetCategoryColor();
             return new SolidColorBrush(ConvertHexToColor(colorHex));
@@ -47,7 +47,7 @@ public sealed partial class EventBubble : UserControl
     /// <summary>
     /// Gets the category glyph icon.
     /// </summary>
-    public string CategoryGlyph => Event?.GetCategoryIcon() ?? "\uE8FB";
+    public string CategoryGlyph => Event?.GetCategoryIcon() ?? "\uE707"; // Default pin icon
 
     public EventBubble()
     {
@@ -65,44 +65,32 @@ public sealed partial class EventBubble : UserControl
 
     private void RootGrid_PointerEntered(object sender, PointerRoutedEventArgs e)
     {
-        // Add hover effect
-        EventBorder.BorderThickness = new Thickness(2);
-        EventBorder.BorderBrush = new SolidColorBrush(Colors.White);
+        // Add hover effect - scale up the pin
+        PinPath.StrokeThickness = 2;
+        PinPath.Stroke = new SolidColorBrush(Colors.White);
 
-        // Add scale animation
-        var scaleAnimation = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
+        RootGrid.RenderTransform = new CompositeTransform
         {
-            To = 1.05,
-            Duration = TimeSpan.FromMilliseconds(100)
+            ScaleX = 1.15,
+            ScaleY = 1.15,
+            CenterX = 15,  // Center of the pin
+            CenterY = 40   // Bottom of pin (the point)
         };
-
-        var storyboard = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
-        storyboard.Children.Add(scaleAnimation);
-        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(scaleAnimation, RootGrid);
-        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(scaleAnimation, "(UIElement.RenderTransform).(ScaleTransform.ScaleX)");
-
-        RootGrid.RenderTransform = new ScaleTransform { CenterX = Width / 2, CenterY = Height / 2 };
-        storyboard.Begin();
     }
 
     private void RootGrid_PointerExited(object sender, PointerRoutedEventArgs e)
     {
         // Remove hover effect
-        EventBorder.BorderThickness = new Thickness(0);
+        PinPath.StrokeThickness = 1;
+        PinPath.Stroke = (Brush)Application.Current.Resources["SystemControlForegroundBaseMediumBrush"];
 
-        // Reset scale
-        var scaleAnimation = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
+        RootGrid.RenderTransform = new CompositeTransform
         {
-            To = 1.0,
-            Duration = TimeSpan.FromMilliseconds(100)
+            ScaleX = 1.0,
+            ScaleY = 1.0,
+            CenterX = 15,
+            CenterY = 40
         };
-
-        var storyboard = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
-        storyboard.Children.Add(scaleAnimation);
-        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(scaleAnimation, RootGrid);
-        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(scaleAnimation, "(UIElement.RenderTransform).(ScaleTransform.ScaleX)");
-
-        storyboard.Begin();
     }
 
     public string FormatDate(DateTime date)
@@ -139,8 +127,8 @@ public sealed partial class EventBubble : UserControl
                 Convert.ToByte(hex.Substring(6, 2), 16));
         }
 
-        // Default gray
-        return Colors.Gray;
+        // Default red (standard map pin color)
+        return Color.FromArgb(255, 231, 76, 60);
     }
 
     private void OnPropertyChanged(string propertyName)

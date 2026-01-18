@@ -5,53 +5,48 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
-    d:DesignHeight="24"
-    d:DesignWidth="100">
+    d:DesignHeight="40"
+    d:DesignWidth="30">
 
     <Grid x:Name="RootGrid"
           PointerEntered="RootGrid_PointerEntered"
-          PointerExited="RootGrid_PointerExited">
+          PointerExited="RootGrid_PointerExited"
+          Width="30"
+          Height="40">
 
-        <!-- Event bubble background -->
-        <Border x:Name="EventBorder"
-                Background="{x:Bind CategoryBrush, Mode=OneWay}"
-                BorderBrush="{ThemeResource SystemControlForegroundBaseMediumBrush}"
-                BorderThickness="0"
-                CornerRadius="12"
-                Padding="8,4"
-                HorizontalAlignment="Stretch"
-                VerticalAlignment="Stretch">
+        <!-- Map pin shape -->
+        <Canvas Width="30" Height="40">
+            <!-- Pin body (teardrop shape) -->
+            <Path x:Name="PinPath"
+                  Fill="{x:Bind CategoryBrush, Mode=OneWay}"
+                  Stroke="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                  StrokeThickness="1"
+                  Data="M15,40 C15,40 0,22 0,14 C0,6.27 6.72,0 15,0 C23.28,0 30,6.27 30,14 C30,22 15,40 15,40 Z">
+                <Path.Shadow>
+                    <ThemeShadow/>
+                </Path.Shadow>
+            </Path>
 
-            <Border.Shadow>
-                <ThemeShadow/>
-            </Border.Shadow>
+            <!-- Inner circle (white hole) -->
+            <Ellipse Canvas.Left="7"
+                     Canvas.Top="6"
+                     Width="16"
+                     Height="16"
+                     Fill="White"
+                     Opacity="0.9"/>
 
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-
-                <!-- Category icon -->
-                <FontIcon x:Name="CategoryIcon"
-                         Glyph="{x:Bind CategoryGlyph, Mode=OneWay}"
-                         FontSize="14"
-                         Foreground="White"
-                         VerticalAlignment="Center"
-                         Margin="0,0,4,0"/>
-
-                <!-- Event title -->
-                <TextBlock x:Name="TitleText"
-                          Grid.Column="1"
-                          Text="{x:Bind Event.Title, Mode=OneWay}"
-                          FontSize="12"
-                          Foreground="White"
-                          FontWeight="SemiBold"
-                          VerticalAlignment="Center"
-                          TextTrimming="CharacterEllipsis"
-                          MaxLines="1"/>
-            </Grid>
-        </Border>
+            <!-- Category icon in center -->
+            <FontIcon x:Name="CategoryIcon"
+                     Canvas.Left="7"
+                     Canvas.Top="6"
+                     Width="16"
+                     Height="16"
+                     Glyph="{x:Bind CategoryGlyph, Mode=OneWay}"
+                     FontSize="10"
+                     Foreground="{x:Bind CategoryBrush, Mode=OneWay}"
+                     HorizontalAlignment="Center"
+                     VerticalAlignment="Center"/>
+        </Canvas>
 
         <!-- Tooltip with event details -->
         <ToolTipService.ToolTip>
