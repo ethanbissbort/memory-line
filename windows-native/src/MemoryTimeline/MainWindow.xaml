@@ -10,14 +10,6 @@
     <Grid x:Name="RootGrid" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
         <!-- Keyboard Accelerators -->
         <Grid.KeyboardAccelerators>
-            <!-- Navigation shortcuts: Ctrl+1 through Ctrl+7 -->
-            <KeyboardAccelerator Key="Number1" Modifiers="Control" Invoked="NavigateToTimeline_Invoked"/>
-            <KeyboardAccelerator Key="Number2" Modifiers="Control" Invoked="NavigateToQueue_Invoked"/>
-            <KeyboardAccelerator Key="Number3" Modifiers="Control" Invoked="NavigateToReview_Invoked"/>
-            <KeyboardAccelerator Key="Number4" Modifiers="Control" Invoked="NavigateToConnections_Invoked"/>
-            <KeyboardAccelerator Key="Number5" Modifiers="Control" Invoked="NavigateToSearch_Invoked"/>
-            <KeyboardAccelerator Key="Number6" Modifiers="Control" Invoked="NavigateToAnalytics_Invoked"/>
-            <KeyboardAccelerator Key="Number7" Modifiers="Control" Invoked="NavigateToSettings_Invoked"/>
             <!-- Alternative: S for Settings -->
             <KeyboardAccelerator Key="S" Modifiers="Control,Shift" Invoked="NavigateToSettings_Invoked"/>
             <!-- F5 to refresh -->
