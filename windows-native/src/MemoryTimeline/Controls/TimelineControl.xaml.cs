@@ -72,7 +72,7 @@ public sealed partial class TimelineControl : UserControl
                 await _viewModel.UpdateViewportDimensionsAsync(width, height);
             }
             UpdateTimelineSize();
-            DrawDateMarkers();
+            UpdateScrollbarFromViewport();
         }
     }
 
@@ -106,7 +106,6 @@ public sealed partial class TimelineControl : UserControl
             {
                 UpdateTimelineSize();
                 UpdateScrollbarFromViewport();
-                DrawDateMarkers();
             }
         };
     }
@@ -115,15 +114,6 @@ public sealed partial class TimelineControl : UserControl
     {
         if (_viewModel?.Viewport == null)
             return;
-
-        // The TimelineCanvas now fills the container - no scrolling
-        // Events are positioned relative to viewport.StartDate
-        // Canvas width = container width (set automatically by Grid)
-
-        // Calculate height based on number of event tracks
-        var maxY = _viewModel.Events.Any()
-            ? _viewModel.Events.Max(e => e.PixelY + e.Height)
-            : 600;
 
         // Update axis line to span the full width (only if width is valid)
         var containerWidth = TimelineContainer.ActualWidth;
@@ -167,82 +157,6 @@ public sealed partial class TimelineControl : UserControl
         {
             _isUpdatingScrollbar = false;
         }
-    }
-
-    private void DrawDateMarkers()
-    {
-        if (_viewModel?.Viewport == null)
-            return;
-
-        // Get container width - must be valid before drawing
-        var containerWidth = TimelineContainer.ActualWidth;
-        if (containerWidth <= 0 || double.IsNaN(containerWidth))
-            return;
-
-        // Clear existing markers
-        AxisCanvas.Children.Clear();
-
-        // Redraw the timeline axis
-        var axis = new Microsoft.UI.Xaml.Shapes.Line
-        {
-            X1 = 0,
-            Y1 = 50,
-            X2 = containerWidth,
-            Y2 = 50,
-            Stroke = (Microsoft.UI.Xaml.Media.Brush)Resources["SystemControlForegroundBaseMediumBrush"],
-            StrokeThickness = 2
-        };
-        AxisCanvas.Children.Add(axis);
-
-        // Draw date markers based on zoom level
-        var viewport = _viewModel.Viewport;
-        var intervalDays = TimelineScale.GetGridInterval(viewport.ZoomLevel);
-        var startDate = new DateTime(viewport.StartDate.Year, viewport.StartDate.Month, 1);
-
-        for (var date = startDate; date <= viewport.EndDate; date = date.AddDays(intervalDays))
-        {
-            var x = TimelineScale.GetPixelPosition(
-                date,
-                viewport.StartDate,
-                viewport.ZoomLevel);
-
-            // Draw tick mark
-            var tick = new Microsoft.UI.Xaml.Shapes.Line
-            {
-                X1 = x,
-                Y1 = 50,
-                X2 = x,
-                Y2 = 60,
-                Stroke = (Microsoft.UI.Xaml.Media.Brush)Resources["SystemControlForegroundBaseMediumBrush"],
-                StrokeThickness = 1
-            };
-            Canvas.SetLeft(tick, 0);
-            Canvas.SetTop(tick, 0);
-            AxisCanvas.Children.Add(tick);
-
-            // Draw date label
-            var label = new TextBlock
-            {
-                Text = FormatDateLabel(date, viewport.ZoomLevel),
-                FontSize = 12,
-                Foreground = (Microsoft.UI.Xaml.Media.Brush)Resources["SystemControlForegroundBaseMediumBrush"]
-            };
-            Canvas.SetLeft(label, x - 30);
-            Canvas.SetTop(label, 25);
-            AxisCanvas.Children.Add(label);
-        }
-    }
-
-    private string FormatDateLabel(DateTime date, ZoomLevel zoom)
-    {
-        return zoom switch
-        {
-            ZoomLevel.Year => date.ToString("yyyy"),
-            ZoomLevel.Month => date.ToString("MMM yyyy"),
-            ZoomLevel.Week => date.ToString("MMM d"),
-            ZoomLevel.Day => date.ToString("MMM d, h:mm tt"),
-            _ => date.ToString("MMM yyyy")
-        };
     }
 
     #region Proportional Scrollbar Handlers
