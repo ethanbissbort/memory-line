@@ -30,27 +30,24 @@
                   CornerRadius="3"
                   Opacity="0.9">
 
-                <!-- Left resize handle -->
+                <!-- Left resize handle (cursor set in code-behind) -->
                 <Border x:Name="LeftHandle"
                         HorizontalAlignment="Left"
                         Width="6"
                         Background="Transparent"
-                        Cursor="SizeWestEast"
                         Margin="-2,0,0,0"/>
 
-                <!-- Center drag area -->
+                <!-- Center drag area (cursor set in code-behind) -->
                 <Border x:Name="CenterArea"
                         HorizontalAlignment="Stretch"
                         Margin="6,0"
-                        Background="Transparent"
-                        Cursor="Hand"/>
+                        Background="Transparent"/>
 
-                <!-- Right resize handle -->
+                <!-- Right resize handle (cursor set in code-behind) -->
                 <Border x:Name="RightHandle"
                         HorizontalAlignment="Right"
                         Width="6"
                         Background="Transparent"
-                        Cursor="SizeWestEast"
                         Margin="0,0,-2,0"/>
 
                 <!-- Visual indicator lines on thumb -->
