@@ -11,7 +11,7 @@ public class TimelineViewport
     /// the scrolling behavior (soft resistance when panning past this date).
     /// Direct navigation via GoToDate or CenterOn can go to any date.
     /// </summary>
-    public static readonly DateTime DefaultMinDate = new DateTime(1900, 1, 1);
+    public static readonly DateTime DefaultMinDate = new DateTime(1990, 1, 1);
 
     /// <summary>
     /// Default soft scroll boundary for panning into the future.
