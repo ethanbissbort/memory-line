@@ -8,25 +8,6 @@
     Title="Memory Timeline">
 
     <Grid x:Name="RootGrid" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
-        <!-- Keyboard Accelerators -->
-        <Grid.KeyboardAccelerators>
-            <!-- Alternative: S for Settings -->
-            <KeyboardAccelerator Key="S" Modifiers="Control,Shift" Invoked="NavigateToSettings_Invoked"/>
-            <!-- F5 to refresh -->
-            <KeyboardAccelerator Key="F5" Invoked="Refresh_Invoked"/>
-            <!-- Ctrl+F for Search -->
-            <KeyboardAccelerator Key="F" Modifiers="Control" Invoked="NavigateToSearch_Invoked"/>
-            <!-- Ctrl+T for Timeline -->
-            <KeyboardAccelerator Key="T" Modifiers="Control" Invoked="NavigateToTimeline_Invoked"/>
-            <!-- Ctrl+R for Recording Queue -->
-            <KeyboardAccelerator Key="R" Modifiers="Control" Invoked="NavigateToQueue_Invoked"/>
-            <!-- Alt+Left/Right for back/forward navigation -->
-            <KeyboardAccelerator Key="Left" Modifiers="Menu" Invoked="GoBack_Invoked"/>
-            <KeyboardAccelerator Key="Right" Modifiers="Menu" Invoked="GoForward_Invoked"/>
-            <!-- Backspace for back -->
-            <KeyboardAccelerator Key="Back" Invoked="GoBack_Invoked"/>
-        </Grid.KeyboardAccelerators>
-
         <NavigationView
             x:Name="NavigationView"
             IsBackButtonVisible="Auto"

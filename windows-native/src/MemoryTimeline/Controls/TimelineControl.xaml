@@ -87,12 +87,16 @@
                             <Canvas/>
                         </ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemContainerStyle>
+                        <Style TargetType="ContentPresenter">
+                            <Setter Property="Canvas.Left" Value="{Binding PixelX}"/>
+                            <Setter Property="Canvas.Top" Value="0"/>
+                        </Style>
+                    </ItemsControl.ItemContainerStyle>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="dto:TimelineEraDto">
                             <Rectangle Fill="{x:Bind ColorBrush, Mode=OneWay}"
                                       Opacity="0.1"
-                                      Canvas.Left="{x:Bind PixelX}"
-                                      Canvas.Top="0"
                                       Width="{x:Bind Width}"
                                       Height="1000"/>
                         </DataTemplate>
@@ -117,11 +121,15 @@
                             <Canvas/>
                         </ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemContainerStyle>
+                        <Style TargetType="ContentPresenter">
+                            <Setter Property="Canvas.Left" Value="{Binding PixelX}"/>
+                            <Setter Property="Canvas.Top" Value="{Binding PixelY}"/>
+                        </Style>
+                    </ItemsControl.ItemContainerStyle>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="dto:TimelineEventDto">
                             <controls:EventBubble Event="{x:Bind Mode=OneWay}"
-                                                 Canvas.Left="{x:Bind PixelX}"
-                                                 Canvas.Top="{x:Bind PixelY}"
                                                  Width="{x:Bind Width}"
                                                  Height="{x:Bind Height}"
                                                  Tapped="EventBubble_Tapped"
@@ -171,13 +179,11 @@
                     PlaceholderText="mmddyy or yyyy"
                     Width="110"
                     VerticalAlignment="Center"
-                    KeyDown="QuickDateBox_KeyDown"
-                    ToolTipService.ToolTip="Enter date (mmddyy) or year (yyyy) and press Enter"/>
+                    KeyDown="QuickDateBox_KeyDown"/>
 
             <Button Content="&#xE71E;"
                    FontFamily="Segoe MDL2 Assets"
                    FontSize="16"
-                   ToolTipService.ToolTip="Zoom Out"
                    Command="{x:Bind ViewModel.ZoomOutCommand}"
                    IsEnabled="{x:Bind ViewModel.CanZoomOut, Mode=OneWay}"
                    Style="{StaticResource AccentButtonStyle}"
@@ -196,7 +202,6 @@
             <Button Content="&#xE71D;"
                    FontFamily="Segoe MDL2 Assets"
                    FontSize="16"
-                   ToolTipService.ToolTip="Zoom In"
                    Command="{x:Bind ViewModel.ZoomInCommand}"
                    IsEnabled="{x:Bind ViewModel.CanZoomIn, Mode=OneWay}"
                    Style="{StaticResource AccentButtonStyle}"
@@ -209,14 +214,10 @@
                    Canvas.ZIndex="100">
 
             <AppBarButton Label="Add Event"
-                         Click="AddEventButton_Click"
-                         ToolTipService.ToolTip="Create a new event (Ctrl+N)">
+                         Click="AddEventButton_Click">
                 <AppBarButton.Icon>
                     <FontIcon Glyph="&#xE710;"/>
                 </AppBarButton.Icon>
-                <AppBarButton.KeyboardAccelerators>
-                    <KeyboardAccelerator Key="N" Modifiers="Control"/>
-                </AppBarButton.KeyboardAccelerators>
             </AppBarButton>
 
             <AppBarSeparator/>
@@ -269,7 +270,6 @@
                                FontFamily="Segoe MDL2 Assets"
                                HorizontalAlignment="Right"
                                Background="Transparent"
-                               ToolTipService.ToolTip="Close"
                                Command="{x:Bind ViewModel.SelectEventCommand}"/>
                     </Grid>
 
@@ -329,8 +329,7 @@
                         <TextBox x:Name="EventDateTextBox"
                                 PlaceholderText="mmddyy"
                                 Width="100"
-                                TextChanged="EventDateTextBox_TextChanged"
-                                ToolTipService.ToolTip="Enter date as mmddyy (e.g., 010190 for Jan 1, 1990)"/>
+                                TextChanged="EventDateTextBox_TextChanged"/>
                         <TextBlock Text="or" VerticalAlignment="Center"
                                   Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
                         <CalendarDatePicker x:Name="EventDatePicker"

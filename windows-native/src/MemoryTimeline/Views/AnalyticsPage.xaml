@@ -170,7 +170,7 @@
                                 </ItemsRepeater.Layout>
                                 <ItemsRepeater.ItemTemplate>
                                     <DataTemplate x:DataType="core:TimelineDensityPoint">
-                                        <StackPanel Width="40" ToolTipService.ToolTip="{x:Bind Label}">
+                                        <StackPanel Width="40">
                                             <Border VerticalAlignment="Bottom"
                                                     Background="{ThemeResource AccentFillColorDefaultBrush}"
                                                     CornerRadius="4,4,0,0">
@@ -206,8 +206,7 @@
                             </ItemsRepeater.Layout>
                             <ItemsRepeater.ItemTemplate>
                                 <DataTemplate x:DataType="core:TagCloudItem">
-                                    <Border Background="{x:Bind Color}" CornerRadius="4" Padding="8,4"
-                                            ToolTipService.ToolTip="{x:Bind Count}">
+                                    <Border Background="{x:Bind Color}" CornerRadius="4" Padding="8,4">
                                         <TextBlock Text="{x:Bind Name}" Foreground="White"
                                                    FontSize="{x:Bind FontSize}"/>
                                     </Border>
@@ -317,8 +316,7 @@
                             <ItemsRepeater.ItemTemplate>
                                 <DataTemplate x:DataType="core:ActivityHeatmapCell">
                                     <StackPanel Width="50">
-                                        <Border Height="40" Background="{x:Bind Color}" CornerRadius="4"
-                                                ToolTipService.ToolTip="{x:Bind Value}">
+                                        <Border Height="40" Background="{x:Bind Color}" CornerRadius="4">
                                             <TextBlock Text="{x:Bind Value}" HorizontalAlignment="Center"
                                                        VerticalAlignment="Center" FontSize="11"
                                                        Foreground="White"/>
