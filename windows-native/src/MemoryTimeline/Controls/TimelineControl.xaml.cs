@@ -478,7 +478,7 @@ public sealed partial class TimelineControl : UserControl
         EventLocationBox.Text = eventDto.Location ?? "";
 
         // Select the category
-        var category = eventDto.Category ?? "Other";
+        var category = eventDto.Category ?? "other";
         for (int i = 0; i < EventCategoryCombo.Items.Count; i++)
         {
             if (EventCategoryCombo.Items[i] is ComboBoxItem item &&
