@@ -211,9 +211,10 @@ public sealed partial class TimelineControl : UserControl
             var newScrollPosition = scrollViewer.HorizontalOffset;
             var delta = newScrollPosition - _lastScrollPosition;
 
-            // Only update viewport if scrolled significantly
-            if (Math.Abs(delta) > 50 && !e.IsIntermediate)
+            // Update viewport on any significant scroll movement
+            if (Math.Abs(delta) > 5)
             {
+                // Pan the viewport by the scroll delta (negative because scroll right = pan right = dates move forward)
                 await _viewModel.PanAsync(-delta);
                 _lastScrollPosition = newScrollPosition;
             }
@@ -388,9 +389,10 @@ public sealed partial class TimelineControl : UserControl
     private const double TimeRulerZoneHeight = 70.0;
 
     /// <summary>
-    /// Handles mouse wheel for cursor-anchored zoom (Premiere-style).
+    /// Handles mouse wheel for zoom and scroll (Premiere-style).
     /// When cursor is over time ruler: cursor-anchored zoom
-    /// When cursor is over track area: horizontal scroll (Alt+wheel = cursor-anchored zoom)
+    /// When cursor is over track area with Ctrl: center-anchored zoom
+    /// When cursor is over track area without Ctrl: horizontal scroll
     /// </summary>
     private async void TimelineCanvas_PointerWheelChanged(object sender, PointerRoutedEventArgs e)
     {
@@ -401,26 +403,30 @@ public sealed partial class TimelineControl : UserControl
         var position = point.Position;
         var wheelDelta = point.Properties.MouseWheelDelta;
 
-        // Check if cursor is in the time ruler zone (top area)
-        bool isInTimeRulerZone = position.Y <= TimeRulerZoneHeight;
+        // Check if cursor is in the time ruler zone (bottom area - Row 2)
+        var canvasHeight = TimelineCanvas.ActualHeight;
+        bool isInTimeRulerZone = position.Y >= canvasHeight - 80; // Time ruler is 80px at bottom
 
-        // Check for Alt key (alternative zoom modifier for track area)
-        var keyState = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Menu);
-        bool isAltPressed = (keyState & Windows.UI.Core.CoreVirtualKeyStates.Down) == Windows.UI.Core.CoreVirtualKeyStates.Down;
+        // Check for Ctrl key (zoom modifier for track area)
+        var ctrlState = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control);
+        bool isCtrlPressed = (ctrlState & Windows.UI.Core.CoreVirtualKeyStates.Down) == Windows.UI.Core.CoreVirtualKeyStates.Down;
 
-        if (isInTimeRulerZone || isAltPressed)
+        if (isInTimeRulerZone)
         {
             // Cursor-anchored zoom: timecode under cursor stays fixed
             await _viewModel.CursorAnchoredZoomAsync(position.X, wheelDelta);
             e.Handled = true;
         }
-        else
+        else if (isCtrlPressed)
         {
-            // Default: horizontal scroll
-            // Let the ScrollViewer handle it, or implement custom scroll
-            // For now, do center-anchored zoom for consistency
+            // Center-anchored zoom with Ctrl held
             await _viewModel.CenterAnchoredZoomAsync(wheelDelta);
             e.Handled = true;
+        }
+        else
+        {
+            // Default: horizontal scroll - let ScrollViewer handle it
+            // Don't set e.Handled = true, so the event bubbles to ScrollViewer
         }
     }
 

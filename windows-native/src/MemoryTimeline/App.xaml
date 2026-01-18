@@ -18,6 +18,7 @@
             <converters:BoolNegationConverter x:Key="BoolNegationConverter"/>
             <converters:NullToFalseConverter x:Key="NullToFalseConverter"/>
             <converters:DateFormatConverter x:Key="DateFormatConverter"/>
+            <converters:ZeroToVisibilityConverter x:Key="ZeroToVisibilityConverter"/>
             <converters:PercentageToWidthConverter x:Key="PercentageToWidthConverter"/>
             <converters:NormalizedToHeightConverter x:Key="NormalizedToHeightConverter"/>
 
