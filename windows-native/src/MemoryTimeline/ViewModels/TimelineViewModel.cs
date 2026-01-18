@@ -472,7 +472,7 @@ public partial class TimelineViewModel : ObservableObject
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error creating event: {Title}", title);
-            StatusText = "Error creating event";
+            StatusText = $"Error creating event: {ex.Message}";
         }
         finally
         {

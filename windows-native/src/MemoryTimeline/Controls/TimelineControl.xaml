@@ -325,15 +325,15 @@
                          Header="Category"
                          PlaceholderText="Select category"
                          HorizontalAlignment="Stretch">
-                    <ComboBoxItem Content="Milestone" Tag="Milestone"/>
-                    <ComboBoxItem Content="Work" Tag="Work"/>
-                    <ComboBoxItem Content="Education" Tag="Education"/>
-                    <ComboBoxItem Content="Relationship" Tag="Relationship"/>
-                    <ComboBoxItem Content="Travel" Tag="Travel"/>
-                    <ComboBoxItem Content="Achievement" Tag="Achievement"/>
-                    <ComboBoxItem Content="Challenge" Tag="Challenge"/>
-                    <ComboBoxItem Content="Era" Tag="Era"/>
-                    <ComboBoxItem Content="Other" Tag="Other"/>
+                    <ComboBoxItem Content="Milestone" Tag="milestone"/>
+                    <ComboBoxItem Content="Work" Tag="work"/>
+                    <ComboBoxItem Content="Education" Tag="education"/>
+                    <ComboBoxItem Content="Relationship" Tag="relationship"/>
+                    <ComboBoxItem Content="Travel" Tag="travel"/>
+                    <ComboBoxItem Content="Achievement" Tag="achievement"/>
+                    <ComboBoxItem Content="Challenge" Tag="challenge"/>
+                    <ComboBoxItem Content="Era" Tag="era"/>
+                    <ComboBoxItem Content="Other" Tag="other"/>
                 </ComboBox>
 
                 <TextBox x:Name="EventLocationBox"

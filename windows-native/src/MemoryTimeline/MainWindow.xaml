@@ -44,28 +44,28 @@
             SelectionChanged="NavigationView_SelectionChanged">
 
             <NavigationView.MenuItems>
-                <NavigationViewItem Content="Timeline (Ctrl+1)" Tag="Timeline" Icon="Calendar">
+                <NavigationViewItem Content="Timeline" Tag="Timeline" Icon="Calendar">
                     <NavigationViewItem.InfoBadge>
                         <InfoBadge x:Name="TimelineBadge"/>
                     </NavigationViewItem.InfoBadge>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Queue (Ctrl+2)" Tag="Queue" Icon="Microphone">
+                <NavigationViewItem Content="Queue" Tag="Queue" Icon="Microphone">
                     <NavigationViewItem.InfoBadge>
                         <InfoBadge x:Name="QueueBadge"/>
                     </NavigationViewItem.InfoBadge>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Review (Ctrl+3)" Tag="Review" Icon="Accept">
+                <NavigationViewItem Content="Review" Tag="Review" Icon="Accept">
                     <NavigationViewItem.InfoBadge>
                         <InfoBadge x:Name="ReviewBadge"/>
                     </NavigationViewItem.InfoBadge>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Connections (Ctrl+4)" Tag="Connections">
+                <NavigationViewItem Content="Connections" Tag="Connections">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE71B;"/>
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Search (Ctrl+5)" Tag="Search" Icon="Find"/>
-                <NavigationViewItem Content="Analytics (Ctrl+6)" Tag="Analytics">
+                <NavigationViewItem Content="Search" Tag="Search" Icon="Find"/>
+                <NavigationViewItem Content="Analytics" Tag="Analytics">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE9D2;"/>
                     </NavigationViewItem.Icon>
