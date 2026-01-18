@@ -416,7 +416,7 @@ public static class ZoomHelper
     /// </summary>
     public static ZoomLevel GetClosestZoomLevel(double pixelsPerDay)
     {
-        var levels = new[] { ZoomLevel.Year, ZoomLevel.Quarter, ZoomLevel.Month, ZoomLevel.Week, ZoomLevel.Day };
+        var levels = new[] { ZoomLevel.Year, ZoomLevel.Month, ZoomLevel.Week, ZoomLevel.Day };
         ZoomLevel closest = ZoomLevel.Month;
         double closestDiff = double.MaxValue;
 
