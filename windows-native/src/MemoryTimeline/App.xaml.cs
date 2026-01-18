@@ -135,6 +135,7 @@ public partial class App : Application
                     services.AddTransient<ConnectionsViewModel>();
                     services.AddTransient<SearchViewModel>();
                     services.AddTransient<AnalyticsViewModel>();
+                    services.AddTransient<ErasViewModel>();
 
                     // Register Views
                     services.AddTransient<MainWindow>();
@@ -145,6 +146,7 @@ public partial class App : Application
                     services.AddTransient<AnalyticsPage>();
                     services.AddTransient<SettingsPage>();
                     services.AddTransient<ConnectionsPage>();
+                    services.AddTransient<ErasPage>();
                 })
                 .Build();
 

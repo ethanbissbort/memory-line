@@ -37,6 +37,11 @@
                         <FontIcon Glyph="&#xE71B;"/>
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem Content="Eras" Tag="Eras">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE81C;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Content="Search" Tag="Search" Icon="Find"/>
                 <NavigationViewItem Content="Analytics" Tag="Analytics">
                     <NavigationViewItem.Icon>
