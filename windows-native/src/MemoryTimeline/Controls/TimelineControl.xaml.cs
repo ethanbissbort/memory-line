@@ -55,8 +55,18 @@ public sealed partial class TimelineControl : UserControl
 
         if (width > 0 && height > 0)
         {
-            await _viewModel.InitializeAsync(width, height);
+            // Only initialize if not already initialized (preserves state across navigation)
+            if (_viewModel.Viewport == null)
+            {
+                await _viewModel.InitializeAsync(width, height);
+            }
+            else
+            {
+                // Just update viewport dimensions if already initialized
+                await _viewModel.UpdateViewportDimensionsAsync(width, height);
+            }
             UpdateTimelineSize();
+            DrawDateMarkers();
         }
     }
 
@@ -405,7 +415,157 @@ public sealed partial class TimelineControl : UserControl
 
     #endregion
 
+    #region Date Navigation Helpers
+
+    /// <summary>
+    /// Parses a date string in mmddyy or yyyy format.
+    /// Returns null if parsing fails.
+    /// </summary>
+    private (DateTime? date, bool isYearOnly) ParseDateString(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+            return (null, false);
+
+        input = input.Trim();
+
+        // Check for 4-digit year only (e.g., "2006")
+        if (input.Length == 4 && int.TryParse(input, out int year))
+        {
+            if (year >= 1900 && year <= 2100)
+            {
+                return (new DateTime(year, 1, 1), true);
+            }
+        }
+
+        // Check for 6-digit mmddyy format (e.g., "010190")
+        if (input.Length == 6 && int.TryParse(input, out _))
+        {
+            if (int.TryParse(input.Substring(0, 2), out int month) &&
+                int.TryParse(input.Substring(2, 2), out int day) &&
+                int.TryParse(input.Substring(4, 2), out int yy))
+            {
+                // Convert 2-digit year to 4-digit
+                // 00-29 = 2000-2029, 30-99 = 1930-1999
+                int fullYear = yy <= 29 ? 2000 + yy : 1900 + yy;
+
+                try
+                {
+                    return (new DateTime(fullYear, month, day), false);
+                }
+                catch
+                {
+                    return (null, false);
+                }
+            }
+        }
+
+        // Check for 8-digit mmddyyyy format (e.g., "01011990")
+        if (input.Length == 8 && int.TryParse(input, out _))
+        {
+            if (int.TryParse(input.Substring(0, 2), out int month) &&
+                int.TryParse(input.Substring(2, 2), out int day) &&
+                int.TryParse(input.Substring(4, 4), out int fullYear))
+            {
+                try
+                {
+                    return (new DateTime(fullYear, month, day), false);
+                }
+                catch
+                {
+                    return (null, false);
+                }
+            }
+        }
+
+        return (null, false);
+    }
+
+    private async void QuickDateBox_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key != Windows.System.VirtualKey.Enter || _viewModel == null)
+            return;
+
+        var (date, isYearOnly) = ParseDateString(QuickDateBox.Text);
+        if (date.HasValue)
+        {
+            if (isYearOnly)
+            {
+                // Switch to Year view for year-only input
+                _viewModel.SetZoomLevelCommand.Execute("Year");
+            }
+            await _viewModel.GoToDateCommand.ExecuteAsync(date.Value);
+            QuickDateBox.Text = "";
+        }
+    }
+
+    private async void GoToDateMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        GoToDateTextBox.Text = "";
+        GoToDateDialog.XamlRoot = XamlRoot;
+        await GoToDateDialog.ShowAsync();
+    }
+
+    private async void GoToDateDialog_PrimaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
+    {
+        if (_viewModel == null)
+        {
+            args.Cancel = true;
+            return;
+        }
+
+        var (date, isYearOnly) = ParseDateString(GoToDateTextBox.Text);
+        if (!date.HasValue)
+        {
+            args.Cancel = true;
+            return;
+        }
+
+        if (isYearOnly)
+        {
+            // Switch to Year view for year-only input
+            _viewModel.SetZoomLevelCommand.Execute("Year");
+        }
+        await _viewModel.GoToDateCommand.ExecuteAsync(date.Value);
+    }
+
+    private void GoToDateTextBox_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        // Allow Enter to trigger the primary button
+        if (e.Key == Windows.System.VirtualKey.Enter)
+        {
+            // The dialog will handle the primary button click
+        }
+    }
+
+    #endregion
+
     #region Event CRUD Handlers
+
+    private bool _isSyncingDateFields;
+
+    private void EventDateTextBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_isSyncingDateFields)
+            return;
+
+        var (date, _) = ParseDateString(EventDateTextBox.Text);
+        if (date.HasValue)
+        {
+            _isSyncingDateFields = true;
+            EventDatePicker.Date = new DateTimeOffset(date.Value);
+            _isSyncingDateFields = false;
+        }
+    }
+
+    private void EventDatePicker_DateChanged(CalendarDatePicker sender, CalendarDatePickerDateChangedEventArgs args)
+    {
+        if (_isSyncingDateFields || !args.NewDate.HasValue)
+            return;
+
+        _isSyncingDateFields = true;
+        EventDateTextBox.Text = args.NewDate.Value.ToString("MMddyy");
+        _isSyncingDateFields = false;
+    }
 
     private async void AddEventButton_Click(object sender, RoutedEventArgs e)
     {
@@ -433,7 +593,10 @@ public sealed partial class TimelineControl : UserControl
 
         // Clear and set defaults
         EventTitleBox.Text = "";
+        _isSyncingDateFields = true;
+        EventDateTextBox.Text = defaultDate.ToString("MMddyy");
         EventDatePicker.Date = new DateTimeOffset(defaultDate);
+        _isSyncingDateFields = false;
         EventDescriptionBox.Text = "";
         EventCategoryCombo.SelectedIndex = -1;
         EventLocationBox.Text = "";
@@ -473,7 +636,10 @@ public sealed partial class TimelineControl : UserControl
 
         // Populate with existing values
         EventTitleBox.Text = eventDto.Title ?? "";
+        _isSyncingDateFields = true;
+        EventDateTextBox.Text = eventDto.StartDate.ToString("MMddyy");
         EventDatePicker.Date = new DateTimeOffset(eventDto.StartDate);
+        _isSyncingDateFields = false;
         EventDescriptionBox.Text = eventDto.Description ?? "";
         EventLocationBox.Text = eventDto.Location ?? "";
 

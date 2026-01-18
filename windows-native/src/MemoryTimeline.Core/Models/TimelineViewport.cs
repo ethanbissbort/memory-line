@@ -6,9 +6,9 @@ namespace MemoryTimeline.Core.Models;
 public class TimelineViewport
 {
     /// <summary>
-    /// Minimum allowed date for the timeline (default: January 1, 1992).
+    /// Minimum allowed date for the timeline (default: January 1, 1900).
     /// </summary>
-    public static readonly DateTime DefaultMinDate = new DateTime(1992, 1, 1);
+    public static readonly DateTime DefaultMinDate = new DateTime(1900, 1, 1);
 
     /// <summary>
     /// Maximum allowed date for the timeline (default: current date).
