@@ -2,8 +2,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
+using MemoryTimeline.Core.DTOs;
 using MemoryTimeline.Data.Models;
 using MemoryTimeline.ViewModels;
 using Windows.UI;
@@ -11,8 +13,8 @@ using Windows.UI;
 namespace MemoryTimeline.Views;
 
 /// <summary>
-/// Page for managing eras/life phases.
-/// Provides CRUD operations for creating, editing, and deleting eras.
+/// Page for managing eras/life phases with Gantt-style visualization.
+/// Provides CRUD operations for eras and milestones.
 /// </summary>
 public sealed partial class ErasPage : Page
 {
@@ -24,6 +26,7 @@ public sealed partial class ErasPage : Page
     public List<string> ColorPalette => ErasViewModel.ColorPalette;
 
     private Era? _eraToDelete;
+    private Milestone? _milestoneToDelete;
 
     public ErasPage()
     {
@@ -41,27 +44,16 @@ public sealed partial class ErasPage : Page
         await ViewModel.InitializeAsync();
     }
 
+    #region Era CRUD Handlers
+
     /// <summary>
     /// Opens the Add Era dialog.
     /// </summary>
     private async void AddEra_Click(object sender, RoutedEventArgs e)
     {
         ViewModel.PrepareAddEra();
-        PrepareDialogForAdd();
+        PrepareEraDialogForAdd();
         await EraDialog.ShowAsync();
-    }
-
-    /// <summary>
-    /// Opens the Edit Era dialog from context menu.
-    /// </summary>
-    private async void EditEra_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is MenuFlyoutItem menuItem && menuItem.DataContext is Era era)
-        {
-            ViewModel.PrepareEditEra(era);
-            PrepareDialogForEdit(era);
-            await EraDialog.ShowAsync();
-        }
     }
 
     /// <summary>
@@ -72,20 +64,8 @@ public sealed partial class ErasPage : Page
         if (ViewModel.SelectedEra != null)
         {
             ViewModel.PrepareEditEra(ViewModel.SelectedEra);
-            PrepareDialogForEdit(ViewModel.SelectedEra);
+            PrepareEraDialogForEdit(ViewModel.SelectedEra);
             await EraDialog.ShowAsync();
-        }
-    }
-
-    /// <summary>
-    /// Opens the Delete Confirmation dialog from context menu.
-    /// </summary>
-    private async void DeleteEra_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is MenuFlyoutItem menuItem && menuItem.DataContext is Era era)
-        {
-            _eraToDelete = era;
-            await DeleteConfirmDialog.ShowAsync();
         }
     }
 
@@ -102,13 +82,31 @@ public sealed partial class ErasPage : Page
     }
 
     /// <summary>
-    /// Handles era item click for selection.
+    /// Handles era bar click for selection.
     /// </summary>
-    private void Era_ItemClick(object sender, ItemClickEventArgs e)
+    private void EraBar_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
-        if (e.ClickedItem is Era era)
+        if (sender is FrameworkElement element && element.DataContext is GanttEraBarDto eraBar)
         {
+            var era = ViewModel.Eras.FirstOrDefault(era => era.EraId == eraBar.EraId);
             ViewModel.SelectEra(era);
+        }
+    }
+
+    /// <summary>
+    /// Handles era bar double-click for editing.
+    /// </summary>
+    private async void EraBar_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement element && element.DataContext is GanttEraBarDto eraBar)
+        {
+            var era = ViewModel.Eras.FirstOrDefault(era => era.EraId == eraBar.EraId);
+            if (era != null)
+            {
+                ViewModel.PrepareEditEra(era);
+                PrepareEraDialogForEdit(era);
+                await EraDialog.ShowAsync();
+            }
         }
     }
 
@@ -117,7 +115,6 @@ public sealed partial class ErasPage : Page
     /// </summary>
     private async void EraDialog_PrimaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
     {
-        // Validate input
         if (string.IsNullOrWhiteSpace(EraNameBox.Text))
         {
             args.Cancel = true;
@@ -126,13 +123,18 @@ public sealed partial class ErasPage : Page
 
         // Update ViewModel properties from dialog
         ViewModel.EditName = EraNameBox.Text;
+        ViewModel.EditSubtitle = EraSubtitleBox.Text;
         ViewModel.EditStartDate = EraStartDatePicker.Date?.DateTime ?? DateTime.Now;
         ViewModel.EditEndDate = EraEndDatePicker.Date?.DateTime;
         ViewModel.EditDescription = EraDescriptionBox.Text;
+        ViewModel.EditNotes = EraNotesBox.Text;
 
-        // Color is updated via SelectionChanged or TextChanged
+        // Category
+        if (EraCategoryComboBox.SelectedItem is EraCategory selectedCategory)
+        {
+            ViewModel.EditCategoryId = selectedCategory.CategoryId;
+        }
 
-        // Defer to allow dialog to close
         var deferral = args.GetDeferral();
         try
         {
@@ -165,6 +167,221 @@ public sealed partial class ErasPage : Page
     }
 
     /// <summary>
+    /// Prepares the dialog for adding a new era.
+    /// </summary>
+    private void PrepareEraDialogForAdd()
+    {
+        EraDialog.Title = "Add Era";
+        EraNameBox.Text = string.Empty;
+        EraSubtitleBox.Text = string.Empty;
+        EraStartDatePicker.Date = DateTimeOffset.Now;
+        EraEndDatePicker.Date = null;
+        EraDescriptionBox.Text = string.Empty;
+        EraNotesBox.Text = string.Empty;
+
+        // Select first category
+        EraCategoryComboBox.SelectedIndex = 0;
+
+        // Select the default color in the palette
+        var defaultColorIndex = ViewModel.Eras.Count % ColorPalette.Count;
+        ColorPaletteGrid.SelectedIndex = defaultColorIndex;
+        CustomColorBox.Text = ColorPalette[defaultColorIndex];
+        UpdateColorPreview(ColorPalette[defaultColorIndex]);
+    }
+
+    /// <summary>
+    /// Prepares the dialog for editing an existing era.
+    /// </summary>
+    private void PrepareEraDialogForEdit(Era era)
+    {
+        EraDialog.Title = "Edit Era";
+        EraNameBox.Text = era.Name;
+        EraSubtitleBox.Text = era.Subtitle ?? string.Empty;
+        EraStartDatePicker.Date = new DateTimeOffset(era.StartDate);
+        EraEndDatePicker.Date = era.EndDate.HasValue ? new DateTimeOffset(era.EndDate.Value) : null;
+        EraDescriptionBox.Text = era.Description ?? string.Empty;
+        EraNotesBox.Text = era.Notes ?? string.Empty;
+
+        // Select category
+        var category = ViewModel.Categories.FirstOrDefault(c => c.CategoryId == era.CategoryId);
+        EraCategoryComboBox.SelectedItem = category;
+
+        // Color
+        var colorIndex = ColorPalette.IndexOf(era.ColorCode);
+        if (colorIndex >= 0)
+        {
+            ColorPaletteGrid.SelectedIndex = colorIndex;
+        }
+        else
+        {
+            ColorPaletteGrid.SelectedItem = null;
+        }
+
+        CustomColorBox.Text = era.ColorCode;
+        UpdateColorPreview(era.ColorCode);
+    }
+
+    #endregion
+
+    #region Milestone CRUD Handlers
+
+    /// <summary>
+    /// Opens the Add Milestone dialog.
+    /// </summary>
+    private async void AddMilestone_Click(object sender, RoutedEventArgs e)
+    {
+        ViewModel.PrepareAddMilestone();
+        PrepareMilestoneDialogForAdd();
+        await MilestoneDialog.ShowAsync();
+    }
+
+    /// <summary>
+    /// Handles milestone marker click for selection.
+    /// </summary>
+    private void MilestoneMarker_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement element && element.DataContext is MilestoneMarkerDto marker)
+        {
+            var milestone = ViewModel.Milestones.FirstOrDefault(m => m.MilestoneId == marker.MilestoneId);
+            ViewModel.SelectedMilestone = milestone;
+
+            // Update selection state
+            foreach (var m in ViewModel.MilestoneMarkers)
+            {
+                m.IsSelected = m.MilestoneId == marker.MilestoneId;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Saves the milestone when the dialog's primary button is clicked.
+    /// </summary>
+    private async void MilestoneDialog_PrimaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
+    {
+        if (string.IsNullOrWhiteSpace(MilestoneNameBox.Text))
+        {
+            args.Cancel = true;
+            return;
+        }
+
+        ViewModel.EditMilestoneName = MilestoneNameBox.Text;
+        ViewModel.EditMilestoneDate = MilestoneDatePicker.Date?.DateTime ?? DateTime.Now;
+        ViewModel.EditMilestoneDescription = MilestoneDescriptionBox.Text;
+
+        // Milestone type
+        if (MilestoneTypeComboBox.SelectedItem is ComboBoxItem typeItem && typeItem.Tag is string typeTag)
+        {
+            ViewModel.EditMilestoneType = Enum.Parse<MilestoneType>(typeTag);
+        }
+
+        // Linked era
+        if (MilestoneLinkedEraComboBox.SelectedItem is Era linkedEra)
+        {
+            ViewModel.EditMilestoneLinkedEraId = linkedEra.EraId;
+        }
+        else
+        {
+            ViewModel.EditMilestoneLinkedEraId = null;
+        }
+
+        var deferral = args.GetDeferral();
+        try
+        {
+            await ViewModel.SaveMilestoneAsync();
+        }
+        finally
+        {
+            deferral.Complete();
+        }
+    }
+
+    /// <summary>
+    /// Confirms milestone deletion.
+    /// </summary>
+    private async void DeleteMilestoneConfirmDialog_PrimaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
+    {
+        if (_milestoneToDelete != null)
+        {
+            var deferral = args.GetDeferral();
+            try
+            {
+                await ViewModel.DeleteMilestoneAsync(_milestoneToDelete);
+            }
+            finally
+            {
+                _milestoneToDelete = null;
+                deferral.Complete();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Prepares the dialog for adding a new milestone.
+    /// </summary>
+    private void PrepareMilestoneDialogForAdd()
+    {
+        MilestoneDialog.Title = "Add Milestone";
+        MilestoneNameBox.Text = string.Empty;
+        MilestoneDatePicker.Date = DateTimeOffset.Now;
+        MilestoneTypeComboBox.SelectedIndex = 0;
+        MilestoneLinkedEraComboBox.SelectedItem = null;
+        MilestoneDescriptionBox.Text = string.Empty;
+    }
+
+    #endregion
+
+    #region Category Filter Handlers
+
+    /// <summary>
+    /// Handles category filter toggle.
+    /// </summary>
+    private void CategoryFilter_Click(object sender, RoutedEventArgs e)
+    {
+        // Regenerate layout after category visibility change
+        ViewModel.GenerateGanttLayout();
+    }
+
+    /// <summary>
+    /// Shows all categories.
+    /// </summary>
+    private void ShowAllCategories_Click(object sender, RoutedEventArgs e)
+    {
+        ViewModel.ShowAllCategories();
+    }
+
+    /// <summary>
+    /// Hides all categories.
+    /// </summary>
+    private void HideAllCategories_Click(object sender, RoutedEventArgs e)
+    {
+        ViewModel.HideAllCategories();
+    }
+
+    #endregion
+
+    #region Zoom Handlers
+
+    /// <summary>
+    /// Zooms in on the timeline.
+    /// </summary>
+    private void ZoomIn_Click(object sender, RoutedEventArgs e)
+    {
+        ViewModel.ZoomIn();
+    }
+
+    /// <summary>
+    /// Zooms out on the timeline.
+    /// </summary>
+    private void ZoomOut_Click(object sender, RoutedEventArgs e)
+    {
+        ViewModel.ZoomOut();
+    }
+
+    #endregion
+
+    #region Color Picker Handlers
+
+    /// <summary>
     /// Handles color palette selection.
     /// </summary>
     private void ColorPalette_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -188,56 +405,11 @@ public sealed partial class ErasPage : Page
             ViewModel.EditColorCode = colorCode;
             UpdateColorPreview(colorCode);
 
-            // Deselect palette if custom color differs
             if (ColorPaletteGrid.SelectedItem is string selectedColor && selectedColor != colorCode)
             {
                 ColorPaletteGrid.SelectedItem = null;
             }
         }
-    }
-
-    /// <summary>
-    /// Prepares the dialog for adding a new era.
-    /// </summary>
-    private void PrepareDialogForAdd()
-    {
-        EraDialog.Title = "Add Era";
-        EraNameBox.Text = string.Empty;
-        EraStartDatePicker.Date = DateTimeOffset.Now;
-        EraEndDatePicker.Date = null;
-        EraDescriptionBox.Text = string.Empty;
-
-        // Select the default color in the palette
-        var defaultColorIndex = ViewModel.Eras.Count % ColorPalette.Count;
-        ColorPaletteGrid.SelectedIndex = defaultColorIndex;
-        CustomColorBox.Text = ColorPalette[defaultColorIndex];
-        UpdateColorPreview(ColorPalette[defaultColorIndex]);
-    }
-
-    /// <summary>
-    /// Prepares the dialog for editing an existing era.
-    /// </summary>
-    private void PrepareDialogForEdit(Era era)
-    {
-        EraDialog.Title = "Edit Era";
-        EraNameBox.Text = era.Name;
-        EraStartDatePicker.Date = new DateTimeOffset(era.StartDate);
-        EraEndDatePicker.Date = era.EndDate.HasValue ? new DateTimeOffset(era.EndDate.Value) : null;
-        EraDescriptionBox.Text = era.Description ?? string.Empty;
-
-        // Try to find the color in the palette
-        var colorIndex = ColorPalette.IndexOf(era.ColorCode);
-        if (colorIndex >= 0)
-        {
-            ColorPaletteGrid.SelectedIndex = colorIndex;
-        }
-        else
-        {
-            ColorPaletteGrid.SelectedItem = null;
-        }
-
-        CustomColorBox.Text = era.ColorCode;
-        UpdateColorPreview(era.ColorCode);
     }
 
     /// <summary>
@@ -303,4 +475,6 @@ public sealed partial class ErasPage : Page
 
         return Colors.Gray;
     }
+
+    #endregion
 }

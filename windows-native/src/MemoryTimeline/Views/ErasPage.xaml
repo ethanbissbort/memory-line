@@ -5,196 +5,386 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="using:MemoryTimeline.Data.Models"
+    xmlns:dtos="using:MemoryTimeline.Core.DTOs"
     mc:Ignorable="d"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
     Loaded="Page_Loaded">
 
-    <Grid Padding="24">
+    <Page.Resources>
+        <!-- Era Bar Height -->
+        <x:Double x:Key="EraBarHeight">20</x:Double>
+        <x:Double x:Key="EraRowHeight">32</x:Double>
+        <x:Double x:Key="CategoryHeaderHeight">28</x:Double>
+        <x:Double x:Key="MilestoneIconSize">20</x:Double>
+    </Page.Resources>
+
+    <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>  <!-- Toolbar -->
+            <RowDefinition Height="*"/>      <!-- Main content -->
         </Grid.RowDefinitions>
 
-        <!-- Header -->
-        <Grid Grid.Row="0" Margin="0,0,0,16">
+        <!-- Toolbar -->
+        <Grid Grid.Row="0" Padding="16,12" Background="{ThemeResource LayerFillColorDefaultBrush}">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>  <!-- Title -->
+                <ColumnDefinition Width="*"/>     <!-- Category filters -->
+                <ColumnDefinition Width="Auto"/>  <!-- Search -->
+                <ColumnDefinition Width="Auto"/>  <!-- Actions -->
             </Grid.ColumnDefinitions>
 
-            <StackPanel Grid.Column="0">
-                <TextBlock Text="Eras &amp; Life Phases" Style="{StaticResource TitleTextBlockStyle}"/>
-                <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
-                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                          Margin="0,4,0,0"/>
+            <!-- Title and stats -->
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                <TextBlock Text="Eras &amp; Life Phases" Style="{StaticResource SubtitleTextBlockStyle}"/>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <InfoBadge Value="{x:Bind ViewModel.TotalEraCount, Mode=OneWay}"/>
+                    <TextBlock Text="eras" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                    <InfoBadge Value="{x:Bind ViewModel.TotalMilestoneCount, Mode=OneWay}" Style="{StaticResource AttentionIconInfoBadgeStyle}"/>
+                    <TextBlock Text="milestones" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                </StackPanel>
             </StackPanel>
 
-            <Button Grid.Column="1" Style="{StaticResource AccentButtonStyle}"
-                   Click="AddEra_Click">
+            <!-- Category Filters -->
+            <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Margin="24,0">
                 <StackPanel Orientation="Horizontal" Spacing="8">
-                    <FontIcon Glyph="&#xE710;" FontSize="14"/>
-                    <TextBlock Text="Add Era"/>
+                    <ItemsRepeater ItemsSource="{x:Bind ViewModel.CategoryFilters, Mode=OneWay}">
+                        <ItemsRepeater.Layout>
+                            <StackLayout Orientation="Horizontal" Spacing="4"/>
+                        </ItemsRepeater.Layout>
+                        <ItemsRepeater.ItemTemplate>
+                            <DataTemplate x:DataType="dtos:EraCategoryDto">
+                                <ToggleButton IsChecked="{x:Bind IsVisible, Mode=TwoWay}"
+                                              Click="CategoryFilter_Click"
+                                              Padding="8,4"
+                                              MinWidth="0">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Ellipse Width="10" Height="10" Fill="{x:Bind ColorBrush}"/>
+                                        <TextBlock Text="{x:Bind Name}" FontSize="12"/>
+                                        <TextBlock Text="{x:Bind EraCount}" FontSize="10"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    </StackPanel>
+                                </ToggleButton>
+                            </DataTemplate>
+                        </ItemsRepeater.ItemTemplate>
+                    </ItemsRepeater>
+
+                    <AppBarSeparator/>
+
+                    <Button Content="All" Click="ShowAllCategories_Click" Padding="8,4" MinWidth="0"/>
+                    <Button Content="None" Click="HideAllCategories_Click" Padding="8,4" MinWidth="0"/>
                 </StackPanel>
-            </Button>
+            </ScrollViewer>
+
+            <!-- Search -->
+            <AutoSuggestBox Grid.Column="2"
+                           PlaceholderText="Search eras..."
+                           QueryIcon="Find"
+                           Width="200"
+                           Text="{x:Bind ViewModel.SearchFilter, Mode=TwoWay}"
+                           Margin="0,0,16,0"/>
+
+            <!-- Actions -->
+            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8">
+                <!-- Zoom controls -->
+                <Button Click="ZoomOut_Click" Padding="8">
+                    <FontIcon Glyph="&#xE71F;" FontSize="14"/>
+                </Button>
+                <Button Click="ZoomIn_Click" Padding="8">
+                    <FontIcon Glyph="&#xE8A3;" FontSize="14"/>
+                </Button>
+
+                <AppBarSeparator/>
+
+                <!-- Add buttons -->
+                <Button Style="{StaticResource AccentButtonStyle}" Click="AddEra_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE710;" FontSize="14"/>
+                        <TextBlock Text="Add Era"/>
+                    </StackPanel>
+                </Button>
+                <Button Click="AddMilestone_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE7C1;" FontSize="14"/>
+                        <TextBlock Text="Add Milestone"/>
+                    </StackPanel>
+                </Button>
+            </StackPanel>
         </Grid>
 
         <!-- Main Content -->
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="360"/>
+                <ColumnDefinition Width="*"/>         <!-- Gantt chart -->
+                <ColumnDefinition Width="320"/>       <!-- Details panel -->
             </Grid.ColumnDefinitions>
 
-            <!-- Eras List -->
-            <Grid Grid.Column="0" Padding="0,0,16,0">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                </Grid.RowDefinitions>
+            <!-- Gantt Chart Area -->
+            <ScrollViewer Grid.Column="0"
+                         HorizontalScrollBarVisibility="Auto"
+                         VerticalScrollBarVisibility="Auto"
+                         x:Name="GanttScrollViewer">
+                <Grid x:Name="GanttCanvas"
+                      MinWidth="{x:Bind ViewModel.ViewportWidth, Mode=OneWay}"
+                      MinHeight="{x:Bind ViewModel.TotalContentHeight, Mode=OneWay}">
 
-                <!-- List Header -->
-                <Grid Grid.Row="0" Margin="0,0,0,8">
-                    <TextBlock Text="{x:Bind ViewModel.TotalEraCount, Mode=OneWay}"
-                              Style="{StaticResource BodyStrongTextBlockStyle}">
-                        <TextBlock.Inlines>
-                            <Run Text="{x:Bind ViewModel.TotalEraCount, Mode=OneWay}"/>
-                            <Run Text=" eras defined"/>
-                        </TextBlock.Inlines>
-                    </TextBlock>
-                </Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="80"/>   <!-- Milestone markers zone -->
+                        <RowDefinition Height="36"/>   <!-- Time ruler -->
+                        <RowDefinition Height="*"/>    <!-- Era bars -->
+                    </Grid.RowDefinitions>
 
-                <!-- Eras ListView -->
-                <ListView Grid.Row="1"
-                         ItemsSource="{x:Bind ViewModel.Eras, Mode=OneWay}"
-                         SelectedItem="{x:Bind ViewModel.SelectedEra, Mode=TwoWay}"
-                         SelectionMode="Single"
-                         IsItemClickEnabled="True"
-                         ItemClick="Era_ItemClick">
-                    <ListView.ItemTemplate>
-                        <DataTemplate x:DataType="models:Era">
-                            <Grid Padding="16" Margin="0,4"
-                                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                                 CornerRadius="8">
-                                <Grid.ContextFlyout>
-                                    <MenuFlyout>
-                                        <MenuFlyoutItem Text="Edit Era" Click="EditEra_Click">
-                                            <MenuFlyoutItem.Icon>
-                                                <FontIcon Glyph="&#xE70F;"/>
-                                            </MenuFlyoutItem.Icon>
-                                        </MenuFlyoutItem>
-                                        <MenuFlyoutSeparator/>
-                                        <MenuFlyoutItem Text="Delete Era" Click="DeleteEra_Click">
-                                            <MenuFlyoutItem.Icon>
-                                                <FontIcon Glyph="&#xE74D;"/>
-                                            </MenuFlyoutItem.Icon>
-                                        </MenuFlyoutItem>
-                                    </MenuFlyout>
-                                </Grid.ContextFlyout>
+                    <!-- Milestone Markers Zone -->
+                    <Canvas Grid.Row="0" Background="{ThemeResource LayerFillColorAltBrush}">
+                        <ItemsControl ItemsSource="{x:Bind ViewModel.MilestoneMarkers, Mode=OneWay}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <Canvas/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="dtos:MilestoneMarkerDto">
+                                    <Canvas Visibility="{x:Bind IsVisible, Mode=OneWay}">
+                                        <Grid Canvas.Left="{x:Bind PixelX}" Canvas.Top="{x:Bind PixelY}">
+                                            <Grid.RenderTransform>
+                                                <TranslateTransform X="-10"/>
+                                            </Grid.RenderTransform>
 
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="8"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
+                                            <StackPanel Spacing="2" PointerPressed="MilestoneMarker_PointerPressed">
+                                                <!-- Milestone icon -->
+                                                <Path Data="{x:Bind IconPathData}"
+                                                      Fill="{x:Bind ColorBrush}"
+                                                      Width="20" Height="20"
+                                                      Stretch="Uniform"/>
 
-                                <!-- Color indicator bar -->
-                                <Rectangle Grid.Column="0"
-                                          Fill="{x:Bind ColorCode}"
-                                          RadiusX="4" RadiusY="4"
-                                          Width="8" Margin="0,0,12,0"/>
+                                                <!-- Label -->
+                                                <TextBlock Text="{x:Bind Name}"
+                                                          FontSize="10"
+                                                          TextAlignment="Center"
+                                                          MaxWidth="100"
+                                                          TextTrimming="CharacterEllipsis"/>
 
-                                <!-- Era details -->
-                                <StackPanel Grid.Column="1" Spacing="4">
-                                    <TextBlock Text="{x:Bind Name}"
-                                              Style="{StaticResource SubtitleTextBlockStyle}"/>
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <FontIcon Glyph="&#xE787;" FontSize="12"
-                                                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                        <TextBlock FontSize="13"
-                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}">
-                                            <Run Text="{x:Bind StartDate, Converter={StaticResource DateFormatConverter}}"/>
-                                            <Run Text=" - "/>
-                                            <Run Text="{x:Bind EndDate, Converter={StaticResource DateFormatConverter}, TargetNullValue='Present'}"/>
+                                                <!-- Date -->
+                                                <TextBlock Text="{x:Bind Date, Converter={StaticResource DateFormatConverter}}"
+                                                          FontSize="9"
+                                                          TextAlignment="Center"
+                                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Canvas>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Canvas>
+
+                    <!-- Time Ruler -->
+                    <Canvas Grid.Row="1" Background="{ThemeResource LayerOnAcrylicFillColorDefaultBrush}">
+                        <ItemsControl ItemsSource="{x:Bind ViewModel.TimeRulerTicks, Mode=OneWay}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <Canvas/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="dtos:TimeRulerTickDto">
+                                    <Canvas>
+                                        <!-- Tick line -->
+                                        <Line X1="{x:Bind PixelX}" Y1="0"
+                                              X2="{x:Bind PixelX}" Y2="{x:Bind TickHeight}"
+                                              Stroke="{ThemeResource TextFillColorSecondaryBrush}"
+                                              StrokeThickness="1"/>
+
+                                        <!-- Label (major ticks only) -->
+                                        <TextBlock Canvas.Left="{x:Bind PixelX}" Canvas.Top="18"
+                                                  Text="{x:Bind Label}"
+                                                  FontSize="11"
+                                                  Opacity="{x:Bind LabelOpacity}">
+                                            <TextBlock.RenderTransform>
+                                                <TranslateTransform X="4"/>
+                                            </TextBlock.RenderTransform>
                                         </TextBlock>
+                                    </Canvas>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Canvas>
+
+                    <!-- Era Bars Area -->
+                    <ScrollViewer Grid.Row="2"
+                                 VerticalScrollBarVisibility="Hidden"
+                                 HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl ItemsSource="{x:Bind ViewModel.GroupedEras, Mode=OneWay}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="dtos:EraRowGroupDto">
+                                    <StackPanel>
+                                        <!-- Category Header -->
+                                        <Grid Height="28"
+                                              Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                              Padding="8,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <FontIcon Grid.Column="0"
+                                                     Glyph="{x:Bind Category.ChevronGlyph, Mode=OneWay}"
+                                                     FontSize="12"
+                                                     Margin="0,0,8,0"/>
+                                            <FontIcon Grid.Column="1"
+                                                     Glyph="{x:Bind Category.IconGlyph}"
+                                                     FontSize="14"
+                                                     Foreground="{x:Bind Category.ColorBrush}"
+                                                     Margin="0,0,8,0"/>
+                                            <TextBlock Grid.Column="2"
+                                                      Text="{x:Bind Category.Name}"
+                                                      FontWeight="SemiBold"
+                                                      VerticalAlignment="Center"/>
+                                            <InfoBadge Grid.Column="3"
+                                                      Value="{x:Bind Category.EraCount}"
+                                                      VerticalAlignment="Center"/>
+                                        </Grid>
+
+                                        <!-- Era Rows within Category -->
+                                        <ItemsControl ItemsSource="{x:Bind Eras}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="dtos:GanttEraBarDto">
+                                                    <Grid Height="32" Margin="0,2">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="140"/>  <!-- Era name -->
+                                                            <ColumnDefinition Width="*"/>    <!-- Bar area -->
+                                                        </Grid.ColumnDefinitions>
+
+                                                        <!-- Era Name -->
+                                                        <TextBlock Grid.Column="0"
+                                                                  Text="{x:Bind Name}"
+                                                                  VerticalAlignment="Center"
+                                                                  Padding="8,0"
+                                                                  TextTrimming="CharacterEllipsis"
+                                                                  FontSize="12"/>
+
+                                                        <!-- Bar Canvas -->
+                                                        <Canvas Grid.Column="1"
+                                                               PointerPressed="EraBar_PointerPressed"
+                                                               DoubleTapped="EraBar_DoubleTapped"
+                                                               Background="Transparent">
+
+                                                            <!-- The Era Bar -->
+                                                            <Grid Canvas.Left="{x:Bind PixelX}"
+                                                                  Width="{x:Bind Width}"
+                                                                  Height="20"
+                                                                  VerticalAlignment="Center">
+                                                                <Grid.RenderTransform>
+                                                                    <TranslateTransform Y="6"/>
+                                                                </Grid.RenderTransform>
+
+                                                                <!-- Bar background -->
+                                                                <Border Background="{x:Bind ColorBrush}"
+                                                                        CornerRadius="3"
+                                                                        Opacity="0.8"/>
+
+                                                                <!-- Selection highlight -->
+                                                                <Border CornerRadius="3"
+                                                                        BorderThickness="2"
+                                                                        BorderBrush="{ThemeResource SystemAccentColor}"
+                                                                        Visibility="{x:Bind IsSelected, Mode=OneWay}"/>
+
+                                                                <!-- Ongoing indicator (arrow) -->
+                                                                <Path Visibility="{x:Bind IsOngoing}"
+                                                                      HorizontalAlignment="Right"
+                                                                      VerticalAlignment="Center"
+                                                                      Data="M 0,0 L 8,10 L 0,20 Z"
+                                                                      Fill="{x:Bind ColorBrush}"
+                                                                      Width="8" Height="20"
+                                                                      Stretch="Uniform"
+                                                                      Margin="0,0,-8,0"/>
+
+                                                                <!-- Duration label -->
+                                                                <TextBlock Text="{x:Bind DurationText}"
+                                                                          HorizontalAlignment="Center"
+                                                                          VerticalAlignment="Center"
+                                                                          Foreground="White"
+                                                                          FontSize="10"
+                                                                          FontWeight="Medium"/>
+                                                            </Grid>
+                                                        </Canvas>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
                                     </StackPanel>
-                                    <TextBlock Text="{x:Bind Description}"
-                                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                              FontSize="13"
-                                              TextTrimming="CharacterEllipsis"
-                                              MaxLines="1"
-                                              Visibility="{x:Bind Description, Converter={StaticResource NullToVisibilityConverter}}"/>
-                                </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+            </ScrollViewer>
 
-                                <!-- Duration badge -->
-                                <Border Grid.Column="2"
-                                       Background="{ThemeResource LayerFillColorDefaultBrush}"
-                                       CornerRadius="4" Padding="8,4"
-                                       VerticalAlignment="Center">
-                                    <TextBlock x:Name="DurationText"
-                                              FontSize="12"
-                                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                </Border>
-                            </Grid>
-                        </DataTemplate>
-                    </ListView.ItemTemplate>
-                </ListView>
-
-                <!-- Loading indicator -->
-                <ProgressRing Grid.Row="1"
-                             IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}"
-                             Width="48" Height="48"
-                             HorizontalAlignment="Center"
-                             VerticalAlignment="Center"/>
-
-                <!-- Empty state -->
-                <StackPanel Grid.Row="1"
-                           HorizontalAlignment="Center"
-                           VerticalAlignment="Center"
-                           Spacing="16"
-                           Visibility="{x:Bind ViewModel.TotalEraCount, Mode=OneWay, Converter={StaticResource ZeroToVisibilityConverter}}">
-                    <FontIcon Glyph="&#xE81C;" FontSize="48"
-                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    <TextBlock Text="No eras defined yet"
-                              Style="{StaticResource SubtitleTextBlockStyle}"
-                              HorizontalAlignment="Center"/>
-                    <TextBlock Text="Create eras to organize your life phases like high school, college, jobs, relationships, etc."
-                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                              TextWrapping="Wrap"
-                              TextAlignment="Center"
-                              MaxWidth="300"/>
-                    <Button Content="Create Your First Era"
-                           Style="{StaticResource AccentButtonStyle}"
-                           Click="AddEra_Click"/>
-                </StackPanel>
+            <!-- Loading Overlay -->
+            <Grid Grid.Column="0"
+                  Visibility="{x:Bind ViewModel.IsLoading, Mode=OneWay}"
+                  Background="{ThemeResource AcrylicBackgroundFillColorDefaultBrush}">
+                <ProgressRing IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}"
+                             Width="48" Height="48"/>
             </Grid>
+
+            <!-- Empty State -->
+            <StackPanel Grid.Column="0"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       Spacing="16"
+                       Visibility="{x:Bind ViewModel.TotalEraCount, Mode=OneWay, Converter={StaticResource ZeroToVisibilityConverter}}">
+                <FontIcon Glyph="&#xE81C;" FontSize="64"
+                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <TextBlock Text="No eras defined yet"
+                          Style="{StaticResource SubtitleTextBlockStyle}"
+                          HorizontalAlignment="Center"/>
+                <TextBlock Text="Create eras to visualize your life phases like education, employment, relationships, and more."
+                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                          TextWrapping="Wrap"
+                          TextAlignment="Center"
+                          MaxWidth="400"/>
+                <Button Content="Create Your First Era"
+                       Style="{StaticResource AccentButtonStyle}"
+                       Click="AddEra_Click"/>
+            </StackPanel>
 
             <!-- Details Panel -->
             <Border Grid.Column="1"
                    Background="{ThemeResource LayerFillColorDefaultBrush}"
-                   CornerRadius="8"
-                   Padding="20">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                   BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                   BorderThickness="1,0,0,0">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
                     <StackPanel Spacing="16">
                         <!-- Panel Header -->
-                        <TextBlock Text="{x:Bind ViewModel.SelectedEra.Name, Mode=OneWay, FallbackValue='Era Details'}"
-                                  Style="{StaticResource SubtitleTextBlockStyle}"/>
+                        <TextBlock Text="Details" Style="{StaticResource SubtitleTextBlockStyle}"/>
 
-                        <!-- No selection state -->
+                        <!-- No Selection -->
                         <StackPanel Spacing="12"
                                    Visibility="{x:Bind ViewModel.SelectedEra, Mode=OneWay, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}">
                             <FontIcon Glyph="&#xE8A5;" FontSize="32"
                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                      HorizontalAlignment="Center"/>
-                            <TextBlock Text="Select an era to view details"
+                            <TextBlock Text="Select an era or milestone to view details"
                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                      HorizontalAlignment="Center"/>
+                                      TextAlignment="Center"
+                                      TextWrapping="Wrap"/>
                         </StackPanel>
 
-                        <!-- Selected era details -->
+                        <!-- Selected Era Details -->
                         <StackPanel Spacing="16"
                                    Visibility="{x:Bind ViewModel.SelectedEra, Mode=OneWay, Converter={StaticResource NullToVisibilityConverter}}">
 
-                            <!-- Color preview -->
+                            <!-- Era Name -->
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="{x:Bind ViewModel.SelectedEra.Name, Mode=OneWay}"
+                                          Style="{StaticResource TitleTextBlockStyle}"/>
+                                <TextBlock Text="{x:Bind ViewModel.SelectedEra.Subtitle, Mode=OneWay}"
+                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                          Visibility="{x:Bind ViewModel.SelectedEra.Subtitle, Mode=OneWay, Converter={StaticResource NullToVisibilityConverter}}"/>
+                            </StackPanel>
+
+                            <!-- Color and Category -->
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
@@ -205,20 +395,27 @@
                                           Width="24" Height="24"
                                           RadiusX="4" RadiusY="4"
                                           Margin="0,0,12,0"/>
-                                <TextBlock Grid.Column="1"
-                                          Text="{x:Bind ViewModel.SelectedEra.ColorCode, Mode=OneWay}"
-                                          VerticalAlignment="Center"
-                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <TextBlock Text="{x:Bind ViewModel.SelectedEra.Category.Name, Mode=OneWay, FallbackValue='Uncategorized'}"
+                                              FontWeight="SemiBold"/>
+                                    <TextBlock Text="{x:Bind ViewModel.SelectedEra.ColorCode, Mode=OneWay}"
+                                              FontSize="12"
+                                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </StackPanel>
                             </Grid>
 
-                            <!-- Date range -->
+                            <!-- Time Period -->
                             <StackPanel Spacing="4">
                                 <TextBlock Text="Time Period" FontWeight="SemiBold"/>
-                                <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}">
-                                    <Run Text="{x:Bind ViewModel.SelectedEra.StartDate, Mode=OneWay, Converter={StaticResource DateFormatConverter}}"/>
-                                    <Run Text=" to "/>
-                                    <Run Text="{x:Bind ViewModel.SelectedEra.EndDate, Mode=OneWay, Converter={StaticResource DateFormatConverter}, TargetNullValue='Present'}"/>
-                                </TextBlock>
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE787;" FontSize="14"
+                                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}">
+                                        <Run Text="{x:Bind ViewModel.SelectedEra.StartDate, Mode=OneWay, Converter={StaticResource DateFormatConverter}}"/>
+                                        <Run Text=" - "/>
+                                        <Run Text="{x:Bind ViewModel.SelectedEra.EndDate, Mode=OneWay, Converter={StaticResource DateFormatConverter}, TargetNullValue='Ongoing'}"/>
+                                    </TextBlock>
+                                </StackPanel>
                             </StackPanel>
 
                             <!-- Description -->
@@ -230,6 +427,15 @@
                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </StackPanel>
 
+                            <!-- Notes -->
+                            <StackPanel Spacing="4"
+                                       Visibility="{x:Bind ViewModel.SelectedEra.Notes, Mode=OneWay, Converter={StaticResource NullToVisibilityConverter}}">
+                                <TextBlock Text="Notes" FontWeight="SemiBold"/>
+                                <TextBlock Text="{x:Bind ViewModel.SelectedEra.Notes, Mode=OneWay}"
+                                          TextWrapping="Wrap"
+                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
+
                             <!-- Actions -->
                             <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
                                 <Button Content="Edit" Click="EditSelectedEra_Click"
@@ -237,6 +443,12 @@
                                 <Button Content="Delete" Click="DeleteSelectedEra_Click"/>
                             </StackPanel>
                         </StackPanel>
+
+                        <!-- Status -->
+                        <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                  FontSize="12"
+                                  Margin="0,16,0,0"/>
                     </StackPanel>
                 </ScrollViewer>
             </Border>
@@ -249,10 +461,21 @@
                       CloseButtonText="Cancel"
                       DefaultButton="Primary"
                       PrimaryButtonClick="EraDialog_PrimaryButtonClick">
-            <StackPanel Spacing="16" MinWidth="400">
+            <StackPanel Spacing="16" MinWidth="450">
                 <TextBox x:Name="EraNameBox"
                         Header="Name"
                         PlaceholderText="e.g., High School, College, First Job"/>
+
+                <TextBox x:Name="EraSubtitleBox"
+                        Header="Subtitle (optional)"
+                        PlaceholderText="e.g., University of Example"/>
+
+                <!-- Category Selection -->
+                <ComboBox x:Name="EraCategoryComboBox"
+                         Header="Category"
+                         ItemsSource="{x:Bind ViewModel.Categories, Mode=OneWay}"
+                         DisplayMemberPath="Name"
+                         HorizontalAlignment="Stretch"/>
 
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -299,7 +522,6 @@
                         </GridView.ItemsPanel>
                     </GridView>
 
-                    <!-- Custom color input -->
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <TextBox x:Name="CustomColorBox"
                                 PlaceholderText="#RRGGBB"
@@ -317,6 +539,55 @@
                         AcceptsReturn="True"
                         TextWrapping="Wrap"
                         Height="80"/>
+
+                <TextBox x:Name="EraNotesBox"
+                        Header="Notes (optional)"
+                        PlaceholderText="Additional notes or memories"
+                        AcceptsReturn="True"
+                        TextWrapping="Wrap"
+                        Height="80"/>
+            </StackPanel>
+        </ContentDialog>
+
+        <!-- Add/Edit Milestone Dialog -->
+        <ContentDialog x:Name="MilestoneDialog"
+                      Title="Add Milestone"
+                      PrimaryButtonText="Save"
+                      CloseButtonText="Cancel"
+                      DefaultButton="Primary"
+                      PrimaryButtonClick="MilestoneDialog_PrimaryButtonClick">
+            <StackPanel Spacing="16" MinWidth="400">
+                <TextBox x:Name="MilestoneNameBox"
+                        Header="Name"
+                        PlaceholderText="e.g., Graduation, Wedding, Moved to NYC"/>
+
+                <CalendarDatePicker x:Name="MilestoneDatePicker"
+                                   Header="Date"
+                                   PlaceholderText="Select date"
+                                   DateFormat="{}{month.abbreviated} {day.integer}, {year.full}"
+                                   HorizontalAlignment="Stretch"/>
+
+                <ComboBox x:Name="MilestoneTypeComboBox"
+                         Header="Type"
+                         HorizontalAlignment="Stretch">
+                    <ComboBoxItem Content="Standard (Diamond)" Tag="Standard"/>
+                    <ComboBoxItem Content="Checkpoint (Star)" Tag="Checkpoint"/>
+                    <ComboBoxItem Content="Kickoff (Triangle)" Tag="Kickoff"/>
+                    <ComboBoxItem Content="Signoff (Arrow)" Tag="Signoff"/>
+                </ComboBox>
+
+                <ComboBox x:Name="MilestoneLinkedEraComboBox"
+                         Header="Linked Era (optional)"
+                         ItemsSource="{x:Bind ViewModel.Eras, Mode=OneWay}"
+                         DisplayMemberPath="Name"
+                         HorizontalAlignment="Stretch"/>
+
+                <TextBox x:Name="MilestoneDescriptionBox"
+                        Header="Description (optional)"
+                        PlaceholderText="Details about this milestone"
+                        AcceptsReturn="True"
+                        TextWrapping="Wrap"
+                        Height="80"/>
             </StackPanel>
         </ContentDialog>
 
@@ -328,5 +599,14 @@
                       CloseButtonText="Cancel"
                       DefaultButton="Close"
                       PrimaryButtonClick="DeleteConfirmDialog_PrimaryButtonClick"/>
+
+        <!-- Delete Milestone Confirmation Dialog -->
+        <ContentDialog x:Name="DeleteMilestoneConfirmDialog"
+                      Title="Delete Milestone"
+                      Content="Are you sure you want to delete this milestone?"
+                      PrimaryButtonText="Delete"
+                      CloseButtonText="Cancel"
+                      DefaultButton="Close"
+                      PrimaryButtonClick="DeleteMilestoneConfirmDialog_PrimaryButtonClick"/>
     </Grid>
 </Page>
