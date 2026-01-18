@@ -589,6 +589,61 @@ public partial class TimelineViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Sets the viewport to show a 3-year span with the specified year in the center third.
+    /// Year-1 in left third, specified year in middle third, year+1 in right third.
+    /// </summary>
+    public async Task SetViewportToYearSpanAsync(int year)
+    {
+        if (IsLoading || ViewportWidth <= 0) return;
+
+        try
+        {
+            IsLoading = true;
+            StatusText = $"Navigating to {year}...";
+
+            // Calculate the 3-year date range
+            var startDate = new DateTime(year - 1, 1, 1);
+            var endDate = new DateTime(year + 2, 1, 1); // Jan 1 of year+2 to include all of year+1
+            var centerDate = new DateTime(year, 7, 1); // Middle of the target year
+
+            // Calculate pixels per day to fit exactly 3 years in the viewport
+            var totalDays = (endDate - startDate).TotalDays;
+            var pixelsPerDay = ViewportWidth / totalDays;
+
+            // Create a custom viewport for this specific date range
+            Viewport = new TimelineViewport
+            {
+                StartDate = startDate,
+                EndDate = endDate,
+                CenterDate = centerDate,
+                PixelsPerDay = pixelsPerDay,
+                ZoomLevel = ZoomHelper.GetClosestZoomLevel(pixelsPerDay),
+                ViewportWidth = ViewportWidth,
+                ViewportHeight = ViewportHeight,
+                ScrollPosition = 0
+            };
+
+            CurrentZoomLevel = Viewport.ZoomLevel;
+
+            // Reload events and eras for the new viewport
+            await LoadEventsForViewportAsync();
+            await LoadErasForViewportAsync();
+            GenerateTimeRulerTicks();
+
+            StatusText = $"Showing {year - 1} - {year} - {year + 1}";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error setting year span viewport");
+            StatusText = "Error navigating";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    /// <summary>
     /// Refreshes the timeline data.
     /// </summary>
     [RelayCommand]

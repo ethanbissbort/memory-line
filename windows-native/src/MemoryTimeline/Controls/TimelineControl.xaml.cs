@@ -544,10 +544,13 @@ public sealed partial class TimelineControl : UserControl
         {
             if (isYearOnly)
             {
-                // Switch to Year view for year-only input
-                _viewModel.SetZoomLevelCommand.Execute("Year");
+                // Show 3-year span: year-1 (left), year (center), year+1 (right)
+                await _viewModel.SetViewportToYearSpanAsync(date.Value.Year);
             }
-            await _viewModel.GoToDateCommand.ExecuteAsync(date.Value);
+            else
+            {
+                await _viewModel.GoToDateCommand.ExecuteAsync(date.Value);
+            }
             QuickDateBox.Text = "";
         }
     }
@@ -576,10 +579,13 @@ public sealed partial class TimelineControl : UserControl
 
         if (isYearOnly)
         {
-            // Switch to Year view for year-only input
-            _viewModel.SetZoomLevelCommand.Execute("Year");
+            // Show 3-year span: year-1 (left), year (center), year+1 (right)
+            await _viewModel.SetViewportToYearSpanAsync(date.Value.Year);
         }
-        await _viewModel.GoToDateCommand.ExecuteAsync(date.Value);
+        else
+        {
+            await _viewModel.GoToDateCommand.ExecuteAsync(date.Value);
+        }
     }
 
     private void GoToDateTextBox_KeyDown(object sender, KeyRoutedEventArgs e)
