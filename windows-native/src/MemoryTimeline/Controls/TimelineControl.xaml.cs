@@ -11,18 +11,21 @@ namespace MemoryTimeline.Controls;
 /// <summary>
 /// Custom timeline visualization control with pen/touch navigation support.
 /// Supports pinch-to-zoom, touch panning, momentum scrolling, and double-tap gestures.
+/// Uses a Premiere Pro-style proportional scrollbar for navigation.
 /// </summary>
 public sealed partial class TimelineControl : UserControl
 {
     private TimelineViewModel? _viewModel;
-    private double _lastScrollPosition;
-    private bool _isScrolling;
     private double _lastScale = 1.0;
     private Windows.Foundation.Point _lastManipulationPosition;
     private bool _isManipulating;
     private Windows.Foundation.Point _lastRightTapPosition;
     private TimelineEventDto? _contextMenuEvent;
     private string? _editingEventId;
+    private bool _isUpdatingScrollbar;
+
+    // Default sequence duration in days (100 years = ~36525 days)
+    private const double DefaultSequenceDurationDays = 36525;
 
     /// <summary>
     /// Gets or sets the ViewModel for the timeline.
@@ -102,6 +105,7 @@ public sealed partial class TimelineControl : UserControl
             else if (e.PropertyName == nameof(TimelineViewModel.Viewport))
             {
                 UpdateTimelineSize();
+                UpdateScrollbarFromViewport();
                 DrawDateMarkers();
             }
         };
@@ -112,19 +116,53 @@ public sealed partial class TimelineControl : UserControl
         if (_viewModel?.Viewport == null)
             return;
 
-        // Calculate total timeline width based on date range
-        var viewport = _viewModel.Viewport;
-        var totalDays = Math.Abs((viewport.EndDate - viewport.StartDate).TotalDays);
-        var totalWidth = Math.Max(10000, totalDays * viewport.PixelsPerDay);
-
-        TimelineCanvas.Width = totalWidth;
+        // The TimelineCanvas now fills the container - no scrolling
+        // Events are positioned relative to viewport.StartDate
+        // Canvas width = container width (set automatically by Grid)
 
         // Calculate height based on number of event tracks
         var maxY = _viewModel.Events.Any()
             ? _viewModel.Events.Max(e => e.PixelY + e.Height)
             : 600;
 
-        TimelineCanvas.Height = Math.Max(1000, maxY + 100);
+        // Update axis line to span the full width
+        TimelineAxis.X2 = TimelineContainer.ActualWidth;
+    }
+
+    /// <summary>
+    /// Updates the proportional scrollbar to reflect the current viewport state.
+    /// </summary>
+    private void UpdateScrollbarFromViewport()
+    {
+        if (_viewModel?.Viewport == null || _isUpdatingScrollbar)
+            return;
+
+        _isUpdatingScrollbar = true;
+        try
+        {
+            var viewport = _viewModel.Viewport;
+
+            // Calculate the full sequence range (all possible time)
+            // Use MinDate to MaxDate as the full scrollable range
+            var sequenceStartDate = viewport.MinDate;
+            var sequenceEndDate = viewport.MaxDate;
+            var sequenceDuration = (sequenceEndDate - sequenceStartDate).TotalDays;
+
+            // View duration is the visible days in the viewport
+            var viewDuration = viewport.VisibleDays;
+
+            // Scroll offset is how far the viewport start is from the sequence start
+            var scrollOffset = (viewport.StartDate - sequenceStartDate).TotalDays;
+
+            // Update the scrollbar
+            TimelineScrollBar.SequenceDuration = Math.Max(1, sequenceDuration);
+            TimelineScrollBar.ViewDuration = Math.Max(1, Math.Min(viewDuration, sequenceDuration));
+            TimelineScrollBar.ScrollOffset = Math.Clamp(scrollOffset, 0, Math.Max(0, sequenceDuration - viewDuration));
+        }
+        finally
+        {
+            _isUpdatingScrollbar = false;
+        }
     }
 
     private void DrawDateMarkers()
@@ -198,32 +236,78 @@ public sealed partial class TimelineControl : UserControl
         };
     }
 
-    private async void TimelineScrollViewer_ViewChanged(object sender, ScrollViewerViewChangedEventArgs e)
+    #region Proportional Scrollbar Handlers
+
+    /// <summary>
+    /// Handles scroll offset changes from the proportional scrollbar.
+    /// </summary>
+    private async void TimelineScrollBar_ScrollOffsetChanged(object sender, ScrollOffsetChangedEventArgs e)
     {
-        if (_viewModel == null || _isScrolling)
+        if (_viewModel?.Viewport == null || _isUpdatingScrollbar)
             return;
 
-        _isScrolling = true;
-
+        _isUpdatingScrollbar = true;
         try
         {
-            var scrollViewer = (ScrollViewer)sender;
-            var newScrollPosition = scrollViewer.HorizontalOffset;
-            var delta = newScrollPosition - _lastScrollPosition;
+            // Calculate the new start date based on scroll offset
+            var sequenceStartDate = _viewModel.Viewport.MinDate;
+            var newStartDate = sequenceStartDate.AddDays(e.NewScrollOffset);
 
-            // Update viewport on any significant scroll movement
-            if (Math.Abs(delta) > 5)
+            // Calculate how much we need to pan
+            var currentStartDate = _viewModel.Viewport.StartDate;
+            var daysDelta = (newStartDate - currentStartDate).TotalDays;
+            var pixelDelta = daysDelta * _viewModel.Viewport.PixelsPerDay;
+
+            // Pan the viewport
+            if (Math.Abs(pixelDelta) > 0.1)
             {
-                // Pan the viewport by the scroll delta (negative because scroll right = pan right = dates move forward)
-                await _viewModel.PanAsync(-delta);
-                _lastScrollPosition = newScrollPosition;
+                await _viewModel.PanAsync(-pixelDelta);
             }
         }
         finally
         {
-            _isScrolling = false;
+            _isUpdatingScrollbar = false;
         }
     }
+
+    /// <summary>
+    /// Handles view duration (zoom) changes from the proportional scrollbar edges.
+    /// </summary>
+    private async void TimelineScrollBar_ViewDurationChanged(object sender, ViewDurationChangedEventArgs e)
+    {
+        if (_viewModel?.Viewport == null || _isUpdatingScrollbar)
+            return;
+
+        _isUpdatingScrollbar = true;
+        try
+        {
+            // Calculate new pixels per day based on new view duration
+            var newPixelsPerDay = _viewModel.Viewport.ViewportWidth / e.NewViewDuration;
+
+            // Calculate the new start date
+            var sequenceStartDate = _viewModel.Viewport.MinDate;
+            var newStartDate = sequenceStartDate.AddDays(e.NewScrollOffset);
+            var newEndDate = newStartDate.AddDays(e.NewViewDuration);
+            var newCenterDate = newStartDate.AddDays(e.NewViewDuration / 2);
+
+            // Update viewport directly
+            _viewModel.Viewport.StartDate = newStartDate;
+            _viewModel.Viewport.EndDate = newEndDate;
+            _viewModel.Viewport.CenterDate = newCenterDate;
+            _viewModel.Viewport.PixelsPerDay = newPixelsPerDay;
+            _viewModel.Viewport.ZoomLevel = ZoomHelper.GetClosestZoomLevel(newPixelsPerDay);
+
+            // Reload events and eras for the new viewport
+            // This would ideally be done through the ViewModel
+            await _viewModel.RefreshCommand.ExecuteAsync(null);
+        }
+        finally
+        {
+            _isUpdatingScrollbar = false;
+        }
+    }
+
+    #endregion
 
     private void ZoomLevelCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -425,8 +509,12 @@ public sealed partial class TimelineControl : UserControl
         }
         else
         {
-            // Default: horizontal scroll - let ScrollViewer handle it
-            // Don't set e.Handled = true, so the event bubbles to ScrollViewer
+            // Default: horizontal scroll via panning
+            // Positive wheelDelta = scroll up = pan left (earlier dates)
+            // Negative wheelDelta = scroll down = pan right (later dates)
+            var scrollAmount = wheelDelta * 0.5; // Scale factor for comfortable scrolling
+            await _viewModel.PanAsync(scrollAmount);
+            e.Handled = true;
         }
     }
 
