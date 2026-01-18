@@ -16,13 +16,15 @@
             <RowDefinition Height="Auto"/>
             <!-- Main timeline area with era bars and events -->
             <RowDefinition Height="*"/>
+            <!-- Proportional scrollbar -->
+            <RowDefinition Height="Auto"/>
             <!-- Bottom command bar -->
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <!-- Loading overlay -->
         <Grid x:Name="LoadingOverlay"
-              Grid.RowSpan="3"
+              Grid.RowSpan="4"
               Visibility="Collapsed"
               Background="#80000000"
               Canvas.ZIndex="1000">
@@ -82,19 +84,13 @@
             </Grid>
         </Border>
 
-        <!-- Main timeline container -->
-        <ScrollViewer x:Name="TimelineScrollViewer"
-                     Grid.Row="1"
-                     HorizontalScrollBarVisibility="Auto"
-                     VerticalScrollBarVisibility="Disabled"
-                     HorizontalScrollMode="Enabled"
-                     VerticalScrollMode="Disabled"
-                     ZoomMode="Disabled"
-                     ManipulationMode="TranslateX,TranslateInertia"
-                     ViewChanged="TimelineScrollViewer_ViewChanged">
+        <!-- Main timeline area - NO ScrollViewer, just a clipped container -->
+        <Grid x:Name="TimelineContainer"
+              Grid.Row="1"
+              Background="Transparent">
 
+            <!-- Timeline canvas fills the container, content positioned relative to viewport -->
             <Grid x:Name="TimelineCanvas"
-                  Width="10000"
                   Background="Transparent"
                   ManipulationMode="TranslateX,TranslateInertia"
                   ManipulationDelta="TimelineCanvas_ManipulationDelta"
@@ -145,7 +141,7 @@
                 </Grid.ContextFlyout>
 
                 <!-- Events layer - map pins in the upper area, stacking upward -->
-                <Canvas x:Name="EventsCanvas" Grid.Row="0" Grid.RowSpan="2">
+                <Canvas x:Name="EventsCanvas" Grid.Row="0" Grid.RowSpan="2" ClipToBounds="True">
                     <ItemsControl x:Name="EventsLayer"
                                  ItemsSource="{x:Bind ViewModel.Events, Mode=OneWay}">
                         <ItemsControl.ItemsPanel>
@@ -221,7 +217,7 @@
                 </ItemsControl>
 
                 <!-- Timeline axis and ticks (bottom area) -->
-                <Grid Grid.Row="2">
+                <Grid Grid.Row="2" ClipToBounds="True">
                     <!-- Timeline axis line -->
                     <Canvas x:Name="AxisCanvas">
                         <Line x:Name="TimelineAxis"
@@ -261,53 +257,119 @@
                     </ItemsControl>
                 </Grid>
             </Grid>
-        </ScrollViewer>
 
-        <!-- Zoom controls overlay -->
-        <StackPanel Grid.Row="1"
-                   Orientation="Horizontal"
-                   HorizontalAlignment="Right"
-                   VerticalAlignment="Top"
-                   Margin="0,12,20,0"
-                   Spacing="8"
-                   Canvas.ZIndex="100">
+            <!-- Zoom controls overlay -->
+            <StackPanel Orientation="Horizontal"
+                       HorizontalAlignment="Right"
+                       VerticalAlignment="Top"
+                       Margin="0,12,20,0"
+                       Spacing="8"
+                       Canvas.ZIndex="100">
 
-            <!-- Quick date navigation -->
-            <TextBox x:Name="QuickDateBox"
-                    PlaceholderText="mmddyy or yyyy"
-                    Width="110"
-                    VerticalAlignment="Center"
-                    KeyDown="QuickDateBox_KeyDown"/>
+                <!-- Quick date navigation -->
+                <TextBox x:Name="QuickDateBox"
+                        PlaceholderText="mmddyy or yyyy"
+                        Width="110"
+                        VerticalAlignment="Center"
+                        KeyDown="QuickDateBox_KeyDown"/>
 
-            <Button Content="&#xE71E;"
-                   FontFamily="Segoe MDL2 Assets"
-                   FontSize="16"
-                   Command="{x:Bind ViewModel.ZoomOutCommand}"
-                   IsEnabled="{x:Bind ViewModel.CanZoomOut, Mode=OneWay}"
-                   Style="{StaticResource AccentButtonStyle}"
-                   Width="40" Height="40"/>
+                <Button Content="&#xE71E;"
+                       FontFamily="Segoe MDL2 Assets"
+                       FontSize="16"
+                       Command="{x:Bind ViewModel.ZoomOutCommand}"
+                       IsEnabled="{x:Bind ViewModel.CanZoomOut, Mode=OneWay}"
+                       Style="{StaticResource AccentButtonStyle}"
+                       Width="40" Height="40"/>
 
-            <ComboBox x:Name="ZoomLevelCombo"
-                     SelectedIndex="1"
-                     Width="120"
-                     SelectionChanged="ZoomLevelCombo_SelectionChanged">
-                <ComboBoxItem Content="Year View" Tag="Year"/>
-                <ComboBoxItem Content="Month View" Tag="Month"/>
-                <ComboBoxItem Content="Week View" Tag="Week"/>
-                <ComboBoxItem Content="Day View" Tag="Day"/>
-            </ComboBox>
+                <ComboBox x:Name="ZoomLevelCombo"
+                         SelectedIndex="1"
+                         Width="120"
+                         SelectionChanged="ZoomLevelCombo_SelectionChanged">
+                    <ComboBoxItem Content="Year View" Tag="Year"/>
+                    <ComboBoxItem Content="Month View" Tag="Month"/>
+                    <ComboBoxItem Content="Week View" Tag="Week"/>
+                    <ComboBoxItem Content="Day View" Tag="Day"/>
+                </ComboBox>
 
-            <Button Content="&#xE71D;"
-                   FontFamily="Segoe MDL2 Assets"
-                   FontSize="16"
-                   Command="{x:Bind ViewModel.ZoomInCommand}"
-                   IsEnabled="{x:Bind ViewModel.CanZoomIn, Mode=OneWay}"
-                   Style="{StaticResource AccentButtonStyle}"
-                   Width="40" Height="40"/>
-        </StackPanel>
+                <Button Content="&#xE71D;"
+                       FontFamily="Segoe MDL2 Assets"
+                       FontSize="16"
+                       Command="{x:Bind ViewModel.ZoomInCommand}"
+                       IsEnabled="{x:Bind ViewModel.CanZoomIn, Mode=OneWay}"
+                       Style="{StaticResource AccentButtonStyle}"
+                       Width="40" Height="40"/>
+            </StackPanel>
+
+            <!-- Event details panel (slides in from right) -->
+            <Grid x:Name="EventDetailsPanel"
+                  HorizontalAlignment="Right"
+                  Width="320"
+                  Background="{ThemeResource AcrylicBackgroundFillColorDefaultBrush}"
+                  Visibility="{x:Bind ViewModel.SelectedEvent, Mode=OneWay, Converter={StaticResource NullToVisibilityConverter}}"
+                  Canvas.ZIndex="200">
+
+                <ScrollViewer>
+                    <StackPanel Padding="20" Spacing="12">
+                        <Grid>
+                            <TextBlock Text="Event Details"
+                                      FontSize="20"
+                                      FontWeight="SemiBold"/>
+                            <Button Content="&#xE711;"
+                                   FontFamily="Segoe MDL2 Assets"
+                                   HorizontalAlignment="Right"
+                                   Background="Transparent"
+                                   Command="{x:Bind ViewModel.SelectEventCommand}"/>
+                        </Grid>
+
+                        <TextBlock Text="{x:Bind ViewModel.SelectedEvent.Title, Mode=OneWay, FallbackValue=''}"
+                                  FontSize="16"
+                                  FontWeight="SemiBold"
+                                  TextWrapping="Wrap"/>
+
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE787;" FontSize="14"/>
+                            <TextBlock Text="{x:Bind ViewModel.SelectedEvent.StartDate, Mode=OneWay, FallbackValue=''}"
+                                      FontSize="14"
+                                      Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
+                        </StackPanel>
+
+                        <TextBlock Text="{x:Bind ViewModel.SelectedEvent.Description, Mode=OneWay, FallbackValue=''}"
+                                  TextWrapping="Wrap"
+                                  FontSize="14"/>
+
+                        <!-- Action buttons -->
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,12,0,0">
+                            <Button Content="Edit"
+                                   Click="EditSelectedEvent_Click"
+                                   Style="{StaticResource AccentButtonStyle}"
+                                   Width="80">
+                                <Button.KeyboardAccelerators>
+                                    <KeyboardAccelerator Key="E" Modifiers="Control"/>
+                                </Button.KeyboardAccelerators>
+                            </Button>
+                            <Button Content="Delete"
+                                   Click="DeleteSelectedEvent_Click"
+                                   Width="80">
+                                <Button.KeyboardAccelerators>
+                                    <KeyboardAccelerator Key="Delete"/>
+                                </Button.KeyboardAccelerators>
+                            </Button>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Grid>
+
+        <!-- Proportional scrollbar (Premiere-style) -->
+        <controls:ProportionalScrollBar x:Name="TimelineScrollBar"
+                                        Grid.Row="2"
+                                        Height="20"
+                                        Margin="8,4"
+                                        ScrollOffsetChanged="TimelineScrollBar_ScrollOffsetChanged"
+                                        ViewDurationChanged="TimelineScrollBar_ViewDurationChanged"/>
 
         <!-- Navigation controls -->
-        <CommandBar Grid.Row="2"
+        <CommandBar Grid.Row="3"
                    DefaultLabelPosition="Right"
                    Canvas.ZIndex="100">
 
@@ -349,66 +411,6 @@
                 </StackPanel>
             </CommandBar.Content>
         </CommandBar>
-
-        <!-- Event details panel (slides in from right) -->
-        <Grid x:Name="EventDetailsPanel"
-              Grid.Row="1"
-              HorizontalAlignment="Right"
-              Width="320"
-              Background="{ThemeResource AcrylicBackgroundFillColorDefaultBrush}"
-              Visibility="{x:Bind ViewModel.SelectedEvent, Mode=OneWay, Converter={StaticResource NullToVisibilityConverter}}"
-              Canvas.ZIndex="200">
-
-            <ScrollViewer>
-                <StackPanel Padding="20" Spacing="12">
-                    <Grid>
-                        <TextBlock Text="Event Details"
-                                  FontSize="20"
-                                  FontWeight="SemiBold"/>
-                        <Button Content="&#xE711;"
-                               FontFamily="Segoe MDL2 Assets"
-                               HorizontalAlignment="Right"
-                               Background="Transparent"
-                               Command="{x:Bind ViewModel.SelectEventCommand}"/>
-                    </Grid>
-
-                    <TextBlock Text="{x:Bind ViewModel.SelectedEvent.Title, Mode=OneWay, FallbackValue=''}"
-                              FontSize="16"
-                              FontWeight="SemiBold"
-                              TextWrapping="Wrap"/>
-
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <FontIcon Glyph="&#xE787;" FontSize="14"/>
-                        <TextBlock Text="{x:Bind ViewModel.SelectedEvent.StartDate, Mode=OneWay, FallbackValue=''}"
-                                  FontSize="14"
-                                  Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
-                    </StackPanel>
-
-                    <TextBlock Text="{x:Bind ViewModel.SelectedEvent.Description, Mode=OneWay, FallbackValue=''}"
-                              TextWrapping="Wrap"
-                              FontSize="14"/>
-
-                    <!-- Action buttons -->
-                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,12,0,0">
-                        <Button Content="Edit"
-                               Click="EditSelectedEvent_Click"
-                               Style="{StaticResource AccentButtonStyle}"
-                               Width="80">
-                            <Button.KeyboardAccelerators>
-                                <KeyboardAccelerator Key="E" Modifiers="Control"/>
-                            </Button.KeyboardAccelerators>
-                        </Button>
-                        <Button Content="Delete"
-                               Click="DeleteSelectedEvent_Click"
-                               Width="80">
-                            <Button.KeyboardAccelerators>
-                                <KeyboardAccelerator Key="Delete"/>
-                            </Button.KeyboardAccelerators>
-                        </Button>
-                    </StackPanel>
-                </StackPanel>
-            </ScrollViewer>
-        </Grid>
 
         <!-- Add/Edit Event Dialog -->
         <ContentDialog x:Name="EventDialog"

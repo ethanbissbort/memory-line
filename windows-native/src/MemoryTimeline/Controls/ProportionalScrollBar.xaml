@@ -1,0 +1,90 @@
+<UserControl
+    x:Class="MemoryTimeline.Controls.ProportionalScrollBar"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    d:DesignHeight="20"
+    d:DesignWidth="800">
+
+    <Grid x:Name="RootGrid"
+          Height="20"
+          Background="{ThemeResource ControlFillColorDefaultBrush}"
+          CornerRadius="4"
+          PointerPressed="RootGrid_PointerPressed"
+          PointerMoved="RootGrid_PointerMoved"
+          PointerReleased="RootGrid_PointerReleased"
+          PointerCaptureLost="RootGrid_PointerCaptureLost">
+
+        <!-- Track background -->
+        <Border Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                CornerRadius="4"
+                Margin="2"/>
+
+        <!-- Thumb (positioned and sized programmatically) -->
+        <Canvas x:Name="ThumbCanvas" Margin="2">
+            <Grid x:Name="Thumb"
+                  Height="16"
+                  Background="{ThemeResource ControlFillColorTertiaryBrush}"
+                  CornerRadius="3"
+                  Opacity="0.9">
+
+                <!-- Left resize handle -->
+                <Border x:Name="LeftHandle"
+                        HorizontalAlignment="Left"
+                        Width="6"
+                        Background="Transparent"
+                        Cursor="SizeWestEast"
+                        Margin="-2,0,0,0"/>
+
+                <!-- Center drag area -->
+                <Border x:Name="CenterArea"
+                        HorizontalAlignment="Stretch"
+                        Margin="6,0"
+                        Background="Transparent"
+                        Cursor="Hand"/>
+
+                <!-- Right resize handle -->
+                <Border x:Name="RightHandle"
+                        HorizontalAlignment="Right"
+                        Width="6"
+                        Background="Transparent"
+                        Cursor="SizeWestEast"
+                        Margin="0,0,-2,0"/>
+
+                <!-- Visual indicator lines on thumb -->
+                <StackPanel Orientation="Horizontal"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Spacing="2"
+                            Opacity="0.5">
+                    <Rectangle Width="1" Height="8" Fill="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <Rectangle Width="1" Height="8" Fill="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <Rectangle Width="1" Height="8" Fill="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+            </Grid>
+        </Canvas>
+
+        <!-- Hover/pressed visual states -->
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup x:Name="CommonStates">
+                <VisualState x:Name="Normal"/>
+                <VisualState x:Name="PointerOver">
+                    <Storyboard>
+                        <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Thumb" Storyboard.TargetProperty="Background">
+                            <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource ControlFillColorSecondaryBrush}"/>
+                        </ObjectAnimationUsingKeyFrames>
+                    </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Pressed">
+                    <Storyboard>
+                        <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Thumb" Storyboard.TargetProperty="Background">
+                            <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource AccentFillColorDefaultBrush}"/>
+                        </ObjectAnimationUsingKeyFrames>
+                    </Storyboard>
+                </VisualState>
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
+    </Grid>
+</UserControl>
