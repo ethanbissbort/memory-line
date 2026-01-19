@@ -19,6 +19,7 @@ public class MilestoneRepository : IMilestoneRepository
     public async Task<IEnumerable<Milestone>> GetAllAsync()
     {
         return await _context.Milestones
+            .AsNoTracking()
             .Include(m => m.LinkedEra)
             .OrderBy(m => m.Date)
             .ToListAsync();
@@ -34,6 +35,7 @@ public class MilestoneRepository : IMilestoneRepository
     public async Task<IEnumerable<Milestone>> GetOrderedByDateAsync()
     {
         return await _context.Milestones
+            .AsNoTracking()
             .Include(m => m.LinkedEra)
             .OrderBy(m => m.Date)
             .ToListAsync();
@@ -42,6 +44,7 @@ public class MilestoneRepository : IMilestoneRepository
     public async Task<IEnumerable<Milestone>> GetByDateRangeAsync(DateTime startDate, DateTime endDate)
     {
         return await _context.Milestones
+            .AsNoTracking()
             .Include(m => m.LinkedEra)
             .Where(m => m.Date >= startDate && m.Date <= endDate)
             .OrderBy(m => m.Date)
@@ -51,6 +54,7 @@ public class MilestoneRepository : IMilestoneRepository
     public async Task<IEnumerable<Milestone>> GetByEraIdAsync(string eraId)
     {
         return await _context.Milestones
+            .AsNoTracking()
             .Include(m => m.LinkedEra)
             .Where(m => m.LinkedEraId == eraId)
             .OrderBy(m => m.Date)
@@ -60,6 +64,7 @@ public class MilestoneRepository : IMilestoneRepository
     public async Task<IEnumerable<Milestone>> GetByTypeAsync(MilestoneType type)
     {
         return await _context.Milestones
+            .AsNoTracking()
             .Include(m => m.LinkedEra)
             .Where(m => m.Type == type)
             .OrderBy(m => m.Date)
@@ -69,6 +74,7 @@ public class MilestoneRepository : IMilestoneRepository
     public async Task<IEnumerable<Milestone>> FindAsync(Expression<Func<Milestone, bool>> predicate)
     {
         return await _context.Milestones
+            .AsNoTracking()
             .Include(m => m.LinkedEra)
             .Where(predicate)
             .OrderBy(m => m.Date)
