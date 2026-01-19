@@ -658,7 +658,12 @@ public partial class TimelineViewModel : ObservableObject
 
             TotalEventCount = await _eventService.GetTotalEventCountAsync();
 
-            if (Viewport != null)
+            if (Viewport == null && ViewportWidth > 0 && ViewportHeight > 0)
+            {
+                // Create viewport if it doesn't exist but we have valid dimensions
+                await CreateViewportAsync(CurrentZoomLevel, DateTime.Now);
+            }
+            else if (Viewport != null)
             {
                 await LoadEventsForViewportAsync();
                 await LoadErasForViewportAsync();
@@ -689,17 +694,26 @@ public partial class TimelineViewModel : ObservableObject
 
     /// <summary>
     /// Updates viewport dimensions when window is resized.
+    /// Creates the viewport if it doesn't exist yet.
     /// </summary>
     public async Task UpdateViewportDimensionsAsync(int width, int height)
     {
-        if (width == ViewportWidth && height == ViewportHeight)
+        if (width <= 0 || height <= 0)
             return;
+
+        var dimensionsChanged = width != ViewportWidth || height != ViewportHeight;
 
         ViewportWidth = width;
         ViewportHeight = height;
 
-        if (Viewport != null)
+        if (Viewport == null)
         {
+            // Viewport doesn't exist yet - create it with current dimensions
+            await CreateViewportAsync(CurrentZoomLevel, DateTime.Now);
+        }
+        else if (dimensionsChanged)
+        {
+            // Update existing viewport dimensions
             Viewport.ViewportWidth = width;
             Viewport.ViewportHeight = height;
 
