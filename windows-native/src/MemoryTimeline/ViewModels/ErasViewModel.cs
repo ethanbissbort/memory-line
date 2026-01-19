@@ -224,11 +224,8 @@ public partial class ErasViewModel : ObservableObject
     [RelayCommand]
     public async Task LoadErasAsync()
     {
-        if (IsLoading) return;
-
         try
         {
-            IsLoading = true;
             StatusMessage = "Loading eras...";
 
             var eras = await _eraRepository.GetOrderedByDateAsync();
@@ -253,10 +250,6 @@ public partial class ErasViewModel : ObservableObject
         {
             _logger.LogError(ex, "Error loading eras");
             StatusMessage = "Error loading eras";
-        }
-        finally
-        {
-            IsLoading = false;
         }
     }
 
