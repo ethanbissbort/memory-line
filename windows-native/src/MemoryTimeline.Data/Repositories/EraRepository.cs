@@ -19,6 +19,7 @@ public class EraRepository : IEraRepository
     public async Task<IEnumerable<Era>> GetAllAsync()
     {
         return await _context.Eras
+            .AsNoTracking()
             .Include(e => e.Category)
             .Include(e => e.EraTags)
             .OrderBy(e => e.StartDate)
@@ -36,6 +37,7 @@ public class EraRepository : IEraRepository
     public async Task<Era?> GetByNameAsync(string name)
     {
         return await _context.Eras
+            .AsNoTracking()
             .Include(e => e.Category)
             .Include(e => e.EraTags)
             .FirstOrDefaultAsync(e => e.Name.ToLower() == name.ToLower());
@@ -44,6 +46,7 @@ public class EraRepository : IEraRepository
     public async Task<IEnumerable<Era>> GetOrderedByDateAsync()
     {
         return await _context.Eras
+            .AsNoTracking()
             .Include(e => e.Category)
             .Include(e => e.EraTags)
             .OrderBy(e => e.StartDate)
@@ -53,6 +56,7 @@ public class EraRepository : IEraRepository
     public async Task<Era?> GetByDateAsync(DateTime date)
     {
         return await _context.Eras
+            .AsNoTracking()
             .Include(e => e.Category)
             .Include(e => e.EraTags)
             .Where(e => e.StartDate <= date && (e.EndDate == null || e.EndDate >= date))
@@ -62,6 +66,7 @@ public class EraRepository : IEraRepository
     public async Task<IEnumerable<Era>> FindAsync(Expression<Func<Era, bool>> predicate)
     {
         return await _context.Eras
+            .AsNoTracking()
             .Include(e => e.Category)
             .Include(e => e.EraTags)
             .Where(predicate)
@@ -116,6 +121,7 @@ public class EraRepository : IEraRepository
     public async Task<IEnumerable<Era>> GetByCategoryIdAsync(string categoryId)
     {
         return await _context.Eras
+            .AsNoTracking()
             .Include(e => e.Category)
             .Include(e => e.EraTags)
             .Where(e => e.CategoryId == categoryId)
@@ -126,6 +132,7 @@ public class EraRepository : IEraRepository
     public async Task<IEnumerable<Era>> GetByDateRangeAsync(DateTime startDate, DateTime endDate)
     {
         return await _context.Eras
+            .AsNoTracking()
             .Include(e => e.Category)
             .Include(e => e.EraTags)
             .Where(e => e.StartDate <= endDate && (e.EndDate == null || e.EndDate >= startDate))
@@ -136,6 +143,7 @@ public class EraRepository : IEraRepository
     public async Task<IEnumerable<IGrouping<EraCategory?, Era>>> GetGroupedByCategoryAsync()
     {
         var eras = await _context.Eras
+            .AsNoTracking()
             .Include(e => e.Category)
             .Include(e => e.EraTags)
             .OrderBy(e => e.Category != null ? e.Category.SortOrder : int.MaxValue)
