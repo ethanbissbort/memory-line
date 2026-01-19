@@ -62,6 +62,7 @@ public class AdvancedSearchService : IAdvancedSearchService
         try
         {
             var query = _dbContext.Events
+                .AsNoTracking() // Ensure fresh data from database, avoid caching issues
                 .Include(e => e.EventTags).ThenInclude(et => et.Tag)
                 .Include(e => e.EventPeople).ThenInclude(ep => ep.Person)
                 .Include(e => e.EventLocations).ThenInclude(el => el.Location)
