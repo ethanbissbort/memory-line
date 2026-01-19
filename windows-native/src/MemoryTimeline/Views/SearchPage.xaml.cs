@@ -73,6 +73,7 @@ public sealed partial class SearchPage : Page
 
     private async void SortBy_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (ViewModel == null) return;
         if (sender is ComboBox comboBox && comboBox.SelectedItem is ComboBoxItem item && item.Tag is string sortBy)
         {
             await ViewModel.ChangeSortAsync(sortBy);

@@ -346,14 +346,11 @@ public sealed partial class TimelineControl : UserControl
         // Get the position where user double-tapped
         var position = e.GetPosition(TimelineCanvas);
 
-        // Calculate the date at the tapped position
+        // Calculate the date at the tapped position using viewport's actual PixelsPerDay
         if (_viewModel.Viewport != null)
         {
             var viewport = _viewModel.Viewport;
-            var dateAtPosition = TimelineScale.GetDateFromPixel(
-                position.X,
-                viewport.StartDate,
-                viewport.ZoomLevel);
+            var dateAtPosition = viewport.PixelToDate(position.X);
 
             // Zoom in centered on the tapped date
             await _viewModel.ZoomInAsync();
@@ -450,11 +447,8 @@ public sealed partial class TimelineControl : UserControl
         var point = e.GetCurrentPoint(TimelineCanvas);
         var position = point.Position;
 
-        // Calculate date at pointer position
-        var dateAtPointer = TimelineScale.GetDateFromPixel(
-            position.X,
-            _viewModel.Viewport.StartDate,
-            _viewModel.Viewport.ZoomLevel);
+        // Calculate date at pointer position using viewport's actual PixelsPerDay
+        var dateAtPointer = _viewModel.Viewport.PixelToDate(position.X);
 
         // Update hover date display
         HoverDateText.Text = dateAtPointer.ToString("MMMM d, yyyy");
@@ -648,11 +642,8 @@ public sealed partial class TimelineControl : UserControl
         if (_viewModel?.Viewport == null)
             return;
 
-        // Calculate the date at the right-click position
-        var dateAtPosition = TimelineScale.GetDateFromPixel(
-            _lastRightTapPosition.X,
-            _viewModel.Viewport.StartDate,
-            _viewModel.Viewport.ZoomLevel);
+        // Calculate the date at the right-click position using viewport's actual PixelsPerDay
+        var dateAtPosition = _viewModel.Viewport.PixelToDate(_lastRightTapPosition.X);
 
         await ShowAddEventDialogAsync(dateAtPosition);
     }
