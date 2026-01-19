@@ -647,6 +647,7 @@ public partial class ErasViewModel : ObservableObject
             }
 
             await LoadErasAsync();
+            CalculateViewport();
             GenerateGanttLayout();
         }
         catch (Exception ex)
@@ -684,6 +685,7 @@ public partial class ErasViewModel : ObservableObject
             _logger.LogInformation("Deleted era: {EraId} - {Name}", era.EraId, era.Name);
 
             await LoadErasAsync();
+            CalculateViewport();
             GenerateGanttLayout();
         }
         catch (Exception ex)
