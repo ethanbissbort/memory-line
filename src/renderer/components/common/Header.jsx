@@ -35,6 +35,34 @@ function Header({ activePanel, setActivePanel }) {
                     Queue
                 </button>
                 <button
+                    className={`nav-button ${activePanel === 'search' ? 'active' : ''}`}
+                    onClick={() => setActivePanel('search')}
+                    title="Search Events"
+                >
+                    Search
+                </button>
+                <button
+                    className={`nav-button ${activePanel === 'analytics' ? 'active' : ''}`}
+                    onClick={() => setActivePanel('analytics')}
+                    title="View Analytics"
+                >
+                    Analytics
+                </button>
+                <button
+                    className={`nav-button ${activePanel === 'insights' ? 'active' : ''}`}
+                    onClick={() => setActivePanel('insights')}
+                    title="Related Events & Connections"
+                >
+                    Insights
+                </button>
+                <button
+                    className={`nav-button ${activePanel === 'rag' ? 'active' : ''}`}
+                    onClick={() => setActivePanel('rag')}
+                    title="RAG & Embeddings"
+                >
+                    RAG
+                </button>
+                <button
                     className={`nav-button ${activePanel === 'settings' ? 'active' : ''}`}
                     onClick={() => setActivePanel('settings')}
                     title="Settings"

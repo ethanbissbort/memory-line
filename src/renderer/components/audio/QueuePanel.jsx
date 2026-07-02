@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { format, parseISO } from 'date-fns';
 import EventEditModal from '../events/EventEditModal';
+import BatchImportDialog from './BatchImportDialog';
 
 function QueuePanel() {
     const [activeTab, setActiveTab] = useState('outgoing'); // outgoing or review
@@ -16,6 +17,7 @@ function QueuePanel() {
     const [isProcessing, setIsProcessing] = useState(false);
     const [editModalOpen, setEditModalOpen] = useState(false);
     const [editingItem, setEditingItem] = useState(null);
+    const [showBatchImport, setShowBatchImport] = useState(false);
 
     useEffect(() => {
         loadQueues();
@@ -24,27 +26,40 @@ function QueuePanel() {
     const loadQueues = async () => {
         setIsLoading(true);
         try {
+            const urls = {};
+
             // Load outgoing queue
             const outgoingResult = await window.electronAPI.queue.getAll();
             if (outgoingResult.success) {
                 setOutgoingQueue(outgoingResult.data);
 
-                // Load audio files for playback
-                const urls = {};
+                // Load audio files for playback (keyed by queue_id for outgoing items)
                 for (const item of outgoingResult.data) {
+                    if (!item.audio_file_path) continue;
                     const audioResult = await window.electronAPI.audio.getFile(item.audio_file_path);
                     if (audioResult.success) {
                         urls[item.queue_id] = audioResult.data;
                     }
                 }
-                setAudioUrls(urls);
             }
 
             // Load review queue
             const reviewResult = await window.electronAPI.pending.getAll('pending_review');
             if (reviewResult.success) {
                 setReviewQueue(reviewResult.data);
+
+                // Load audio for review items keyed by pending_id so the review-tab
+                // players resolve (they are looked up by audioUrls[item.pending_id]).
+                for (const item of reviewResult.data) {
+                    if (!item.audio_file_path) continue;
+                    const audioResult = await window.electronAPI.audio.getFile(item.audio_file_path);
+                    if (audioResult.success) {
+                        urls[item.pending_id] = audioResult.data;
+                    }
+                }
             }
+
+            setAudioUrls(urls);
         } catch (error) {
             console.error('Error loading queues:', error);
             alert('Failed to load queues: ' + error.message);
@@ -206,6 +221,12 @@ function QueuePanel() {
             <div className="queue-header">
                 <h2>Processing Queue</h2>
                 <div className="queue-header-actions">
+                    <button
+                        className="button secondary"
+                        onClick={() => setShowBatchImport(true)}
+                    >
+                        Batch Import
+                    </button>
                     <button
                         className="button primary"
                         onClick={handleProcessQueue}
@@ -414,6 +435,17 @@ function QueuePanel() {
                 eventData={editingItem?.extracted_data}
                 onSave={handleSaveEdited}
             />
+
+            {/* Batch Import Dialog */}
+            {showBatchImport && (
+                <BatchImportDialog
+                    onClose={() => setShowBatchImport(false)}
+                    onImportComplete={() => {
+                        setShowBatchImport(false);
+                        loadQueues();
+                    }}
+                />
+            )}
         </div>
     );
 }

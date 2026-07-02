@@ -11,6 +11,10 @@ import EventDetailsModal from './components/events/EventDetailsModal';
 import AudioRecorder from './components/audio/AudioRecorder';
 import QueuePanel from './components/audio/QueuePanel';
 import SettingsPanel from './components/settings/SettingsPanel';
+import SearchPanel from './components/search/SearchPanel';
+import AnalyticsDashboard from './components/analytics/AnalyticsDashboard';
+import CrossReferencePanel from './components/rag/CrossReferencePanel';
+import RAGSettings from './components/rag/RAGSettings';
 import { useTimelineStore } from './store/timelineStore';
 import { useSettingsStore } from './store/settingsStore';
 
@@ -19,22 +23,17 @@ function App() {
     const [selectedEvent, setSelectedEvent] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
 
-    const { loadEvents, loadEras } = useTimelineStore();
+    const { loadEras } = useTimelineStore();
     const { loadSettings } = useSettingsStore();
 
     useEffect(() => {
-        // Initialize app - load settings and initial data
+        // Initialize app - load settings and eras. The initial event range is
+        // loaded by Timeline.jsx on mount (based on the current view/zoom), so we
+        // don't load events here to avoid a redundant/overridden fetch.
         const initializeApp = async () => {
             try {
                 await loadSettings();
                 await loadEras();
-
-                // Load initial event range (current year)
-                const now = new Date();
-                const startOfYear = new Date(now.getFullYear(), 0, 1).toISOString().split('T')[0];
-                const endOfYear = new Date(now.getFullYear(), 11, 31).toISOString().split('T')[0];
-
-                await loadEvents(startOfYear, endOfYear);
                 setIsLoading(false);
             } catch (error) {
                 console.error('Failed to initialize app:', error);
@@ -81,6 +80,27 @@ function App() {
 
                         {activePanel === 'queue' && (
                             <QueuePanel />
+                        )}
+
+                        {activePanel === 'search' && (
+                            <SearchPanel
+                                onClose={() => setActivePanel('timeline')}
+                                onEventClick={handleEventClick}
+                            />
+                        )}
+
+                        {activePanel === 'analytics' && (
+                            <AnalyticsDashboard
+                                onClose={() => setActivePanel('timeline')}
+                            />
+                        )}
+
+                        {activePanel === 'insights' && (
+                            <CrossReferencePanel eventId={selectedEvent?.event_id} />
+                        )}
+
+                        {activePanel === 'rag' && (
+                            <RAGSettings />
                         )}
 
                         {activePanel === 'settings' && (

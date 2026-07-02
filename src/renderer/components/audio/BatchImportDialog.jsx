@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './BatchImportDialog.css';
 
 const BatchImportDialog = ({ onClose, onImportComplete }) => {
+  const dialogRef = useRef(null);
   const [files, setFiles] = useState([]);
   const [defaultCategory, setDefaultCategory] = useState('Personal');
   const [defaultEra, setDefaultEra] = useState('');
@@ -17,11 +18,33 @@ const BatchImportDialog = ({ onClose, onImportComplete }) => {
 
   useEffect(() => {
     loadEras();
+    // Focus the dialog on open for accessibility
+    if (dialogRef.current) {
+      dialogRef.current.focus();
+    }
   }, []);
 
+  // Escape-to-close (ignored while importing, matching the overlay behavior)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && !importing) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [importing, onClose]);
+
   const loadEras = async () => {
-    const erasData = await window.electronAPI.eras.getAll();
-    setEras(erasData);
+    try {
+      // eras:* returns { success, data } — read result.data after checking success.
+      const result = await window.electronAPI.eras.getAll();
+      if (result && result.success) {
+        setEras(result.data || []);
+      }
+    } catch (error) {
+      console.error('Failed to load eras:', error);
+    }
   };
 
   const handleSelectFiles = async () => {
@@ -163,11 +186,18 @@ const BatchImportDialog = ({ onClose, onImportComplete }) => {
   return (
     <div className="batch-import-dialog">
       <div className="dialog-overlay" onClick={!importing ? onClose : null}></div>
-      <div className="dialog-content">
+      <div
+        className="dialog-content"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="batch-import-title"
+        tabIndex={-1}
+        ref={dialogRef}
+      >
         <div className="dialog-header">
-          <h2>Batch Audio Import</h2>
+          <h2 id="batch-import-title">Batch Audio Import</h2>
           {!importing && (
-            <button className="close-btn" onClick={onClose}>×</button>
+            <button className="close-btn" onClick={onClose} aria-label="Close dialog">×</button>
           )}
         </div>
 
@@ -254,7 +284,7 @@ const BatchImportDialog = ({ onClose, onImportComplete }) => {
                   >
                     <option value="">None</option>
                     {eras.map((era) => (
-                      <option key={era.id} value={era.id}>
+                      <option key={era.era_id} value={era.era_id}>
                         {era.name}
                       </option>
                     ))}

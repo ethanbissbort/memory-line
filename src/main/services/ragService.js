@@ -185,22 +185,33 @@ Return false for hasRelationship if the events are not meaningfully connected.`;
         // Ensure consistent ordering (event_id_1 < event_id_2)
         const [id1, id2] = eventId1 < eventId2 ? [eventId1, eventId2] : [eventId2, eventId1];
 
+        const analysisDetails = JSON.stringify({ explanation });
+
+        // Dedupe on (event_id_1, event_id_2, relationship_type). There may not
+        // be a UNIQUE constraint on this triple, so update the existing row
+        // in place rather than inserting a fresh UUID each run.
+        const existing = this.db.prepare(`
+            SELECT reference_id FROM cross_references
+            WHERE event_id_1 = ? AND event_id_2 = ? AND relationship_type = ?
+        `).get(id1, id2, relationshipType);
+
+        if (existing) {
+            this.db.prepare(`
+                UPDATE cross_references
+                SET confidence_score = ?, analysis_details = ?
+                WHERE reference_id = ?
+            `).run(confidenceScore, analysisDetails, existing.reference_id);
+
+            return existing.reference_id;
+        }
+
         const referenceId = uuidv4();
-        const stmt = this.db.prepare(`
-            INSERT OR REPLACE INTO cross_references (
+        this.db.prepare(`
+            INSERT INTO cross_references (
                 reference_id, event_id_1, event_id_2,
                 relationship_type, confidence_score, analysis_details
             ) VALUES (?, ?, ?, ?, ?, ?)
-        `);
-
-        stmt.run(
-            referenceId,
-            id1,
-            id2,
-            relationshipType,
-            confidenceScore,
-            JSON.stringify({ explanation })
-        );
+        `).run(referenceId, id1, id2, relationshipType, confidenceScore, analysisDetails);
 
         return referenceId;
     }
@@ -224,10 +235,18 @@ Return false for hasRelationship if the events are not meaningfully connected.`;
 
         const results = stmt.all(eventId, eventId);
 
-        return results.map(row => ({
-            ...row,
-            analysis_details: JSON.parse(row.analysis_details)
-        }));
+        return results.map(row => {
+            let analysisDetails = null;
+            try {
+                analysisDetails = row.analysis_details
+                    ? JSON.parse(row.analysis_details)
+                    : null;
+            } catch (error) {
+                console.error('Failed to parse analysis_details for cross-reference:', error);
+                analysisDetails = null;
+            }
+            return { ...row, analysis_details: analysisDetails };
+        });
     }
 
     /**

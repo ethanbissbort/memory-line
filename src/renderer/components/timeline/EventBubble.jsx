@@ -5,7 +5,7 @@
 
 import React, { useState } from 'react';
 import { calculateDatePosition, getDurationDays } from '../../utils/timelineUtils';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, isValid } from 'date-fns';
 
 // Category icon mapping
 const getCategoryIcon = (category) => {
@@ -29,11 +29,17 @@ const getCategoryIcon = (category) => {
     return icons[category] || '📌';
 };
 
-function EventBubble({ event, timelineWidth, zoomLevel, currentViewDate, onClick }) {
+function EventBubble({ event, timelineWidth, zoomLevel, currentViewDate, panOffset = 0, onClick = () => {} }) {
     const [isHovered, setIsHovered] = useState(false);
 
-    const startDate = parseISO(event.start_date);
-    const endDate = event.end_date ? parseISO(event.end_date) : null;
+    const startDate = event.start_date ? parseISO(event.start_date) : null;
+    const parsedEnd = event.end_date ? parseISO(event.end_date) : null;
+    const endDate = parsedEnd && isValid(parsedEnd) ? parsedEnd : null;
+
+    // Guard against missing/invalid dates so a bad record doesn't throw in render
+    if (!startDate || !isValid(startDate)) {
+        return null;
+    }
 
     // Calculate position on timeline
     const position = calculateDatePosition(startDate, currentViewDate, zoomLevel, timelineWidth);
@@ -56,8 +62,10 @@ function EventBubble({ event, timelineWidth, zoomLevel, currentViewDate, onClick
 
     const width = Math.max(minWidth, duration * zoomMultiplier);
 
-    // Determine if event is in view
-    if (position < -width || position > timelineWidth) {
+    // Determine if event is in view. The parent applies panOffset as a
+    // translateX, so account for it here to cull against the visible viewport.
+    const viewportPosition = position + panOffset;
+    if (viewportPosition < -width || viewportPosition > timelineWidth) {
         return null; // Don't render if out of view
     }
 

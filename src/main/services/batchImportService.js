@@ -138,18 +138,20 @@ class BatchImportService {
         const destPath = path.join(audioDir, `${file.id}${path.extname(file.filename)}`);
         fs.copyFileSync(file.path, destPath);
 
-        // Add to recording queue
-        const queueId = this._addToQueue(
-          destPath,
-          session.options.defaultCategory,
-          session.options.defaultEra,
-          session.options.sttEngine,
-          session.options.autoProcess,
-          session.options.extractEvents
-        );
+        // Add to recording queue. Note: recording_queue only stores the audio
+        // file path plus status/size/duration. Per-item metadata such as
+        // category, era, STT engine and auto-process/extract flags are NOT
+        // columns on recording_queue, so we carry them in memory on the file
+        // object instead.
+        const queueId = this._addToQueue(destPath, file.size);
 
         file.queueId = queueId;
         file.copiedPath = destPath;
+        file.category = session.options.defaultCategory;
+        file.eraId = session.options.defaultEra;
+        file.sttEngine = session.options.sttEngine;
+        file.autoProcess = session.options.autoProcess;
+        file.extractEvents = session.options.extractEvents;
 
         // Apply default tags if provided
         if (session.options.defaultTags.length > 0) {
@@ -196,24 +198,27 @@ class BatchImportService {
   }
 
   /**
-   * Add file to recording queue
+   * Add file to recording queue.
+   * Only inserts columns that actually exist on recording_queue:
+   * queue_id, audio_file_path, status, duration_seconds, file_size_bytes,
+   * created_at (defaulted), error_message.
+   * @param {string} filePath - Path to the copied audio file
+   * @param {number|null} fileSizeBytes - File size in bytes
+   * @param {number|null} durationSeconds - Audio duration in seconds (if known)
    */
-  _addToQueue(filePath, category, eraId, sttEngine, autoProcess, extractEvents) {
+  _addToQueue(filePath, fileSizeBytes = null, durationSeconds = null) {
     const id = uuidv4();
-    const filename = path.basename(filePath);
 
     this.db.prepare(`
-      INSERT INTO recording_queue (id, filename, file_path, category, era_id, status, stt_engine, auto_process)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO recording_queue (
+        queue_id, audio_file_path, status, duration_seconds, file_size_bytes, error_message
+      )
+      VALUES (?, ?, 'pending', ?, ?, NULL)
     `).run(
       id,
-      filename,
       filePath,
-      category,
-      eraId,
-      autoProcess ? 'pending' : 'paused',
-      sttEngine,
-      autoProcess ? 1 : 0
+      durationSeconds,
+      fileSizeBytes
     );
 
     return id;
@@ -357,25 +362,26 @@ class BatchImportService {
 
     // Get or create tag IDs
     for (const tagName of tags) {
-      let tagId = this.db.prepare('SELECT id FROM tags WHERE name = ?').get(tagName)?.id;
+      let tagId = this.db.prepare('SELECT tag_id FROM tags WHERE tag_name = ?').get(tagName)?.tag_id;
 
       if (!tagId) {
-        const result = this.db.prepare('INSERT INTO tags (id, name) VALUES (?, ?)').run(uuidv4(), tagName);
-        tagId = this.db.prepare('SELECT id FROM tags WHERE name = ?').get(tagName).id;
+        tagId = uuidv4();
+        this.db.prepare('INSERT INTO tags (tag_id, tag_name) VALUES (?, ?)').run(tagId, tagName);
       }
 
       tagIds.push(tagId);
     }
 
-    // For each file, find the pending event and tag it
+    // For each file, find events created from its queued audio and tag them.
+    // There is no id FK from events to recording_queue/pending_events, but all
+    // three share audio_file_path, which is the real linkage key.
     for (const file of session.files) {
       if (file.status === 'completed' && file.queueId) {
-        // Find events created from this queue item
         const events = this.db.prepare(`
-          SELECT e.id FROM events e
-          JOIN pending_events pe ON e.id = pe.event_id
-          JOIN recording_queue rq ON pe.queue_id = rq.id
-          WHERE rq.id = ?
+          SELECT e.event_id
+          FROM events e
+          JOIN recording_queue rq ON e.audio_file_path = rq.audio_file_path
+          WHERE rq.queue_id = ?
         `).all(file.queueId);
 
         for (const event of events) {
@@ -384,7 +390,7 @@ class BatchImportService {
               this.db.prepare(`
                 INSERT OR IGNORE INTO event_tags (event_id, tag_id)
                 VALUES (?, ?)
-              `).run(event.id, tagId);
+              `).run(event.event_id, tagId);
               tagged++;
             } catch (error) {
               console.error('Error tagging event:', error);

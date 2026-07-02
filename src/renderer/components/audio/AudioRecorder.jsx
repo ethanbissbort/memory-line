@@ -3,7 +3,7 @@
  * Interface for recording audio memories
  */
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 
 function AudioRecorder() {
     const [isRecording, setIsRecording] = useState(false);
@@ -17,10 +17,39 @@ function AudioRecorder() {
     const audioChunksRef = useRef([]);
     const timerRef = useRef(null);
     const audioBlobRef = useRef(null);
+    const streamRef = useRef(null);
+    const audioUrlRef = useRef(null);
+    const cancelledRef = useRef(false);
+
+    // Revoke a tracked object URL and clear the tracking ref
+    const revokeAudioUrl = () => {
+        if (audioUrlRef.current) {
+            URL.revokeObjectURL(audioUrlRef.current);
+            audioUrlRef.current = null;
+        }
+    };
+
+    const stopStreamTracks = () => {
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop());
+            streamRef.current = null;
+        }
+    };
+
+    // Cleanup on unmount: clear timer, stop mic tracks, revoke object URLs
+    useEffect(() => {
+        return () => {
+            clearInterval(timerRef.current);
+            stopStreamTracks();
+            revokeAudioUrl();
+        };
+    }, []);
 
     const startRecording = async () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            streamRef.current = stream;
+            cancelledRef.current = false;
 
             mediaRecorderRef.current = new MediaRecorder(stream);
             audioChunksRef.current = [];
@@ -30,11 +59,25 @@ function AudioRecorder() {
             };
 
             mediaRecorderRef.current.onstop = () => {
-                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+                // Always release the mic when recording stops
+                stopStreamTracks();
+
+                // If the recording was cancelled, discard instead of saving
+                if (cancelledRef.current) {
+                    cancelledRef.current = false;
+                    audioChunksRef.current = [];
+                    audioBlobRef.current = null;
+                    return;
+                }
+
+                // Use the actual mimeType the MediaRecorder produced (typically
+                // audio/webm;codecs=opus), not a hard-coded audio/wav.
+                const mimeType = mediaRecorderRef.current?.mimeType || 'audio/webm';
+                const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
                 const url = URL.createObjectURL(audioBlob);
                 audioBlobRef.current = audioBlob;
+                audioUrlRef.current = url;
                 setAudioURL(url);
-                stream.getTracks().forEach(track => track.stop());
             };
 
             mediaRecorderRef.current.start();
@@ -84,10 +127,13 @@ function AudioRecorder() {
 
     const cancelRecording = () => {
         if (mediaRecorderRef.current) {
+            // Flag as cancelled so onstop discards the blob instead of saving it
+            cancelledRef.current = true;
             mediaRecorderRef.current.stop();
             setIsRecording(false);
             setIsPaused(false);
             setRecordingTime(0);
+            revokeAudioUrl();
             setAudioURL(null);
             clearInterval(timerRef.current);
         }
@@ -103,39 +149,47 @@ function AudioRecorder() {
             const reader = new FileReader();
 
             reader.onloadend = async () => {
-                const audioData = reader.result;
+                try {
+                    const audioData = reader.result;
 
-                // Save audio file via Electron IPC
-                const saveResult = await window.electronAPI.audio.save(audioData, recordingTime);
+                    // Save audio file via Electron IPC
+                    const saveResult = await window.electronAPI.audio.save(audioData, recordingTime);
 
-                if (!saveResult.success) {
-                    throw new Error(saveResult.error);
+                    if (!saveResult.success) {
+                        throw new Error(saveResult.error);
+                    }
+
+                    // Add to recording queue
+                    const queueResult = await window.electronAPI.queue.add(
+                        saveResult.data.filePath,
+                        saveResult.data.duration,
+                        saveResult.data.fileSize
+                    );
+
+                    if (!queueResult.success) {
+                        throw new Error(queueResult.error);
+                    }
+
+                    // Success!
+                    alert(`Recording saved successfully!\nFile: ${saveResult.data.filename}\nAdded to processing queue.`);
+
+                    // Clean up
+                    revokeAudioUrl();
+                    setAudioURL(null);
+                    setRecordingTime(0);
+                    audioBlobRef.current = null;
+                } catch (error) {
+                    console.error('Error submitting to queue:', error);
+                    alert(`Failed to submit recording: ${error.message}`);
+                } finally {
+                    setIsSubmitting(false);
                 }
-
-                // Add to recording queue
-                const queueResult = await window.electronAPI.queue.add(
-                    saveResult.data.filePath,
-                    saveResult.data.duration,
-                    saveResult.data.fileSize
-                );
-
-                if (!queueResult.success) {
-                    throw new Error(queueResult.error);
-                }
-
-                // Success!
-                alert(`Recording saved successfully!\nFile: ${saveResult.data.filename}\nAdded to processing queue.`);
-
-                // Clean up
-                URL.revokeObjectURL(audioURL);
-                setAudioURL(null);
-                setRecordingTime(0);
-                audioBlobRef.current = null;
-                setIsSubmitting(false);
             };
 
             reader.onerror = () => {
-                throw new Error('Failed to read audio file');
+                console.error('Error reading audio file');
+                alert('Failed to submit recording: Failed to read audio file');
+                setIsSubmitting(false);
             };
 
             reader.readAsDataURL(audioBlobRef.current);
@@ -226,8 +280,10 @@ function AudioRecorder() {
                             <button
                                 className="button secondary"
                                 onClick={() => {
+                                    revokeAudioUrl();
                                     setAudioURL(null);
                                     setRecordingTime(0);
+                                    audioBlobRef.current = null;
                                 }}
                             >
                                 Delete & Re-record
