@@ -4,7 +4,14 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, isValid } from 'date-fns';
+
+// Safely format a date string, returning '' for missing/invalid values
+const safeFormat = (dateStr, fmt) => {
+    if (!dateStr) return '';
+    const d = parseISO(dateStr);
+    return isValid(d) ? format(d, fmt) : '';
+};
 
 function CrossReferencePanel({ eventId }) {
     const [crossRefs, setCrossRefs] = useState([]);
@@ -176,7 +183,7 @@ function CrossReferencePanel({ eventId }) {
                                             <div className="ref-event">
                                                 <strong>{relatedTitle}</strong>
                                                 <span className="ref-date">
-                                                    {format(parseISO(relatedDate), 'MMM d, yyyy')}
+                                                    {safeFormat(relatedDate, 'MMM d, yyyy')}
                                                 </span>
                                             </div>
                                             {ref.analysis_details && ref.analysis_details.explanation && (
@@ -211,7 +218,7 @@ function CrossReferencePanel({ eventId }) {
                                         </div>
                                         <div className="similar-meta">
                                             <span className="similar-date">
-                                                {format(parseISO(event.start_date), 'MMM d, yyyy')}
+                                                {safeFormat(event.start_date, 'MMM d, yyyy')}
                                             </span>
                                             {event.category && (
                                                 <span className="similar-category">{event.category}</span>

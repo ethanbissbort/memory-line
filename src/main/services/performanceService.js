@@ -38,10 +38,9 @@ class PerformanceService {
         }
 
         try {
-            let query = `
-                SELECT e.*,
-                       era.name as era_name,
-                       era.color_code as era_color
+            // Build the shared FROM/WHERE clause and params once, so the count
+            // query and the data query always stay in sync.
+            let fromWhere = `
                 FROM events e
                 LEFT JOIN eras era ON e.era_id = era.era_id
                 WHERE 1=1
@@ -50,35 +49,44 @@ class PerformanceService {
 
             // Add filters
             if (startDate && endDate) {
-                query += ' AND e.start_date >= ? AND e.start_date <= ?';
+                fromWhere += ' AND e.start_date >= ? AND e.start_date <= ?';
                 params.push(startDate, endDate);
             }
 
             if (category) {
-                query += ' AND e.category = ?';
+                fromWhere += ' AND e.category = ?';
                 params.push(category);
             }
 
             if (searchQuery) {
-                query += ` AND e.event_id IN (
-                    SELECT e2.event_id FROM events_fts
-                    JOIN events e2 ON events_fts.rowid = e2.rowid
-                    WHERE events_fts MATCH ?
-                )`;
-                params.push(searchQuery);
+                const ftsQuery = this._sanitizeFtsQuery(searchQuery);
+                if (ftsQuery) {
+                    fromWhere += ` AND e.event_id IN (
+                        SELECT e2.event_id FROM events_fts
+                        JOIN events e2 ON events_fts.rowid = e2.rowid
+                        WHERE events_fts MATCH ?
+                    )`;
+                    params.push(ftsQuery);
+                }
             }
 
-            // Get total count
-            const countQuery = query.replace('SELECT e.*, era.name as era_name, era.color_code as era_color', 'SELECT COUNT(*) as total');
-            const countStmt = this.db.prepare(countQuery);
+            // Get total count using a dedicated COUNT query over the same
+            // FROM/WHERE (the previous string-replace approach never matched
+            // the multi-line SELECT, leaving total undefined -> NaN pages).
+            const countStmt = this.db.prepare(`SELECT COUNT(*) as total ${fromWhere}`);
             const { total } = countStmt.get(...params);
 
-            // Add pagination
-            query += ' ORDER BY e.start_date DESC LIMIT ? OFFSET ?';
-            params.push(pageSize, offset);
-
+            // Build the data query with pagination.
+            const query = `
+                SELECT e.*,
+                       era.name as era_name,
+                       era.color_code as era_color
+                ${fromWhere}
+                ORDER BY e.start_date DESC
+                LIMIT ? OFFSET ?
+            `;
             const stmt = this.db.prepare(query);
-            const events = stmt.all(...params);
+            const events = stmt.all(...params, pageSize, offset);
 
             // Batch load relationships for all events
             const eventIds = events.map(e => e.event_id);
@@ -113,6 +121,25 @@ class PerformanceService {
             console.error('Error in getEventsPaginated:', error);
             throw error;
         }
+    }
+
+    /**
+     * Sanitize a user-supplied query for FTS5 MATCH by wrapping each token as
+     * a quoted phrase, so special characters (", *, (), :, ^, -) in ordinary
+     * input don't throw fts5 syntax errors. Returns null if nothing usable.
+     * @private
+     */
+    _sanitizeFtsQuery(query) {
+        if (!query || typeof query !== 'string') {
+            return null;
+        }
+        const tokens = query.trim().split(/\s+/).filter(Boolean);
+        if (tokens.length === 0) {
+            return null;
+        }
+        return tokens
+            .map(token => `"${token.replace(/"/g, '""')}"`)
+            .join(' ');
     }
 
     /**

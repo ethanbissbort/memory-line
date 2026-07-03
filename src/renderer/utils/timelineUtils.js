@@ -3,7 +3,7 @@
  * Helper functions for date calculations and positioning
  */
 
-import { differenceInDays, startOfYear, endOfYear, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays } from 'date-fns';
+import { differenceInDays, startOfYear, endOfYear, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, parseISO } from 'date-fns';
 
 /**
  * Calculate the pixel position of a date on the timeline
@@ -16,8 +16,17 @@ import { differenceInDays, startOfYear, endOfYear, startOfMonth, endOfMonth, sta
 export function calculateDatePosition(date, viewDate, zoomLevel, timelineWidth) {
     const { start, end } = getDateRangeForZoom(viewDate, zoomLevel);
 
-    const totalDays = differenceInDays(end, start);
-    const daysFromStart = differenceInDays(date, start);
+    // getDateRangeForZoom returns ISO date strings; parse them back to Date
+    // objects so date-fns receives real Dates (otherwise differenceInDays -> NaN).
+    const startDate = typeof start === 'string' ? parseISO(start) : start;
+    const endDate = typeof end === 'string' ? parseISO(end) : end;
+
+    const totalDays = differenceInDays(endDate, startDate);
+    if (!totalDays) {
+        return 0;
+    }
+
+    const daysFromStart = differenceInDays(date, startDate);
 
     const pixelsPerDay = timelineWidth / totalDays;
     return daysFromStart * pixelsPerDay;

@@ -16,15 +16,24 @@ class VisualizationService {
    * @returns {Array} Timeline density data
    */
   getTimelineDensity(groupBy = 'month', startDate = null, endDate = null) {
+    // SQLite strftime has no quarter token, so the quarter period must be
+    // derived from each row's own start_date month (not today's date).
     const formatMap = {
       'day': '%Y-%m-%d',
       'week': '%Y-%W',
       'month': '%Y-%m',
-      'quarter': '%Y-Q' + Math.floor((new Date().getMonth() / 3)),
       'year': '%Y'
     };
 
-    const format = formatMap[groupBy] || formatMap.month;
+    let periodExpr;
+    if (groupBy === 'quarter') {
+      // e.g. 2021-Q3, computed per-row from the month.
+      periodExpr = `strftime('%Y', start_date) || '-Q' || ((CAST(strftime('%m', start_date) AS INTEGER) + 2) / 3)`;
+    } else {
+      const format = formatMap[groupBy] || formatMap.month;
+      periodExpr = `strftime('${format}', start_date)`;
+    }
+
     const conditions = [];
     const params = [];
 
@@ -41,7 +50,7 @@ class VisualizationService {
 
     const sql = `
       SELECT
-        strftime('${format}', start_date) as period,
+        ${periodExpr} as period,
         COUNT(*) as event_count,
         COUNT(DISTINCT category) as category_count,
         MIN(start_date) as period_start,
@@ -83,15 +92,14 @@ class VisualizationService {
   getTagCloud(limit = 50) {
     const sql = `
       SELECT
-        t.name,
-        t.color,
+        t.tag_name as name,
         COUNT(et.event_id) as usage_count,
         MIN(e.start_date) as first_used,
         MAX(e.start_date) as last_used
       FROM tags t
-      JOIN event_tags et ON t.id = et.tag_id
-      JOIN events e ON et.event_id = e.id
-      GROUP BY t.id
+      JOIN event_tags et ON t.tag_id = et.tag_id
+      JOIN events e ON et.event_id = e.event_id
+      GROUP BY t.tag_id
       ORDER BY usage_count DESC
       LIMIT ?
     `;
@@ -107,12 +115,12 @@ class VisualizationService {
     // Get all people with their event counts
     const people = this.db.prepare(`
       SELECT
-        p.id,
+        p.person_id as id,
         p.name,
         COUNT(ep.event_id) as event_count
       FROM people p
-      JOIN event_people ep ON p.id = ep.person_id
-      GROUP BY p.id
+      JOIN event_people ep ON p.person_id = ep.person_id
+      GROUP BY p.person_id
       ORDER BY event_count DESC
       LIMIT 100
     `).all();
@@ -151,18 +159,21 @@ class VisualizationService {
    * @returns {Array} Location frequency data
    */
   getLocationHeatmap() {
+    // The locations table has NO latitude/longitude columns, so a geographic
+    // heatmap is not possible. Instead we return per-location event frequency
+    // (a "heatmap" by name). latitude/longitude are returned as null so callers
+    // relying on those keys degrade gracefully rather than crash.
     const sql = `
       SELECT
         l.name,
-        l.latitude,
-        l.longitude,
+        NULL as latitude,
+        NULL as longitude,
         COUNT(el.event_id) as event_count,
         GROUP_CONCAT(DISTINCT e.category) as categories
       FROM locations l
-      JOIN event_locations el ON l.id = el.location_id
-      JOIN events e ON el.event_id = e.id
-      WHERE l.latitude IS NOT NULL AND l.longitude IS NOT NULL
-      GROUP BY l.id
+      JOIN event_locations el ON l.location_id = el.location_id
+      JOIN events e ON el.event_id = e.event_id
+      GROUP BY l.location_id
       ORDER BY event_count DESC
     `;
 
@@ -176,12 +187,12 @@ class VisualizationService {
   getEraStatistics() {
     const sql = `
       SELECT
-        er.id,
+        er.era_id as id,
         er.name,
-        er.color,
+        er.color_code as color,
         er.start_date,
         er.end_date,
-        COUNT(e.id) as event_count,
+        COUNT(e.event_id) as event_count,
         COUNT(DISTINCT e.category) as category_count,
         COUNT(DISTINCT et.tag_id) as unique_tags,
         COUNT(DISTINCT ep.person_id) as unique_people,
@@ -191,10 +202,10 @@ class VisualizationService {
           ELSE 0 END
         ) as avg_event_duration
       FROM eras er
-      LEFT JOIN events e ON er.id = e.era_id
-      LEFT JOIN event_tags et ON e.id = et.event_id
-      LEFT JOIN event_people ep ON e.id = ep.event_id
-      GROUP BY er.id
+      LEFT JOIN events e ON er.era_id = e.era_id
+      LEFT JOIN event_tags et ON e.event_id = et.event_id
+      LEFT JOIN event_people ep ON e.event_id = ep.event_id
+      GROUP BY er.era_id
       ORDER BY er.start_date
     `;
 
@@ -206,6 +217,10 @@ class VisualizationService {
    * @returns {Array} Activity patterns
    */
   getActivityHeatmap() {
+    // NOTE: events.start_date is a date-only value (YYYY-MM-DD) with no time
+    // component, so strftime('%H', ...) always yields 0. The hour_of_day
+    // dimension is therefore effectively a single 00:00 column; only the
+    // day-of-week dimension carries real signal here.
     const sql = `
       SELECT
         CAST(strftime('%w', start_date) AS INTEGER) as day_of_week,
@@ -309,13 +324,16 @@ class VisualizationService {
     // Events with transcripts
     stats.eventsWithTranscripts = this.db.prepare(`
       SELECT COUNT(*) as count FROM events
-      WHERE transcript IS NOT NULL AND transcript != ''
+      WHERE raw_transcript IS NOT NULL AND raw_transcript != ''
     `).get().count;
 
-    // Events with cross-references
+    // Events with cross-references (either side of the reference)
     stats.eventsWithCrossReferences = this.db.prepare(`
-      SELECT COUNT(DISTINCT source_event_id) as count
-      FROM cross_references
+      SELECT COUNT(*) as count FROM (
+        SELECT event_id_1 as event_id FROM cross_references
+        UNION
+        SELECT event_id_2 as event_id FROM cross_references
+      )
     `).get().count;
 
     // Average events per day/month/year
@@ -337,10 +355,10 @@ class VisualizationService {
 
     // Most used tag
     const topTag = this.db.prepare(`
-      SELECT t.name, COUNT(*) as count
+      SELECT t.tag_name as name, COUNT(*) as count
       FROM tags t
-      JOIN event_tags et ON t.id = et.tag_id
-      GROUP BY t.id
+      JOIN event_tags et ON t.tag_id = et.tag_id
+      GROUP BY t.tag_id
       ORDER BY count DESC
       LIMIT 1
     `).get();
@@ -350,8 +368,8 @@ class VisualizationService {
     const topPerson = this.db.prepare(`
       SELECT p.name, COUNT(*) as count
       FROM people p
-      JOIN event_people ep ON p.id = ep.person_id
-      GROUP BY p.id
+      JOIN event_people ep ON p.person_id = ep.person_id
+      GROUP BY p.person_id
       ORDER BY count DESC
       LIMIT 1
     `).get();
@@ -398,10 +416,10 @@ class VisualizationService {
   getTagRelationshipMatrix(limit = 20) {
     // Get top tags
     const topTags = this.db.prepare(`
-      SELECT t.id, t.name
+      SELECT t.tag_id as id, t.tag_name as name
       FROM tags t
-      JOIN event_tags et ON t.id = et.tag_id
-      GROUP BY t.id
+      JOIN event_tags et ON t.tag_id = et.tag_id
+      GROUP BY t.tag_id
       ORDER BY COUNT(*) DESC
       LIMIT ?
     `).all(limit);
@@ -456,12 +474,12 @@ class VisualizationService {
           GROUP BY category
         `).all(startDate, endDate),
         topTags: this.db.prepare(`
-          SELECT t.name, COUNT(*) as count
+          SELECT t.tag_name as name, COUNT(*) as count
           FROM tags t
-          JOIN event_tags et ON t.id = et.tag_id
-          JOIN events e ON et.event_id = e.id
+          JOIN event_tags et ON t.tag_id = et.tag_id
+          JOIN events e ON et.event_id = e.event_id
           WHERE e.start_date BETWEEN ? AND ?
-          GROUP BY t.id
+          GROUP BY t.tag_id
           ORDER BY count DESC
           LIMIT 10
         `).all(startDate, endDate)

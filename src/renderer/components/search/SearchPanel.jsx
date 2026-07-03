@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import './SearchPanel.css';
 
-const SearchPanel = ({ onSearch, onClose }) => {
+const SearchPanel = ({ onSearch, onClose, onEventClick }) => {
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState([]);
   const [facets, setFacets] = useState(null);
   const [results, setResults] = useState([]);
   const [pagination, setPagination] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   // Filter states
   const [selectedCategories, setSelectedCategories] = useState([]);
@@ -38,6 +39,7 @@ const SearchPanel = ({ onSearch, onClose }) => {
 
   const performSearch = useCallback(async (page = 1) => {
     setLoading(true);
+    setError(null);
     setCurrentPage(page);
 
     const searchOptions = {
@@ -57,16 +59,18 @@ const SearchPanel = ({ onSearch, onClose }) => {
     };
 
     try {
+      // search:* returns RAW data ({ events, pagination, facets }) — not wrapped.
       const result = await window.electronAPI.search.search(searchOptions);
-      setResults(result.events);
-      setPagination(result.pagination);
-      setFacets(result.facets);
+      setResults(result.events || []);
+      setPagination(result.pagination || null);
+      setFacets(result.facets || null);
 
       if (onSearch) {
         onSearch(result);
       }
-    } catch (error) {
-      console.error('Search error:', error);
+    } catch (err) {
+      console.error('Search error:', err);
+      setError(err.message || 'Search failed');
     } finally {
       setLoading(false);
     }
@@ -123,11 +127,16 @@ const SearchPanel = ({ onSearch, onClose }) => {
   };
 
   const handleEventClick = async (eventId) => {
-    // Emit event to parent or use global state to open event details
+    // events:* returns { success, data } — read result.data after checking success.
     if (window.electronAPI.events) {
-      const event = await window.electronAPI.events.getById(eventId);
-      // Trigger event details modal (implementation depends on your app structure)
-      console.log('Open event:', event);
+      try {
+        const result = await window.electronAPI.events.getById(eventId);
+        if (result && result.success && onEventClick) {
+          onEventClick(result.data);
+        }
+      } catch (err) {
+        console.error('Failed to load event:', err);
+      }
     }
   };
 
@@ -249,17 +258,20 @@ const SearchPanel = ({ onSearch, onClose }) => {
               <div className="filter-group">
                 <h3>Tags</h3>
                 <div className="facet-list">
-                  {facets.tags.slice(0, 15).map((tag) => (
-                    <label key={tag.name} className="facet-item">
-                      <input
-                        type="checkbox"
-                        checked={selectedTags.includes(tag.name)}
-                        onChange={(e) => handleFilterChange('tag', tag.name, e.target.checked)}
-                      />
-                      <span className="facet-name">{tag.name}</span>
-                      <span className="facet-count">{tag.count}</span>
-                    </label>
-                  ))}
+                  {facets.tags.slice(0, 15).map((tag, idx) => {
+                    const name = tag.name ?? tag.value ?? tag;
+                    return (
+                      <label key={name ?? idx} className="facet-item">
+                        <input
+                          type="checkbox"
+                          checked={selectedTags.includes(name)}
+                          onChange={(e) => handleFilterChange('tag', name, e.target.checked)}
+                        />
+                        <span className="facet-name">{name}</span>
+                        <span className="facet-count">{tag.count}</span>
+                      </label>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -269,17 +281,20 @@ const SearchPanel = ({ onSearch, onClose }) => {
               <div className="filter-group">
                 <h3>People</h3>
                 <div className="facet-list">
-                  {facets.people.slice(0, 15).map((person) => (
-                    <label key={person.name} className="facet-item">
-                      <input
-                        type="checkbox"
-                        checked={selectedPeople.includes(person.name)}
-                        onChange={(e) => handleFilterChange('person', person.name, e.target.checked)}
-                      />
-                      <span className="facet-name">{person.name}</span>
-                      <span className="facet-count">{person.count}</span>
-                    </label>
-                  ))}
+                  {facets.people.slice(0, 15).map((person, idx) => {
+                    const name = person.name ?? person.value ?? person;
+                    return (
+                      <label key={name ?? idx} className="facet-item">
+                        <input
+                          type="checkbox"
+                          checked={selectedPeople.includes(name)}
+                          onChange={(e) => handleFilterChange('person', name, e.target.checked)}
+                        />
+                        <span className="facet-name">{name}</span>
+                        <span className="facet-count">{person.count}</span>
+                      </label>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -289,17 +304,20 @@ const SearchPanel = ({ onSearch, onClose }) => {
               <div className="filter-group">
                 <h3>Locations</h3>
                 <div className="facet-list">
-                  {facets.locations.slice(0, 15).map((loc) => (
-                    <label key={loc.name} className="facet-item">
-                      <input
-                        type="checkbox"
-                        checked={selectedLocations.includes(loc.name)}
-                        onChange={(e) => handleFilterChange('location', loc.name, e.target.checked)}
-                      />
-                      <span className="facet-name">{loc.name}</span>
-                      <span className="facet-count">{loc.count}</span>
-                    </label>
-                  ))}
+                  {facets.locations.slice(0, 15).map((loc, idx) => {
+                    const name = loc.name ?? loc.value ?? loc;
+                    return (
+                      <label key={name ?? idx} className="facet-item">
+                        <input
+                          type="checkbox"
+                          checked={selectedLocations.includes(name)}
+                          onChange={(e) => handleFilterChange('location', name, e.target.checked)}
+                        />
+                        <span className="facet-name">{name}</span>
+                        <span className="facet-count">{loc.count}</span>
+                      </label>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -337,6 +355,12 @@ const SearchPanel = ({ onSearch, onClose }) => {
         <div className="search-results">
           {loading && <div className="loading">Searching...</div>}
 
+          {error && !loading && (
+            <div className="search-error" role="alert">
+              Search failed: {error}
+            </div>
+          )}
+
           {!loading && results.length === 0 && query && (
             <div className="no-results">
               <p>No results found for "{query}"</p>
@@ -355,16 +379,16 @@ const SearchPanel = ({ onSearch, onClose }) => {
               <div className="results-list">
                 {results.map((event) => (
                   <div
-                    key={event.id}
+                    key={event.event_id}
                     className="result-item"
-                    onClick={() => handleEventClick(event.id)}
+                    onClick={() => handleEventClick(event.event_id)}
                   >
                     <div className="result-header">
                       <h4>{event.title}</h4>
                       <span className="result-category">{event.category}</span>
                     </div>
                     <div className="result-date">
-                      {new Date(event.start_date).toLocaleDateString()}
+                      {event.start_date && new Date(event.start_date).toLocaleDateString()}
                     </div>
                     {event.description && (
                       <p className="result-description">{event.description}</p>
@@ -372,21 +396,24 @@ const SearchPanel = ({ onSearch, onClose }) => {
                     <div className="result-meta">
                       {event.tags && event.tags.length > 0 && (
                         <div className="result-tags">
-                          {event.tags.map((tag) => (
-                            <span key={tag.id} className="result-tag" style={{ backgroundColor: tag.color }}>
-                              {tag.name}
-                            </span>
-                          ))}
+                          {event.tags.map((tag, idx) => {
+                            const name = typeof tag === 'string' ? tag : (tag.name ?? tag.value ?? tag);
+                            return (
+                              <span key={idx} className="result-tag">
+                                {name}
+                              </span>
+                            );
+                          })}
                         </div>
                       )}
                       {event.people && event.people.length > 0 && (
                         <div className="result-people">
-                          People: {event.people.map(p => p.name).join(', ')}
+                          People: {event.people.map(p => (typeof p === 'string' ? p : (p.name ?? p))).join(', ')}
                         </div>
                       )}
                       {event.locations && event.locations.length > 0 && (
                         <div className="result-locations">
-                          Locations: {event.locations.map(l => l.name).join(', ')}
+                          Locations: {event.locations.map(l => (typeof l === 'string' ? l : (l.name ?? l))).join(', ')}
                         </div>
                       )}
                     </div>

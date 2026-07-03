@@ -9,6 +9,7 @@ const AnalyticsDashboard = ({ onClose }) => {
   const [eraStats, setEraStats] = useState([]);
   const [trendAnalysis, setTrendAnalysis] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [timeGrouping, setTimeGrouping] = useState('month');
 
@@ -24,6 +25,7 @@ const AnalyticsDashboard = ({ onClose }) => {
 
   const loadDashboardData = async () => {
     setLoading(true);
+    setError(null);
     try {
       const [summaryStats, categories, tags, eras, trend] = await Promise.all([
         window.electronAPI.analytics.getSummaryStatistics(),
@@ -38,8 +40,9 @@ const AnalyticsDashboard = ({ onClose }) => {
       setTagCloud(tags);
       setEraStats(eras);
       setTrendAnalysis(trend);
-    } catch (error) {
-      console.error('Error loading dashboard data:', error);
+    } catch (err) {
+      console.error('Error loading dashboard data:', err);
+      setError(err.message || 'Failed to load analytics');
     } finally {
       setLoading(false);
     }
@@ -147,13 +150,15 @@ const AnalyticsDashboard = ({ onClose }) => {
   const renderLineChart = (data) => {
     if (!data || data.length === 0) return null;
 
-    const maxValue = Math.max(...data.map(d => d.event_count));
+    const maxValue = Math.max(...data.map(d => d.event_count)) || 1;
     const width = 600;
     const height = 200;
     const padding = 40;
+    // Guard against divide-by-zero when there is only a single data point.
+    const denom = data.length > 1 ? data.length - 1 : 1;
 
     const points = data.map((d, i) => {
-      const x = padding + (i / (data.length - 1)) * (width - 2 * padding);
+      const x = padding + (i / denom) * (width - 2 * padding);
       const y = height - padding - ((d.event_count / maxValue) * (height - 2 * padding));
       return `${x},${y}`;
     }).join(' ');
@@ -186,7 +191,7 @@ const AnalyticsDashboard = ({ onClose }) => {
 
           {/* Points */}
           {data.map((d, i) => {
-            const x = padding + (i / (data.length - 1)) * (width - 2 * padding);
+            const x = padding + (i / denom) * (width - 2 * padding);
             const y = height - padding - ((d.event_count / maxValue) * (height - 2 * padding));
             return (
               <circle
@@ -255,6 +260,23 @@ const AnalyticsDashboard = ({ onClose }) => {
     return (
       <div className="analytics-dashboard loading">
         <div className="loading-spinner">Loading analytics...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="analytics-dashboard">
+        <div className="dashboard-header">
+          <h2>Analytics Dashboard</h2>
+          {onClose && (
+            <button className="close-btn" onClick={onClose} aria-label="Close">×</button>
+          )}
+        </div>
+        <div className="dashboard-error" role="alert">
+          <p>Failed to load analytics: {error}</p>
+          <button className="button primary" onClick={loadDashboardData}>Retry</button>
+        </div>
       </div>
     );
   }
@@ -444,11 +466,11 @@ const AnalyticsDashboard = ({ onClose }) => {
             <h3>Era Statistics</h3>
             {eraStats.length > 0 ? (
               <div className="eras-list">
-                {eraStats.map((era) => (
-                  <div key={era.id} className="era-card">
+                {eraStats.map((era, idx) => (
+                  <div key={era.era_id ?? era.id ?? idx} className="era-card">
                     <div
                       className="era-color"
-                      style={{ backgroundColor: era.color }}
+                      style={{ backgroundColor: era.color_code ?? era.color }}
                     ></div>
                     <div className="era-content">
                       <h4>{era.name}</h4>

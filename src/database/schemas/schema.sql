@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS events (
     extraction_metadata TEXT, -- JSON string
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    -- Dates are stored as ISO 8601 (YYYY-MM-DD) so lexicographic comparison is chronological.
+    CHECK (end_date IS NULL OR end_date >= start_date),
     FOREIGN KEY (era_id) REFERENCES eras(era_id) ON DELETE SET NULL
 );
 
@@ -33,26 +35,32 @@ CREATE VIRTUAL TABLE IF NOT EXISTS events_fts USING fts5(
     content_rowid=rowid
 );
 
--- Triggers to keep FTS table in sync
+-- Triggers to keep the external-content FTS5 table in sync.
+-- For an external-content FTS5 table the ordinary INSERT/UPDATE/DELETE statements
+-- do NOT maintain the index correctly; the special 'delete' / 'insert' command
+-- forms below must be used so stale tokens are removed on update/delete.
 CREATE TRIGGER IF NOT EXISTS events_fts_insert AFTER INSERT ON events BEGIN
     INSERT INTO events_fts(rowid, title, description, raw_transcript)
     VALUES (new.rowid, new.title, new.description, new.raw_transcript);
 END;
 
 CREATE TRIGGER IF NOT EXISTS events_fts_delete AFTER DELETE ON events BEGIN
-    DELETE FROM events_fts WHERE rowid = old.rowid;
+    INSERT INTO events_fts(events_fts, rowid, title, description, raw_transcript)
+    VALUES ('delete', old.rowid, old.title, old.description, old.raw_transcript);
 END;
 
 CREATE TRIGGER IF NOT EXISTS events_fts_update AFTER UPDATE ON events BEGIN
-    UPDATE events_fts
-    SET title = new.title,
-        description = new.description,
-        raw_transcript = new.raw_transcript
-    WHERE rowid = new.rowid;
+    INSERT INTO events_fts(events_fts, rowid, title, description, raw_transcript)
+    VALUES ('delete', old.rowid, old.title, old.description, old.raw_transcript);
+    INSERT INTO events_fts(rowid, title, description, raw_transcript)
+    VALUES (new.rowid, new.title, new.description, new.raw_transcript);
 END;
 
--- Trigger to update updated_at timestamp
-CREATE TRIGGER IF NOT EXISTS events_updated_at AFTER UPDATE ON events BEGIN
+-- Trigger to update updated_at timestamp.
+-- The WHEN guard prevents infinite recursion if recursive_triggers is ever enabled,
+-- since the trigger itself issues an UPDATE on events.
+CREATE TRIGGER IF NOT EXISTS events_updated_at AFTER UPDATE ON events
+WHEN NEW.updated_at = OLD.updated_at BEGIN
     UPDATE events SET updated_at = datetime('now') WHERE event_id = NEW.event_id;
 END;
 
@@ -147,6 +155,10 @@ CREATE INDEX IF NOT EXISTS idx_cross_refs_event1 ON cross_references(event_id_1)
 CREATE INDEX IF NOT EXISTS idx_cross_refs_event2 ON cross_references(event_id_2);
 CREATE INDEX IF NOT EXISTS idx_cross_refs_type ON cross_references(relationship_type);
 
+-- Prevent duplicate relationships between the same pair of events of the same type.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cross_refs_unique
+    ON cross_references(event_id_1, event_id_2, relationship_type);
+
 -- Event_Embeddings Table: Store vector embeddings for semantic similarity search
 CREATE TABLE IF NOT EXISTS event_embeddings (
     embedding_id TEXT PRIMARY KEY,
@@ -217,20 +229,15 @@ CREATE TRIGGER IF NOT EXISTS settings_updated_at AFTER UPDATE ON app_settings BE
     UPDATE app_settings SET updated_at = datetime('now') WHERE setting_key = NEW.setting_key;
 END;
 
--- Schema Version Table: Track database migrations
+-- Schema Version Table: Track database migrations.
+-- Rows here are written by the versioned migration runner in database.js.
+-- The authoritative current version is PRAGMA user_version; this table is a
+-- human-readable audit log of applied migrations.
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at TEXT NOT NULL DEFAULT (datetime('now')),
     description TEXT
 );
-
--- Insert initial schema version
-INSERT OR IGNORE INTO schema_version (version, description)
-VALUES (1, 'Initial schema creation');
-
--- Insert Phase 5 schema update
-INSERT OR IGNORE INTO schema_version (version, description)
-VALUES (2, 'Phase 5: Added event_embeddings table for RAG cross-referencing');
 
 -- Insert default settings
 INSERT OR IGNORE INTO app_settings (setting_key, setting_value) VALUES

@@ -13,8 +13,11 @@ const { v4: uuidv4 } = require('uuid');
  * @returns {number} Similarity score between 0 and 1
  */
 function cosineSimilarity(vecA, vecB) {
-    if (vecA.length !== vecB.length) {
-        throw new Error('Vectors must have the same dimension');
+    // Guard against missing vectors or dimension mismatch: return 0 (treated as
+    // "not similar") rather than throwing, so a single bad embedding doesn't
+    // abort an entire similarity scan.
+    if (!Array.isArray(vecA) || !Array.isArray(vecB) || vecA.length !== vecB.length || vecA.length === 0) {
+        return 0;
     }
 
     let dotProduct = 0;
@@ -27,7 +30,13 @@ function cosineSimilarity(vecA, vecB) {
         normB += vecB[i] * vecB[i];
     }
 
-    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+    // Guard against divide-by-zero for zero-magnitude vectors.
+    const denom = Math.sqrt(normA) * Math.sqrt(normB);
+    if (denom === 0) {
+        return 0;
+    }
+
+    return dotProduct / denom;
 }
 
 class EmbeddingService {

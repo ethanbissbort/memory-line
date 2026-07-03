@@ -12,7 +12,7 @@ import EraBackground from './EraBackground';
 import { calculateDatePosition, getDateRangeForZoom, generateDateMarkers, formatDateForZoom } from '../../utils/timelineUtils';
 import { parseISO } from 'date-fns';
 
-function Timeline({ onEventClick }) {
+function Timeline({ onEventClick = () => {} }) {
     const timelineRef = useRef(null);
     const [timelineWidth, setTimelineWidth] = useState(0);
     const [panOffset, setPanOffset] = useState(0);
@@ -26,7 +26,9 @@ function Timeline({ onEventClick }) {
         currentViewDate,
         setZoomLevel,
         setCurrentViewDate,
-        loadEvents
+        loadEvents,
+        isLoading,
+        error
     } = useTimelineStore();
 
     // Measure timeline width
@@ -194,6 +196,28 @@ function Timeline({ onEventClick }) {
                 onMouseLeave={handleMouseLeave}
                 style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
             >
+                {/* Loading / error overlays tied to store state */}
+                {isLoading && (
+                    <div className="timeline-status loading" role="status">
+                        <div className="loading-spinner"></div>
+                        <span>Loading events…</span>
+                    </div>
+                )}
+                {error && !isLoading && (
+                    <div className="timeline-status error" role="alert">
+                        <span>Failed to load timeline: {error}</span>
+                        <button
+                            className="button secondary small"
+                            onClick={() => {
+                                const { start, end } = getDateRangeForZoom(currentViewDate, zoomLevel);
+                                loadEvents(start, end);
+                            }}
+                        >
+                            Retry
+                        </button>
+                    </div>
+                )}
+
                 {/* Era backgrounds */}
                 <div className="era-backgrounds" style={{ transform: `translateX(${panOffset}px)` }}>
                     {eras.map(era => (
@@ -203,6 +227,7 @@ function Timeline({ onEventClick }) {
                             timelineWidth={timelineWidth}
                             zoomLevel={zoomLevel}
                             currentViewDate={currentViewDate}
+                            panOffset={panOffset}
                         />
                     ))}
                 </div>
@@ -237,6 +262,7 @@ function Timeline({ onEventClick }) {
                             timelineWidth={timelineWidth}
                             zoomLevel={zoomLevel}
                             currentViewDate={currentViewDate}
+                            panOffset={panOffset}
                             onClick={() => onEventClick(event)}
                         />
                     ))}

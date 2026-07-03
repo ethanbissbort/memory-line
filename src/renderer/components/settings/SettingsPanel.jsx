@@ -7,7 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { useSettingsStore } from '../../store/settingsStore';
 
 function SettingsPanel() {
-    const { settings, updateSetting } = useSettingsStore();
+    const { settings, updateSetting, isLoading, error } = useSettingsStore();
     const [apiKey, setApiKey] = useState('');
     const [hasApiKey, setHasApiKey] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
@@ -41,8 +41,11 @@ function SettingsPanel() {
             }
         };
         loadSTTEngines();
+    }, []);
 
-        // Set current STT engine from settings
+    // Sync STT engine selection from settings. Settings are loaded asynchronously,
+    // so this must re-run when they arrive (not just on mount).
+    useEffect(() => {
         if (settings.stt_engine) {
             setSelectedEngine(settings.stt_engine);
         }
@@ -53,7 +56,7 @@ function SettingsPanel() {
                 console.error('Error parsing STT config:', error);
             }
         }
-    }, []);
+    }, [settings.stt_engine, settings.stt_config]);
 
     const handleSettingChange = async (key, value) => {
         const result = await updateSetting(key, value);
@@ -108,6 +111,14 @@ function SettingsPanel() {
         <div className="settings-panel">
             <div className="settings-header">
                 <h2>Settings</h2>
+                {isLoading && (
+                    <p className="setting-hint" role="status">Loading settings…</p>
+                )}
+                {error && (
+                    <p className="api-key-status" role="alert" style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
+                        Failed to load settings: {error}
+                    </p>
+                )}
             </div>
 
             <div className="settings-content">

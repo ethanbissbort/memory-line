@@ -3,17 +3,53 @@
  * Displays detailed information about an event
  */
 
-import React, { useState } from 'react';
-import { format, parseISO } from 'date-fns';
+import React, { useState, useEffect, useRef } from 'react';
+import { format, parseISO, isValid } from 'date-fns';
 import { useTimelineStore } from '../../store/timelineStore';
 
-function EventDetailsModal({ event, onClose }) {
+// Safely format a date string, returning '' for missing/invalid values
+const safeFormat = (dateStr, fmt) => {
+    if (!dateStr) return '';
+    const d = parseISO(dateStr);
+    return isValid(d) ? format(d, fmt) : '';
+};
+
+function EventDetailsModal({ event, onClose = () => {} }) {
     const [isEditing, setIsEditing] = useState(false);
     const [editedEvent, setEditedEvent] = useState({ ...event });
     const { updateEvent, deleteEvent } = useTimelineStore();
+    const modalRef = useRef(null);
+
+    // Re-sync the editable copy when the selected event changes
+    useEffect(() => {
+        setEditedEvent({ ...event });
+    }, [event]);
+
+    // Focus the dialog on open and wire Escape-to-close
+    useEffect(() => {
+        if (modalRef.current) {
+            modalRef.current.focus();
+        }
+        const handleKeyDown = (e) => {
+            if (e.key === 'Escape') {
+                onClose();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [onClose]);
 
     const handleSave = async () => {
-        const result = await updateEvent(event.event_id, editedEvent);
+        // Send only editable event fields — not the joined/derived fields
+        // (era_name, era_color, tags, people, locations, etc.).
+        const updates = {
+            title: editedEvent.title,
+            start_date: editedEvent.start_date,
+            end_date: editedEvent.end_date || null,
+            description: editedEvent.description,
+            category: editedEvent.category
+        };
+        const result = await updateEvent(event.event_id, updates);
         if (result.success) {
             setIsEditing(false);
             onClose();
@@ -39,10 +75,18 @@ function EventDetailsModal({ event, onClose }) {
 
     return (
         <div className="modal-overlay" onClick={onClose}>
-            <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <div
+                className="modal-content"
+                onClick={e => e.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="event-details-title"
+                tabIndex={-1}
+                ref={modalRef}
+            >
                 <div className="modal-header">
-                    <h2>{isEditing ? 'Edit Event' : 'Event Details'}</h2>
-                    <button className="close-button" onClick={onClose}>×</button>
+                    <h2 id="event-details-title">{isEditing ? 'Edit Event' : 'Event Details'}</h2>
+                    <button className="close-button" onClick={onClose} aria-label="Close">×</button>
                 </div>
 
                 <div className="modal-body">
@@ -107,8 +151,8 @@ function EventDetailsModal({ event, onClose }) {
                             <div className="detail-section">
                                 <h3>{event.title}</h3>
                                 <p className="event-date-range">
-                                    {format(parseISO(event.start_date), 'MMMM d, yyyy')}
-                                    {event.end_date && ` - ${format(parseISO(event.end_date), 'MMMM d, yyyy')}`}
+                                    {safeFormat(event.start_date, 'MMMM d, yyyy')}
+                                    {event.end_date && ` - ${safeFormat(event.end_date, 'MMMM d, yyyy')}`}
                                 </p>
                             </div>
 

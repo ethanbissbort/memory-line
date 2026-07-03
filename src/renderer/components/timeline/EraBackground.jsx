@@ -5,11 +5,17 @@
 
 import React from 'react';
 import { calculateDatePosition } from '../../utils/timelineUtils';
-import { parseISO, differenceInDays } from 'date-fns';
+import { parseISO, isValid } from 'date-fns';
 
-function EraBackground({ era, timelineWidth, zoomLevel, currentViewDate }) {
-    const startDate = parseISO(era.start_date);
-    const endDate = era.end_date ? parseISO(era.end_date) : new Date();
+function EraBackground({ era, timelineWidth, zoomLevel, currentViewDate, panOffset = 0 }) {
+    const startDate = era.start_date ? parseISO(era.start_date) : null;
+    const parsedEnd = era.end_date ? parseISO(era.end_date) : new Date();
+    const endDate = parsedEnd && isValid(parsedEnd) ? parsedEnd : new Date();
+
+    // Guard against missing/invalid start date
+    if (!startDate || !isValid(startDate)) {
+        return null;
+    }
 
     // Calculate position and width
     const startPos = calculateDatePosition(startDate, currentViewDate, zoomLevel, timelineWidth);
@@ -17,8 +23,9 @@ function EraBackground({ era, timelineWidth, zoomLevel, currentViewDate }) {
 
     const width = endPos - startPos;
 
-    // Don't render if completely out of view
-    if (startPos > timelineWidth || endPos < 0) {
+    // Don't render if completely out of view. The parent applies panOffset as a
+    // translateX, so account for it when testing against the visible viewport.
+    if (startPos + panOffset > timelineWidth || endPos + panOffset < 0) {
         return null;
     }
 

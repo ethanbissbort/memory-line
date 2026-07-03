@@ -55,11 +55,17 @@ class SearchService {
 
     // Full-text search if query provided
     if (query && query.trim()) {
-      conditions.push(`e.id IN (
-        SELECT event_id FROM event_fts
-        WHERE event_fts MATCH ?
-      )`);
-      params.push(query.trim());
+      const ftsQuery = this._sanitizeFtsQuery(query);
+      if (ftsQuery) {
+        // events_fts is an external-content FTS5 table keyed on rowid, so we
+        // resolve matching event_ids via the events.rowid join.
+        conditions.push(`e.event_id IN (
+          SELECT e2.event_id FROM events_fts fts
+          JOIN events e2 ON fts.rowid = e2.rowid
+          WHERE events_fts MATCH ?
+        )`);
+        params.push(ftsQuery);
+      }
     }
 
     // Category filter
@@ -72,12 +78,12 @@ class SearchService {
     // Tag filter
     if (tags.length > 0) {
       const placeholders = tags.map(() => '?').join(',');
-      conditions.push(`e.id IN (
+      conditions.push(`e.event_id IN (
         SELECT et.event_id FROM event_tags et
-        JOIN tags t ON et.tag_id = t.id
-        WHERE t.name IN (${placeholders})
+        JOIN tags t ON et.tag_id = t.tag_id
+        WHERE t.tag_name IN (${placeholders})
         GROUP BY et.event_id
-        HAVING COUNT(DISTINCT t.name) = ?
+        HAVING COUNT(DISTINCT t.tag_name) = ?
       )`);
       params.push(...tags, tags.length);
     }
@@ -85,9 +91,9 @@ class SearchService {
     // People filter
     if (people.length > 0) {
       const placeholders = people.map(() => '?').join(',');
-      conditions.push(`e.id IN (
+      conditions.push(`e.event_id IN (
         SELECT ep.event_id FROM event_people ep
-        JOIN people p ON ep.person_id = p.id
+        JOIN people p ON ep.person_id = p.person_id
         WHERE p.name IN (${placeholders})
       )`);
       params.push(...people);
@@ -96,9 +102,9 @@ class SearchService {
     // Location filter
     if (locations.length > 0) {
       const placeholders = locations.map(() => '?').join(',');
-      conditions.push(`e.id IN (
+      conditions.push(`e.event_id IN (
         SELECT el.event_id FROM event_locations el
-        JOIN locations l ON el.location_id = l.id
+        JOIN locations l ON el.location_id = l.location_id
         WHERE l.name IN (${placeholders})
       )`);
       params.push(...locations);
@@ -123,25 +129,25 @@ class SearchService {
     // Transcript filter
     if (hasTranscript !== null) {
       if (hasTranscript) {
-        conditions.push(`e.transcript IS NOT NULL AND e.transcript != ''`);
+        conditions.push(`e.raw_transcript IS NOT NULL AND e.raw_transcript != ''`);
       } else {
-        conditions.push(`(e.transcript IS NULL OR e.transcript = '')`);
+        conditions.push(`(e.raw_transcript IS NULL OR e.raw_transcript = '')`);
       }
     }
 
     // Cross-reference filter
     if (hasCrossReferences !== null) {
       if (hasCrossReferences) {
-        conditions.push(`e.id IN (
-          SELECT DISTINCT source_event_id FROM cross_references
+        conditions.push(`e.event_id IN (
+          SELECT DISTINCT event_id_1 FROM cross_references
           UNION
-          SELECT DISTINCT target_event_id FROM cross_references
+          SELECT DISTINCT event_id_2 FROM cross_references
         )`);
       } else {
-        conditions.push(`e.id NOT IN (
-          SELECT DISTINCT source_event_id FROM cross_references
+        conditions.push(`e.event_id NOT IN (
+          SELECT DISTINCT event_id_1 FROM cross_references
           UNION
-          SELECT DISTINCT target_event_id FROM cross_references
+          SELECT DISTINCT event_id_2 FROM cross_references
         )`);
       }
     }
@@ -163,35 +169,44 @@ class SearchService {
     // Build the WHERE clause
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    // Build ORDER BY clause
+    // Build ORDER BY clause (both sort field and order are validated against
+    // allowlists to prevent SQL injection).
     const sortField = this._getSortField(sortBy);
-    const orderClause = `ORDER BY ${sortField} ${sortOrder.toUpperCase()}`;
+    const order = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+    const orderClause = `ORDER BY ${sortField} ${order}`;
 
     // Calculate pagination
     const offset = (page - 1) * pageSize;
 
     // Get total count
     const countSql = `
-      SELECT COUNT(DISTINCT e.id) as total
+      SELECT COUNT(DISTINCT e.event_id) as total
       FROM events e
       ${whereClause}
     `;
     const countResult = this.db.prepare(countSql).get(...params);
     const totalResults = countResult.total;
 
-    // Get paginated results
+    // Get paginated results with era metadata
     const sql = `
-      SELECT DISTINCT e.*
+      SELECT DISTINCT e.event_id, e.title, e.start_date, e.end_date,
+             e.description, e.category, e.era_id,
+             er.name as era_name, er.color_code as era_color
       FROM events e
+      LEFT JOIN eras er ON e.era_id = er.era_id
       ${whereClause}
       ${orderClause}
       LIMIT ? OFFSET ?
     `;
     const events = this.db.prepare(sql).all(...params, pageSize, offset);
 
-    // Load relationships for each event
+    // Batch-load relationships for the whole page (3 queries total, not N+1)
+    const eventIds = events.map(e => e.event_id);
+    const relationships = this._batchLoadRelationships(eventIds);
     events.forEach(event => {
-      this._loadEventRelationships(event);
+      event.tags = relationships.tags[event.event_id] || [];
+      event.people = relationships.people[event.event_id] || [];
+      event.locations = relationships.locations[event.event_id] || [];
     });
 
     // Calculate facets (available filter options based on current results)
@@ -233,7 +248,7 @@ class SearchService {
 
     // Category facets
     const categorySql = `
-      SELECT e.category, COUNT(DISTINCT e.id) as count
+      SELECT e.category, COUNT(DISTINCT e.event_id) as count
       FROM events e
       ${whereClause}
       GROUP BY e.category
@@ -243,12 +258,12 @@ class SearchService {
 
     // Tag facets
     const tagSql = `
-      SELECT t.name, COUNT(DISTINCT e.id) as count
+      SELECT t.tag_name as name, COUNT(DISTINCT e.event_id) as count
       FROM events e
-      JOIN event_tags et ON e.id = et.event_id
-      JOIN tags t ON et.tag_id = t.id
+      JOIN event_tags et ON e.event_id = et.event_id
+      JOIN tags t ON et.tag_id = t.tag_id
       ${whereClause}
-      GROUP BY t.name
+      GROUP BY t.tag_name
       ORDER BY count DESC
       LIMIT 50
     `;
@@ -256,10 +271,10 @@ class SearchService {
 
     // People facets
     const peopleSql = `
-      SELECT p.name, COUNT(DISTINCT e.id) as count
+      SELECT p.name, COUNT(DISTINCT e.event_id) as count
       FROM events e
-      JOIN event_people ep ON e.id = ep.event_id
-      JOIN people p ON ep.person_id = p.id
+      JOIN event_people ep ON e.event_id = ep.event_id
+      JOIN people p ON ep.person_id = p.person_id
       ${whereClause}
       GROUP BY p.name
       ORDER BY count DESC
@@ -269,10 +284,10 @@ class SearchService {
 
     // Location facets
     const locationSql = `
-      SELECT l.name, COUNT(DISTINCT e.id) as count
+      SELECT l.name, COUNT(DISTINCT e.event_id) as count
       FROM events e
-      JOIN event_locations el ON e.id = el.event_id
-      JOIN locations l ON el.location_id = l.id
+      JOIN event_locations el ON e.event_id = el.event_id
+      JOIN locations l ON el.location_id = l.location_id
       ${whereClause}
       GROUP BY l.name
       ORDER BY count DESC
@@ -282,11 +297,11 @@ class SearchService {
 
     // Era facets
     const eraSql = `
-      SELECT er.id, er.name, er.color, COUNT(DISTINCT e.id) as count
+      SELECT er.era_id as id, er.name, er.color_code as color, COUNT(DISTINCT e.event_id) as count
       FROM events e
-      LEFT JOIN eras er ON e.era_id = er.id
+      LEFT JOIN eras er ON e.era_id = er.era_id
       ${whereClause}
-      GROUP BY er.id, er.name, er.color
+      GROUP BY er.era_id, er.name, er.color_code
       ORDER BY count DESC
     `;
     facets.eras = this.db.prepare(eraSql).all(...params);
@@ -295,7 +310,7 @@ class SearchService {
     const dateSql = `
       SELECT
         strftime('%Y', e.start_date) as year,
-        COUNT(DISTINCT e.id) as count
+        COUNT(DISTINCT e.event_id) as count
       FROM events e
       ${whereClause}
       GROUP BY year
@@ -307,34 +322,72 @@ class SearchService {
   }
 
   /**
-   * Load relationships (tags, people, locations) for an event
+   * Sanitize a user-supplied query for FTS5 MATCH.
+   * Splits input into tokens and wraps each as a quoted phrase so that
+   * FTS5 special characters (", *, (), :, ^, -) in ordinary input do not
+   * throw fts5 syntax errors. Returns null if nothing usable remains.
    */
-  _loadEventRelationships(event) {
-    // Load tags
-    const tags = this.db.prepare(`
-      SELECT t.* FROM tags t
-      JOIN event_tags et ON t.id = et.tag_id
-      WHERE et.event_id = ?
-    `).all(event.id);
-    event.tags = tags;
+  _sanitizeFtsQuery(query) {
+    if (!query || typeof query !== 'string') {
+      return null;
+    }
+    const tokens = query.trim().split(/\s+/).filter(Boolean);
+    if (tokens.length === 0) {
+      return null;
+    }
+    // Escape embedded double quotes by doubling them, then wrap each token
+    // as a phrase. Tokens are implicitly AND-ed by FTS5.
+    return tokens
+      .map(token => `"${token.replace(/"/g, '""')}"`)
+      .join(' ');
+  }
 
-    // Load people
-    const people = this.db.prepare(`
-      SELECT p.* FROM people p
-      JOIN event_people ep ON p.id = ep.person_id
-      WHERE ep.event_id = ?
-    `).all(event.id);
-    event.people = people;
+  /**
+   * Batch-load relationships (tags, people, locations) for a page of events.
+   * Uses 3 queries total instead of 3 queries per event.
+   * @param {Array<string>} eventIds
+   * @returns {{tags: Object, people: Object, locations: Object}} maps of
+   *          event_id -> string[]
+   */
+  _batchLoadRelationships(eventIds) {
+    const relationships = { tags: {}, people: {}, locations: {} };
+    if (!eventIds || eventIds.length === 0) {
+      return relationships;
+    }
 
-    // Load locations
-    const locations = this.db.prepare(`
-      SELECT l.* FROM locations l
-      JOIN event_locations el ON l.id = el.location_id
-      WHERE el.event_id = ?
-    `).all(event.id);
-    event.locations = locations;
+    const placeholders = eventIds.map(() => '?').join(',');
 
-    return event;
+    const tagRows = this.db.prepare(`
+      SELECT et.event_id, t.tag_name
+      FROM event_tags et
+      JOIN tags t ON et.tag_id = t.tag_id
+      WHERE et.event_id IN (${placeholders})
+    `).all(...eventIds);
+    tagRows.forEach(row => {
+      (relationships.tags[row.event_id] ||= []).push(row.tag_name);
+    });
+
+    const peopleRows = this.db.prepare(`
+      SELECT ep.event_id, p.name
+      FROM event_people ep
+      JOIN people p ON ep.person_id = p.person_id
+      WHERE ep.event_id IN (${placeholders})
+    `).all(...eventIds);
+    peopleRows.forEach(row => {
+      (relationships.people[row.event_id] ||= []).push(row.name);
+    });
+
+    const locationRows = this.db.prepare(`
+      SELECT el.event_id, l.name
+      FROM event_locations el
+      JOIN locations l ON el.location_id = l.location_id
+      WHERE el.event_id IN (${placeholders})
+    `).all(...eventIds);
+    locationRows.forEach(row => {
+      (relationships.locations[row.event_id] ||= []).push(row.name);
+    });
+
+    return relationships;
   }
 
   /**
@@ -346,7 +399,7 @@ class SearchService {
       'title': 'e.title',
       'category': 'e.category',
       'duration': '(julianday(e.end_date) - julianday(e.start_date))',
-      'relevance': 'e.id' // For FTS, we'd use rank() but default to id
+      'relevance': 'e.start_date' // FTS rank isn't selected here; fall back to date
     };
     return sortFields[sortBy] || sortFields.date;
   }
@@ -376,10 +429,10 @@ class SearchService {
 
     // Tag suggestions
     const tagSuggestions = this.db.prepare(`
-      SELECT DISTINCT name as title, 'tag' as type
+      SELECT DISTINCT tag_name as title, 'tag' as type
       FROM tags
-      WHERE name LIKE ?
-      ORDER BY name
+      WHERE tag_name LIKE ?
+      ORDER BY tag_name
       LIMIT ?
     `).all(`%${query}%`, limit);
     suggestions.push(...tagSuggestions);
@@ -413,8 +466,9 @@ class SearchService {
    */
   getSavedSearches() {
     return this.db.prepare(`
-      SELECT * FROM app_settings
-      WHERE key LIKE 'saved_search_%'
+      SELECT setting_key, setting_value, updated_at
+      FROM app_settings
+      WHERE setting_key LIKE 'saved_search_%'
       ORDER BY updated_at DESC
     `).all();
   }
@@ -434,7 +488,7 @@ class SearchService {
     });
 
     this.db.prepare(`
-      INSERT INTO app_settings (key, value)
+      INSERT INTO app_settings (setting_key, setting_value)
       VALUES (?, ?)
     `).run(key, value);
 
@@ -447,7 +501,7 @@ class SearchService {
    */
   deleteSavedSearch(key) {
     this.db.prepare(`
-      DELETE FROM app_settings WHERE key = ?
+      DELETE FROM app_settings WHERE setting_key = ?
     `).run(key);
 
     return { success: true };
@@ -466,18 +520,18 @@ class SearchService {
       totalPeople: this.db.prepare('SELECT COUNT(*) as count FROM people').get().count,
       totalLocations: this.db.prepare('SELECT COUNT(*) as count FROM locations').get().count,
       mostUsedTags: this.db.prepare(`
-        SELECT t.name, COUNT(*) as usage_count
+        SELECT t.tag_name as name, COUNT(*) as usage_count
         FROM tags t
-        JOIN event_tags et ON t.id = et.tag_id
-        GROUP BY t.id
+        JOIN event_tags et ON t.tag_id = et.tag_id
+        GROUP BY t.tag_id
         ORDER BY usage_count DESC
         LIMIT 10
       `).all(),
       mostReferencedPeople: this.db.prepare(`
         SELECT p.name, COUNT(*) as reference_count
         FROM people p
-        JOIN event_people ep ON p.id = ep.person_id
-        GROUP BY p.id
+        JOIN event_people ep ON p.person_id = ep.person_id
+        GROUP BY p.person_id
         ORDER BY reference_count DESC
         LIMIT 10
       `).all()

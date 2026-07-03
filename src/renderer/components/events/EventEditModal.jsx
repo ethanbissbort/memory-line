@@ -3,9 +3,10 @@
  * Allows editing extracted event data before approval
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
-function EventEditModal({ isOpen, onClose, eventData, onSave }) {
+function EventEditModal({ isOpen, onClose = () => {}, eventData, onSave = () => {} }) {
+    const modalRef = useRef(null);
     const [formData, setFormData] = useState({
         title: '',
         start_date: '',
@@ -39,6 +40,21 @@ function EventEditModal({ isOpen, onClose, eventData, onSave }) {
             });
         }
     }, [eventData]);
+
+    // Focus the dialog on open and wire Escape-to-close
+    useEffect(() => {
+        if (!isOpen) return undefined;
+        if (modalRef.current) {
+            modalRef.current.focus();
+        }
+        const handleKeyDown = (e) => {
+            if (e.key === 'Escape') {
+                onClose();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isOpen, onClose]);
 
     if (!isOpen) return null;
 
@@ -125,10 +141,18 @@ function EventEditModal({ isOpen, onClose, eventData, onSave }) {
 
     return (
         <div className="modal-overlay" onClick={onClose}>
-            <div className="modal-content event-edit-modal" onClick={(e) => e.stopPropagation()}>
+            <div
+                className="modal-content event-edit-modal"
+                onClick={(e) => e.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="event-edit-title"
+                tabIndex={-1}
+                ref={modalRef}
+            >
                 <div className="modal-header">
-                    <h2>Edit Event</h2>
-                    <button className="close-button" onClick={onClose}>&times;</button>
+                    <h2 id="event-edit-title">Edit Event</h2>
+                    <button className="close-button" onClick={onClose} aria-label="Close">&times;</button>
                 </div>
 
                 <div className="modal-body">
@@ -204,7 +228,7 @@ function EventEditModal({ isOpen, onClose, eventData, onSave }) {
                                     type="text"
                                     value={newTag}
                                     onChange={(e) => setNewTag(e.target.value)}
-                                    onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddTag())}
+                                    onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddTag())}
                                     placeholder="Add a tag..."
                                 />
                                 <button
@@ -237,7 +261,7 @@ function EventEditModal({ isOpen, onClose, eventData, onSave }) {
                                     type="text"
                                     value={newPerson}
                                     onChange={(e) => setNewPerson(e.target.value)}
-                                    onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddPerson())}
+                                    onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddPerson())}
                                     placeholder="Add a person..."
                                 />
                                 <button
@@ -270,7 +294,7 @@ function EventEditModal({ isOpen, onClose, eventData, onSave }) {
                                     type="text"
                                     value={newLocation}
                                     onChange={(e) => setNewLocation(e.target.value)}
-                                    onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddLocation())}
+                                    onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddLocation())}
                                     placeholder="Add a location..."
                                 />
                                 <button

@@ -7,13 +7,13 @@ import React from 'react';
 import { format } from 'date-fns';
 
 function TimelineControls({
-    zoomLevel,
-    onZoomIn,
-    onZoomOut,
-    onToday,
-    onPrevious,
-    onNext,
-    currentDate
+    zoomLevel = 'month',
+    onZoomIn = () => {},
+    onZoomOut = () => {},
+    onToday = () => {},
+    onPrevious = () => {},
+    onNext = () => {},
+    currentDate = new Date()
 }) {
     return (
         <div className="timeline-controls">

@@ -3,7 +3,7 @@
  * Handles window creation, IPC communication, and system integration
  */
 
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const databaseService = require('../database/database');
@@ -25,6 +25,121 @@ let performanceService = null;
 let searchService = null;
 let batchImportService = null;
 let visualizationService = null;
+
+// ===========================================
+// Security / Input helpers
+// ===========================================
+
+// Prefix marking a stored secret as encrypted via Electron safeStorage.
+const SECRET_ENC_PREFIX = 'enc:v1:';
+
+/**
+ * Determine whether a settings key holds a secret that must never be
+ * exposed to the renderer in cleartext (API keys, secrets, etc.).
+ */
+function isSecretSettingKey(key) {
+    if (!key || typeof key !== 'string') return false;
+    return /(_api_key|_secret)$/i.test(key) ||
+        key === 'anthropic_api_key' ||
+        key === 'embedding_api_key';
+}
+
+/**
+ * Encrypt a secret value for storage in app_settings.
+ * Uses OS-backed safeStorage when available; otherwise falls back to
+ * storing the raw value (which is still kept out of settings:getAll).
+ */
+function encryptSecretValue(plain) {
+    if (plain == null || plain === '') return plain;
+    try {
+        if (safeStorage && safeStorage.isEncryptionAvailable()) {
+            const encrypted = safeStorage.encryptString(String(plain));
+            return SECRET_ENC_PREFIX + encrypted.toString('base64');
+        }
+    } catch (err) {
+        console.error('encryptSecretValue: encryption failed, storing plaintext fallback:', err);
+    }
+    return plain;
+}
+
+/**
+ * Decrypt a stored secret value for use at call time.
+ * Returns plaintext values untouched (fallback path). Returns null if a
+ * value marked as encrypted cannot be decrypted.
+ */
+function decryptSecretValue(stored) {
+    if (stored == null) return stored;
+    if (typeof stored === 'string' && stored.startsWith(SECRET_ENC_PREFIX)) {
+        try {
+            const buf = Buffer.from(stored.slice(SECRET_ENC_PREFIX.length), 'base64');
+            return safeStorage.decryptString(buf);
+        } catch (err) {
+            console.error('decryptSecretValue: decryption failed:', err);
+            return null;
+        }
+    }
+    return stored;
+}
+
+/**
+ * Safely parse JSON coming from a DB column. Never throws; returns the
+ * provided fallback on malformed/empty input.
+ */
+function safeJsonParse(value, fallback = null) {
+    if (value == null || value === '') return fallback;
+    if (typeof value === 'object') return value;
+    try {
+        return JSON.parse(value);
+    } catch (err) {
+        console.error('safeJsonParse: failed to parse JSON from DB:', err);
+        return fallback;
+    }
+}
+
+/**
+ * Sanitize a user-supplied search string for an FTS5 MATCH expression.
+ * Splits into tokens and wraps each in double quotes so that FTS5 operators
+ * and special characters (", *, (), AND/OR/NEAR, etc.) are treated as
+ * literals and cannot cause syntax errors.
+ */
+function sanitizeFtsQuery(query) {
+    if (query == null) return '""';
+    const tokens = String(query)
+        .split(/\s+/)
+        .map(t => t.replace(/"/g, '').trim())
+        .filter(t => t.length > 0 && /\w/.test(t));
+    if (tokens.length === 0) return '""';
+    return tokens.map(t => `"${t}"`).join(' ');
+}
+
+/**
+ * Base directory that holds all app-managed audio files.
+ */
+function getAudioBaseDir() {
+    return path.join(app.getPath('userData'), 'assets', 'audio');
+}
+
+/**
+ * Resolve a renderer-supplied audio path and guarantee it stays inside the
+ * managed audio directory. Throws on traversal attempts or invalid input.
+ * Accepts both absolute paths (as stored in the DB) and relative names.
+ */
+function resolveManagedAudioPath(inputPath) {
+    if (typeof inputPath !== 'string' || inputPath.trim().length === 0) {
+        throw new Error('Invalid audio file path');
+    }
+    const baseDir = path.resolve(getAudioBaseDir());
+    const resolved = path.resolve(baseDir, inputPath);
+    const rel = path.relative(baseDir, resolved);
+    if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) {
+        throw new Error('Audio file path is outside the managed audio directory');
+    }
+    return resolved;
+}
+
+// Allowed status enum values per table (schema.sql is source of truth).
+const QUEUE_STATUS_VALUES = ['pending', 'processing', 'completed', 'failed'];
+const PENDING_STATUS_VALUES = ['pending_review', 'approved', 'rejected'];
 
 /**
  * Create the main application window
@@ -166,7 +281,7 @@ ipcMain.handle('db:backup', async () => {
             return { success: false, canceled: true };
         }
 
-        databaseService.backup(filePath);
+        await databaseService.backup(filePath);
         return { success: true, filePath };
     } catch (error) {
         console.error('Error backing up database:', error);
@@ -202,6 +317,18 @@ ipcMain.handle('db:vacuum', async () => {
  */
 ipcMain.handle('events:getRange', async (event, { startDate, endDate, limit = 1000 }) => {
     try {
+        // Validate/coerce inputs
+        if (typeof startDate !== 'string' || typeof endDate !== 'string' ||
+            startDate.length === 0 || endDate.length === 0) {
+            return { success: false, error: 'startDate and endDate must be non-empty strings' };
+        }
+        const MAX_LIMIT = 5000;
+        let safeLimit = parseInt(limit, 10);
+        if (!Number.isFinite(safeLimit) || safeLimit <= 0) {
+            return { success: false, error: 'limit must be a positive integer' };
+        }
+        safeLimit = Math.min(safeLimit, MAX_LIMIT);
+
         const db = databaseService.getDatabase();
         const stmt = db.prepare(`
             SELECT e.*,
@@ -224,12 +351,12 @@ ipcMain.handle('events:getRange', async (event, { startDate, endDate, limit = 10
             LIMIT ?
         `);
 
-        const events = stmt.all(startDate, endDate, limit);
+        const events = stmt.all(startDate, endDate, safeLimit);
 
         // Parse JSON fields and split comma-separated values
         events.forEach(event => {
             if (event.extraction_metadata) {
-                event.extraction_metadata = JSON.parse(event.extraction_metadata);
+                event.extraction_metadata = safeJsonParse(event.extraction_metadata, null);
             }
             event.tags = event.tags ? event.tags.split(',') : [];
             event.people = event.people ? event.people.split(',') : [];
@@ -254,6 +381,9 @@ ipcMain.handle('events:getRange', async (event, { startDate, endDate, limit = 10
  */
 ipcMain.handle('events:getById', async (event, eventId) => {
     try {
+        if (typeof eventId !== 'string' || eventId.trim().length === 0) {
+            return { success: false, error: 'eventId must be a non-empty string' };
+        }
         const db = databaseService.getDatabase();
         const stmt = db.prepare(`
             SELECT e.*,
@@ -285,7 +415,7 @@ ipcMain.handle('events:getById', async (event, eventId) => {
 
         // Parse JSON fields and split comma-separated values
         if (eventData.extraction_metadata) {
-            eventData.extraction_metadata = JSON.parse(eventData.extraction_metadata);
+            eventData.extraction_metadata = safeJsonParse(eventData.extraction_metadata, null);
         }
         eventData.tags = eventData.tags ? eventData.tags.split(',') : [];
         eventData.people = eventData.people ? eventData.people.split(',') : [];
@@ -357,7 +487,7 @@ ipcMain.handle('events:create', async (event, eventData) => {
                     INSERT OR IGNORE INTO tags (tag_id, tag_name) VALUES (?, ?)
                 `);
                 const linkTag = db.prepare(`
-                    INSERT INTO event_tags (event_id, tag_id, is_manual) VALUES (?, ?, 1)
+                    INSERT OR IGNORE INTO event_tags (event_id, tag_id, is_manual) VALUES (?, ?, 1)
                 `);
 
                 tags.forEach(tagName => {
@@ -374,7 +504,7 @@ ipcMain.handle('events:create', async (event, eventData) => {
                     INSERT OR IGNORE INTO people (person_id, name) VALUES (?, ?)
                 `);
                 const linkPerson = db.prepare(`
-                    INSERT INTO event_people (event_id, person_id) VALUES (?, ?)
+                    INSERT OR IGNORE INTO event_people (event_id, person_id) VALUES (?, ?)
                 `);
 
                 people.forEach(personName => {
@@ -391,7 +521,7 @@ ipcMain.handle('events:create', async (event, eventData) => {
                     INSERT OR IGNORE INTO locations (location_id, name) VALUES (?, ?)
                 `);
                 const linkLocation = db.prepare(`
-                    INSERT INTO event_locations (event_id, location_id) VALUES (?, ?)
+                    INSERT OR IGNORE INTO event_locations (event_id, location_id) VALUES (?, ?)
                 `);
 
                 locations.forEach(locationName => {
@@ -506,7 +636,7 @@ ipcMain.handle('events:search', async (event, { query, limit = 50 }) => {
             LIMIT ?
         `);
 
-        const events = stmt.all(query, limit);
+        const events = stmt.all(sanitizeFtsQuery(query), limit);
 
         return {
             success: true,
@@ -657,7 +787,14 @@ ipcMain.handle('settings:getAll', async () => {
 
         const settings = {};
         rows.forEach(row => {
-            settings[row.setting_key] = row.setting_value;
+            if (isSecretSettingKey(row.setting_key)) {
+                // Never expose secret values to the renderer. Only report
+                // whether a value is set so the UI can reflect state.
+                settings['has_' + row.setting_key] =
+                    !!(row.setting_value && String(row.setting_value).length > 0);
+            } else {
+                settings[row.setting_key] = row.setting_value;
+            }
         });
 
         return {
@@ -721,10 +858,19 @@ ipcMain.handle('audio:save', async (event, { audioData, duration }) => {
             fs.mkdirSync(audioPath, { recursive: true });
         }
 
-        const filePath = path.join(audioPath, filename);
+        // Validate the target path stays inside the managed audio directory
+        const filePath = resolveManagedAudioPath(path.join(audioPath, filename));
 
-        // Convert base64 to buffer and save
-        const buffer = Buffer.from(audioData.split(',')[1], 'base64');
+        // Convert base64 to buffer and save.
+        // Guard for both data-URL ("data:audio/wav;base64,....") and raw base64.
+        if (typeof audioData !== 'string' || audioData.length === 0) {
+            return { success: false, error: 'audioData must be a non-empty base64 string' };
+        }
+        const commaIndex = audioData.indexOf(',');
+        const base64Data = audioData.startsWith('data:') && commaIndex !== -1
+            ? audioData.slice(commaIndex + 1)
+            : audioData;
+        const buffer = Buffer.from(base64Data, 'base64');
         fs.writeFileSync(filePath, buffer);
 
         const stats = fs.statSync(filePath);
@@ -783,6 +929,9 @@ ipcMain.handle('queue:add', async (event, { filePath, duration, fileSize }) => {
  */
 ipcMain.handle('queue:getAll', async (event, { status = null } = {}) => {
     try {
+        if (status !== null && status !== undefined && !QUEUE_STATUS_VALUES.includes(status)) {
+            return { success: false, error: `Invalid status filter: ${status}` };
+        }
         const db = databaseService.getDatabase();
 
         let query = 'SELECT * FROM recording_queue';
@@ -850,9 +999,14 @@ ipcMain.handle('queue:remove', async (event, queueId) => {
         const item = getStmt.get(queueId);
 
         if (item && item.audio_file_path) {
-            // Delete audio file if it exists
-            if (fs.existsSync(item.audio_file_path)) {
-                fs.unlinkSync(item.audio_file_path);
+            // Only unlink files inside the managed audio directory.
+            try {
+                const safePath = resolveManagedAudioPath(item.audio_file_path);
+                if (fs.existsSync(safePath)) {
+                    fs.unlinkSync(safePath);
+                }
+            } catch (pathError) {
+                console.error('queue:remove: refusing to unlink unmanaged path:', pathError.message);
             }
         }
 
@@ -875,6 +1029,9 @@ ipcMain.handle('queue:remove', async (event, queueId) => {
  */
 ipcMain.handle('pending:getAll', async (event, { status = 'pending_review' } = {}) => {
     try {
+        if (!PENDING_STATUS_VALUES.includes(status)) {
+            return { success: false, error: `Invalid status filter: ${status}` };
+        }
         const db = databaseService.getDatabase();
 
         const stmt = db.prepare(`
@@ -888,7 +1045,7 @@ ipcMain.handle('pending:getAll', async (event, { status = 'pending_review' } = {
         // Parse extracted_data JSON
         items.forEach(item => {
             if (item.extracted_data) {
-                item.extracted_data = JSON.parse(item.extracted_data);
+                item.extracted_data = safeJsonParse(item.extracted_data, null);
             }
         });
 
@@ -925,7 +1082,10 @@ ipcMain.handle('pending:approve', async (event, { pendingId, editedData = null }
         }
 
         // Use edited data if provided, otherwise use extracted data
-        const eventData = editedData || JSON.parse(pendingEvent.extracted_data);
+        const eventData = editedData || safeJsonParse(pendingEvent.extracted_data, null);
+        if (!eventData) {
+            return { success: false, error: 'Pending event has no valid extracted data' };
+        }
 
         // Create the event
         const eventId = uuidv4();
@@ -957,7 +1117,7 @@ ipcMain.handle('pending:approve', async (event, { pendingId, editedData = null }
                     INSERT OR IGNORE INTO tags (tag_id, tag_name) VALUES (?, ?)
                 `);
                 const linkTag = db.prepare(`
-                    INSERT INTO event_tags (event_id, tag_id, is_manual, confidence_score)
+                    INSERT OR IGNORE INTO event_tags (event_id, tag_id, is_manual, confidence_score)
                     VALUES (?, ?, 0, ?)
                 `);
 
@@ -975,7 +1135,7 @@ ipcMain.handle('pending:approve', async (event, { pendingId, editedData = null }
                     INSERT OR IGNORE INTO people (person_id, name) VALUES (?, ?)
                 `);
                 const linkPerson = db.prepare(`
-                    INSERT INTO event_people (event_id, person_id) VALUES (?, ?)
+                    INSERT OR IGNORE INTO event_people (event_id, person_id) VALUES (?, ?)
                 `);
 
                 eventData.key_people.forEach(personName => {
@@ -992,7 +1152,7 @@ ipcMain.handle('pending:approve', async (event, { pendingId, editedData = null }
                     INSERT OR IGNORE INTO locations (location_id, name) VALUES (?, ?)
                 `);
                 const linkLocation = db.prepare(`
-                    INSERT INTO event_locations (event_id, location_id) VALUES (?, ?)
+                    INSERT OR IGNORE INTO event_locations (event_id, location_id) VALUES (?, ?)
                 `);
 
                 eventData.locations.forEach(locationName => {
@@ -1085,14 +1245,22 @@ ipcMain.handle('pending:reject', async (event, pendingId) => {
  */
 ipcMain.handle('audio:getFile', async (event, filePath) => {
     try {
-        if (!fs.existsSync(filePath)) {
+        // Reject paths that escape the managed audio directory
+        let safePath;
+        try {
+            safePath = resolveManagedAudioPath(filePath);
+        } catch (pathError) {
+            return { success: false, error: pathError.message };
+        }
+
+        if (!fs.existsSync(safePath)) {
             return {
                 success: false,
                 error: 'Audio file not found'
             };
         }
 
-        const buffer = fs.readFileSync(filePath);
+        const buffer = fs.readFileSync(safePath);
         const base64 = buffer.toString('base64');
         const dataUrl = `data:audio/wav;base64,${base64}`;
 
@@ -1118,7 +1286,11 @@ ipcMain.handle('audio:getFile', async (event, filePath) => {
  */
 ipcMain.handle('llm:setApiKey', async (event, apiKey) => {
     try {
-        // Store API key in database (encrypted in production)
+        if (typeof apiKey !== 'string' || apiKey.trim().length === 0) {
+            return { success: false, error: 'API key must be a non-empty string' };
+        }
+
+        // Store API key encrypted at rest via safeStorage when available.
         const db = databaseService.getDatabase();
         const stmt = db.prepare(`
             INSERT INTO app_settings (setting_key, setting_value)
@@ -1126,9 +1298,9 @@ ipcMain.handle('llm:setApiKey', async (event, apiKey) => {
             ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value
         `);
 
-        stmt.run(apiKey);
+        stmt.run(encryptSecretValue(apiKey));
 
-        // Initialize Anthropic service
+        // Initialize Anthropic service with the plaintext key
         anthropicService.initialize(apiKey);
 
         return { success: true };
@@ -1173,8 +1345,13 @@ async function initializeAnthropicService() {
         const result = stmt.get('anthropic_api_key');
 
         if (result && result.setting_value) {
-            anthropicService.initialize(result.setting_value);
-            console.log('Anthropic service initialized from stored API key');
+            const apiKey = decryptSecretValue(result.setting_value);
+            if (apiKey) {
+                anthropicService.initialize(apiKey);
+                console.log('Anthropic service initialized from stored API key');
+            } else {
+                console.error('Stored Anthropic API key could not be decrypted');
+            }
         }
     } catch (error) {
         console.error('Failed to initialize Anthropic service:', error);
@@ -1240,29 +1417,34 @@ ipcMain.handle('llm:processQueueItem', async (event, queueId) => {
             };
         }
 
-        // Create pending event
+        // Create pending event + mark queue completed atomically.
+        // NOTE: the async LLM call above is intentionally OUTSIDE this
+        // transaction; only the synchronous DB writes are wrapped.
         const pendingId = uuidv4();
-        const insertPending = db.prepare(`
-            INSERT INTO pending_events (
-                pending_id, extracted_data, audio_file_path, transcript, queue_id, status
-            ) VALUES (?, ?, ?, ?, ?, 'pending_review')
-        `);
+        const commitResult = db.transaction(() => {
+            const insertPending = db.prepare(`
+                INSERT INTO pending_events (
+                    pending_id, extracted_data, audio_file_path, transcript, queue_id, status
+                ) VALUES (?, ?, ?, ?, ?, 'pending_review')
+            `);
 
-        insertPending.run(
-            pendingId,
-            JSON.stringify(result.extractedData),
-            queueItem.audio_file_path,
-            result.transcript,
-            queueId
-        );
+            insertPending.run(
+                pendingId,
+                JSON.stringify(result.extractedData),
+                queueItem.audio_file_path,
+                result.transcript,
+                queueId
+            );
 
-        // Update queue status to completed (will be marked completed when user approves)
-        const updateCompleted = db.prepare(`
-            UPDATE recording_queue
-            SET status = 'completed', processed_at = datetime('now')
-            WHERE queue_id = ?
-        `);
-        updateCompleted.run(queueId);
+            // Update queue status to completed (will be marked completed when user approves)
+            const updateCompleted = db.prepare(`
+                UPDATE recording_queue
+                SET status = 'completed', processed_at = datetime('now')
+                WHERE queue_id = ?
+            `);
+            updateCompleted.run(queueId);
+        });
+        commitResult();
 
         return {
             success: true,
@@ -1295,7 +1477,7 @@ ipcMain.handle('llm:processAllPending', async () => {
         const db = databaseService.getDatabase();
 
         // Get all pending items
-        const getPending = db.prepare('SELECT queue_id FROM recording_queue WHERE status = ?');
+        const getPending = db.prepare('SELECT queue_id, audio_file_path FROM recording_queue WHERE status = ?');
         const pendingItems = getPending.all('pending');
 
         if (pendingItems.length === 0) {
@@ -1319,33 +1501,37 @@ ipcMain.handle('llm:processAllPending', async () => {
                 const result = await anthropicService.processAudioFile(item.audio_file_path, item.queue_id);
 
                 if (result.success) {
-                    // Create pending event
+                    // Create pending event + mark queue completed atomically.
+                    // The async LLM call above stays OUTSIDE this transaction.
                     const { v4: uuidv4 } = require('uuid');
                     const pendingId = uuidv4();
 
-                    const insertPending = db.prepare(`
-                        INSERT INTO pending_events (
-                            pending_id, extracted_data, audio_file_path, transcript, queue_id, status
-                        ) VALUES (?, ?, ?, ?, ?, 'pending_review')
-                    `);
+                    const commitItem = db.transaction(() => {
+                        const insertPending = db.prepare(`
+                            INSERT INTO pending_events (
+                                pending_id, extracted_data, audio_file_path, transcript, queue_id, status
+                            ) VALUES (?, ?, ?, ?, ?, 'pending_review')
+                        `);
 
-                    const queueItem = db.prepare('SELECT * FROM recording_queue WHERE queue_id = ?').get(item.queue_id);
+                        const queueItem = db.prepare('SELECT * FROM recording_queue WHERE queue_id = ?').get(item.queue_id);
 
-                    insertPending.run(
-                        pendingId,
-                        JSON.stringify(result.extractedData),
-                        queueItem.audio_file_path,
-                        result.transcript,
-                        item.queue_id
-                    );
+                        insertPending.run(
+                            pendingId,
+                            JSON.stringify(result.extractedData),
+                            queueItem.audio_file_path,
+                            result.transcript,
+                            item.queue_id
+                        );
 
-                    // Update queue status
-                    const updateCompleted = db.prepare(`
-                        UPDATE recording_queue
-                        SET status = 'completed', processed_at = datetime('now')
-                        WHERE queue_id = ?
-                    `);
-                    updateCompleted.run(item.queue_id);
+                        // Update queue status
+                        const updateCompleted = db.prepare(`
+                            UPDATE recording_queue
+                            SET status = 'completed', processed_at = datetime('now')
+                            WHERE queue_id = ?
+                        `);
+                        updateCompleted.run(item.queue_id);
+                    });
+                    commitItem();
 
                     results.succeeded++;
                 } else {
@@ -1472,7 +1658,7 @@ async function initializeSTTService() {
 
         if (engineResult && engineResult.setting_value) {
             const engine = engineResult.setting_value;
-            const config = configResult ? JSON.parse(configResult.setting_value) : {};
+            const config = configResult ? safeJsonParse(configResult.setting_value, {}) : {};
 
             await anthropicService.initializeSTT(engine, config);
             console.log(`STT service initialized with engine: ${engine}`);
@@ -1504,7 +1690,8 @@ ipcMain.handle('embedding:initialize', async (event, { provider, model, apiKey }
         updateSetting.run('embedding_provider', provider);
         updateSetting.run('embedding_model', model);
         if (apiKey) {
-            updateSetting.run('embedding_api_key', apiKey);
+            // Store the embedding API key encrypted at rest.
+            updateSetting.run('embedding_api_key', encryptSecretValue(apiKey));
         }
 
         return { success: true };
@@ -1694,7 +1881,9 @@ async function initializeEmbeddingService() {
         if (providerResult && providerResult.setting_value && modelResult && modelResult.setting_value) {
             const provider = providerResult.setting_value;
             const model = modelResult.setting_value;
-            const apiKey = apiKeyResult ? apiKeyResult.setting_value : null;
+            const apiKey = apiKeyResult && apiKeyResult.setting_value
+                ? decryptSecretValue(apiKeyResult.setting_value)
+                : null;
 
             await embeddingService.initialize(provider, model, apiKey);
             console.log(`Embedding service initialized with ${provider}/${model}`);
