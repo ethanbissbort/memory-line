@@ -81,10 +81,23 @@ jobs:
           dotnet vstest $dll.FullName --logger:"trx;LogFileName=test.trx" `
             --ResultsDirectory:TestResults 2>&1 | Tee-Object -FilePath test.log
           $code = $LASTEXITCODE
-          # Emit the tail of the test output as annotations (logs are auth-gated).
-          Get-Content test.log -Tail 35 | ForEach-Object { "::error::$($_.Trim())" }
+          # Concise, high-signal diagnostics (annotation channel is small): parse the
+          # TRX counters if present, else show the first few log lines (load errors
+          # surface early). Logs/TRX are also uploaded as an artifact.
+          $trx = Get-ChildItem -Recurse -Path TestResults -Filter *.trx | Select-Object -First 1
+          if ($trx) {
+            [xml]$x = Get-Content $trx.FullName
+            $c = $x.TestRun.ResultSummary.Counters
+            "::error::TESTS total=$($c.total) passed=$($c.passed) failed=$($c.failed) exit=$code"
+            $x.TestRun.Results.UnitTestResult |
+              Where-Object { $_.outcome -eq 'Failed' } | Select-Object -First 6 |
+              ForEach-Object { "::error::FAILED $($_.testName): $($_.Output.ErrorInfo.Message)" }
+          } else {
+            "::error::No TRX produced (vstest exit=$code). First log lines:"
+            Get-Content test.log -TotalCount 8 | ForEach-Object { "::error::$($_.Trim())" }
+          }
           "### Test output (exit $code)" | Out-File $env:GITHUB_STEP_SUMMARY -Append
-          Get-Content test.log -Tail 80 | ForEach-Object { "- $_" } | Out-File $env:GITHUB_STEP_SUMMARY -Append
+          Get-Content test.log -Tail 100 | ForEach-Object { "- $_" } | Out-File $env:GITHUB_STEP_SUMMARY -Append
           exit $code
 
       - name: Upload test results
