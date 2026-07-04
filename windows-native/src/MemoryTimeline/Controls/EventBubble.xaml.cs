@@ -82,7 +82,11 @@ public sealed partial class EventBubble : UserControl
     {
         // Remove hover effect
         PinPath.StrokeThickness = 1;
-        PinPath.Stroke = (Brush)Application.Current.Resources["SystemControlForegroundBaseMediumBrush"];
+        PinPath.Stroke = Application.Current.Resources.TryGetValue(
+                "SystemControlForegroundBaseMediumBrush", out var strokeResource)
+            && strokeResource is Brush strokeBrush
+                ? strokeBrush
+                : new SolidColorBrush(Colors.Gray);
 
         RootGrid.RenderTransform = new CompositeTransform
         {

@@ -219,7 +219,7 @@ public class QueueServiceTests : IDisposable
     }
 
     [Fact]
-    public void QueueItemStatusChanged_WhenStatusUpdated_RaisesEvent()
+    public async Task QueueItemStatusChanged_WhenStatusUpdated_RaisesEvent()
     {
         // Arrange
         var eventRaised = false;
@@ -243,8 +243,11 @@ public class QueueServiceTests : IDisposable
         _repositoryMock.Setup(r => r.GetByIdAsync(queueId))
             .ReturnsAsync(queueItem);
 
+        _repositoryMock.Setup(r => r.UpdateAsync(It.IsAny<RecordingQueue>()))
+            .Returns(Task.CompletedTask);
+
         // Act
-        _queueService.UpdateQueueItemStatusAsync(queueId, QueueStatus.Processing).Wait();
+        await _queueService.UpdateQueueItemStatusAsync(queueId, QueueStatus.Processing);
 
         // Assert
         eventRaised.Should().BeTrue();

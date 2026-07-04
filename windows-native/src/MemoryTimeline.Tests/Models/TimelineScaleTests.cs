@@ -326,4 +326,28 @@ public class TimelineScaleTests
         // Assert
         resultDate.Date.Should().Be(originalDate.Date);
     }
+
+    [Fact]
+    public void GetEventWidth_EndDateBeforeStartDate_ClampsToMinimumWidth()
+    {
+        // Arrange - inverted range would yield a negative raw width
+        var startDate = new DateTime(2024, 1, 10);
+        var endDate = new DateTime(2024, 1, 5);
+
+        // Act
+        var result = TimelineScale.GetEventWidth(startDate, endDate, ZoomLevel.Month);
+
+        // Assert - Math.Max guard keeps width at the minimum for the zoom level
+        result.Should().Be(TimelineScale.GetMinimumEventWidth(ZoomLevel.Month));
+    }
+
+    [Fact]
+    public void GetVisibleDays_ZeroWidth_ReturnsZero()
+    {
+        // Act
+        var result = TimelineScale.GetVisibleDays(ZoomLevel.Month, 0);
+
+        // Assert
+        result.Should().Be(0);
+    }
 }

@@ -27,6 +27,7 @@ public class PersonRepository : IPersonRepository
     public async Task<IEnumerable<Person>> GetAllAsync()
     {
         return await _context.People
+            .AsNoTracking()
             .OrderBy(p => p.Name)
             .ToListAsync();
     }
@@ -93,6 +94,7 @@ public class PersonRepository : IPersonRepository
     public async Task<IEnumerable<Person>> GetOrderedByNameAsync()
     {
         return await _context.People
+            .AsNoTracking()
             .OrderBy(p => p.Name)
             .ToListAsync();
     }
@@ -100,6 +102,7 @@ public class PersonRepository : IPersonRepository
     public async Task<IEnumerable<Person>> SearchByNameAsync(string searchTerm)
     {
         return await _context.People
+            .AsNoTracking()
             .Where(p => EF.Functions.Like(p.Name, $"%{searchTerm}%"))
             .OrderBy(p => p.Name)
             .ToListAsync();
@@ -108,6 +111,7 @@ public class PersonRepository : IPersonRepository
     public async Task<IEnumerable<Person>> GetPeopleForEventAsync(string eventId)
     {
         return await _context.People
+            .AsNoTracking()
             .Where(p => p.EventPeople.Any(ep => ep.EventId == eventId))
             .OrderBy(p => p.Name)
             .ToListAsync();

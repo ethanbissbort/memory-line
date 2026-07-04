@@ -13,7 +13,7 @@ public class PendingEventRepository : IPendingEventRepository
         await _context.PendingEvents.Include(p => p.RecordingQueue).FirstOrDefaultAsync(p => p.PendingId == id);
 
     public async Task<IEnumerable<PendingEvent>> GetAllAsync() =>
-        await _context.PendingEvents.OrderByDescending(p => p.CreatedAt).ToListAsync();
+        await _context.PendingEvents.AsNoTracking().OrderByDescending(p => p.CreatedAt).ToListAsync();
 
     public async Task<PendingEvent> AddAsync(PendingEvent entity)
     {
@@ -58,14 +58,14 @@ public class PendingEventRepository : IPendingEventRepository
         await _context.PendingEvents.Where(predicate).ToListAsync();
 
     public async Task<IEnumerable<PendingEvent>> GetByQueueIdAsync(string queueId) =>
-        await _context.PendingEvents.Where(p => p.QueueId == queueId).OrderBy(p => p.CreatedAt).ToListAsync();
+        await _context.PendingEvents.AsNoTracking().Where(p => p.QueueId == queueId).OrderBy(p => p.CreatedAt).ToListAsync();
 
     public async Task<IEnumerable<PendingEvent>> GetByStatusAsync(PendingStatus status) =>
-        await _context.PendingEvents.Where(p => p.Status == status.ToStringValue()).OrderByDescending(p => p.CreatedAt).ToListAsync();
+        await _context.PendingEvents.AsNoTracking().Where(p => p.Status == status.ToStringValue()).OrderByDescending(p => p.CreatedAt).ToListAsync();
 
     public async Task<int> GetCountByStatusAsync(PendingStatus status) =>
         await _context.PendingEvents.CountAsync(p => p.Status == status.ToStringValue());
 
     public async Task<IEnumerable<PendingEvent>> GetRecentAsync(int count = 10) =>
-        await _context.PendingEvents.OrderByDescending(p => p.CreatedAt).Take(count).ToListAsync();
+        await _context.PendingEvents.AsNoTracking().OrderByDescending(p => p.CreatedAt).Take(count).ToListAsync();
 }

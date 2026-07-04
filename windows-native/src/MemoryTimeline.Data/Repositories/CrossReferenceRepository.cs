@@ -13,7 +13,7 @@ public class CrossReferenceRepository : ICrossReferenceRepository
         await _context.CrossReferences.Include(cr => cr.Event1).Include(cr => cr.Event2).FirstOrDefaultAsync(cr => cr.ReferenceId == id);
 
     public async Task<IEnumerable<CrossReference>> GetAllAsync() =>
-        await _context.CrossReferences.OrderByDescending(cr => cr.ConfidenceScore).ToListAsync();
+        await _context.CrossReferences.AsNoTracking().OrderByDescending(cr => cr.ConfidenceScore).ToListAsync();
 
     public async Task<CrossReference> AddAsync(CrossReference entity)
     {
@@ -58,15 +58,15 @@ public class CrossReferenceRepository : ICrossReferenceRepository
         await _context.CrossReferences.Where(predicate).ToListAsync();
 
     public async Task<IEnumerable<CrossReference>> GetReferencesForEventAsync(string eventId) =>
-        await _context.CrossReferences.Where(cr => cr.EventId1 == eventId || cr.EventId2 == eventId)
+        await _context.CrossReferences.AsNoTracking().Where(cr => cr.EventId1 == eventId || cr.EventId2 == eventId)
             .Include(cr => cr.Event1).Include(cr => cr.Event2).OrderByDescending(cr => cr.ConfidenceScore).ToListAsync();
 
     public async Task<IEnumerable<CrossReference>> GetByRelationshipTypeAsync(RelationshipType relationshipType) =>
-        await _context.CrossReferences.Where(cr => cr.RelationshipType == relationshipType.ToStringValue())
+        await _context.CrossReferences.AsNoTracking().Where(cr => cr.RelationshipType == relationshipType.ToStringValue())
             .OrderByDescending(cr => cr.ConfidenceScore).ToListAsync();
 
     public async Task<IEnumerable<CrossReference>> GetHighConfidenceReferencesAsync(double minimumConfidence = 0.7) =>
-        await _context.CrossReferences.Where(cr => cr.ConfidenceScore >= minimumConfidence)
+        await _context.CrossReferences.AsNoTracking().Where(cr => cr.ConfidenceScore >= minimumConfidence)
             .OrderByDescending(cr => cr.ConfidenceScore).ToListAsync();
 
     public async Task<CrossReference?> GetReferenceAsync(string eventId1, string eventId2) =>

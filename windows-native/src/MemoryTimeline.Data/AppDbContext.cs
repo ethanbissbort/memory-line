@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using MemoryTimeline.Data.Models;
-using System.Reflection;
+using System.Data.Common;
 
 namespace MemoryTimeline.Data;
 
@@ -42,7 +43,42 @@ public class AppDbContext : DbContext
             // Ensure directory exists
             Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
 
-            optionsBuilder.UseSqlite($"Data Source={dbPath}");
+            // Enable foreign key enforcement at the connection level. Microsoft.Data.Sqlite
+            // does not enforce foreign keys unless explicitly requested.
+            optionsBuilder.UseSqlite($"Data Source={dbPath};Foreign Keys=True");
+        }
+
+        // Apply SQLite pragmas (WAL journal mode, busy timeout, foreign key enforcement)
+        // on every connection open. Pragmas such as busy_timeout and foreign_keys are
+        // per-connection and must be re-applied for pooled connections.
+        optionsBuilder.AddInterceptors(SqlitePragmaInterceptor.Instance);
+    }
+
+    /// <summary>
+    /// Applies SQLite pragmas each time a connection is opened.
+    /// </summary>
+    private sealed class SqlitePragmaInterceptor : DbConnectionInterceptor
+    {
+        public static readonly SqlitePragmaInterceptor Instance = new();
+
+        private const string PragmaSql =
+            "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;";
+
+        public override void ConnectionOpened(DbConnection connection, ConnectionEndEventData eventData)
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = PragmaSql;
+            command.ExecuteNonQuery();
+        }
+
+        public override async Task ConnectionOpenedAsync(
+            DbConnection connection,
+            ConnectionEndEventData eventData,
+            CancellationToken cancellationToken = default)
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = PragmaSql;
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -265,27 +301,34 @@ public class AppDbContext : DbContext
         SeedDefaultSettings(modelBuilder);
     }
 
+    /// <summary>
+    /// Fixed timestamp for seed data. Seed values passed to HasData must be deterministic
+    /// (constant across model builds); using DateTime.UtcNow here would make the model
+    /// non-deterministic and break migration diffing / model validation.
+    /// </summary>
+    private static readonly DateTime SeedTimestamp = new(2025, 1, 21, 0, 0, 0, DateTimeKind.Utc);
+
     private void SeedDefaultSettings(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<AppSetting>().HasData(
-            new AppSetting { SettingKey = "theme", SettingValue = "light" },
-            new AppSetting { SettingKey = "default_zoom_level", SettingValue = "month" },
-            new AppSetting { SettingKey = "audio_quality", SettingValue = "high" },
-            new AppSetting { SettingKey = "llm_provider", SettingValue = "anthropic" },
-            new AppSetting { SettingKey = "llm_model", SettingValue = "claude-sonnet-4-20250514" },
-            new AppSetting { SettingKey = "llm_max_tokens", SettingValue = "4000" },
-            new AppSetting { SettingKey = "llm_temperature", SettingValue = "0.3" },
-            new AppSetting { SettingKey = "stt_engine", SettingValue = "windows" },
-            new AppSetting { SettingKey = "stt_config", SettingValue = "{}" },
-            new AppSetting { SettingKey = "rag_auto_run_enabled", SettingValue = "false" },
-            new AppSetting { SettingKey = "rag_schedule", SettingValue = "weekly" },
-            new AppSetting { SettingKey = "rag_similarity_threshold", SettingValue = "0.75" },
-            new AppSetting { SettingKey = "embedding_provider", SettingValue = "local" },
-            new AppSetting { SettingKey = "embedding_model", SettingValue = "onnx-text-embedding" },
-            new AppSetting { SettingKey = "embedding_api_key", SettingValue = "" },
-            new AppSetting { SettingKey = "auto_generate_embeddings", SettingValue = "true" },
-            new AppSetting { SettingKey = "send_transcripts_only", SettingValue = "true" },
-            new AppSetting { SettingKey = "require_confirmation", SettingValue = "true" }
+            new AppSetting { SettingKey = "theme", SettingValue = "light", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "default_zoom_level", SettingValue = "month", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "audio_quality", SettingValue = "high", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "llm_provider", SettingValue = "anthropic", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "llm_model", SettingValue = "claude-sonnet-4-20250514", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "llm_max_tokens", SettingValue = "4000", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "llm_temperature", SettingValue = "0.3", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "stt_engine", SettingValue = "windows", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "stt_config", SettingValue = "{}", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "rag_auto_run_enabled", SettingValue = "false", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "rag_schedule", SettingValue = "weekly", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "rag_similarity_threshold", SettingValue = "0.75", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "embedding_provider", SettingValue = "local", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "embedding_model", SettingValue = "onnx-text-embedding", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "embedding_api_key", SettingValue = "", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "auto_generate_embeddings", SettingValue = "true", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "send_transcripts_only", SettingValue = "true", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "require_confirmation", SettingValue = "true", UpdatedAt = SeedTimestamp }
         );
 
         // Seed default era categories
@@ -294,7 +337,7 @@ public class AppDbContext : DbContext
 
     private void SeedDefaultEraCategories(ModelBuilder modelBuilder)
     {
-        var now = DateTime.UtcNow;
+        var now = SeedTimestamp;
         modelBuilder.Entity<EraCategory>().HasData(
             new EraCategory { CategoryId = "cat-education", Name = "Education", DefaultColor = "#0078D4", IconGlyph = "\uE7BE", SortOrder = 1, CreatedAt = now, UpdatedAt = now },
             new EraCategory { CategoryId = "cat-employment", Name = "Employment", DefaultColor = "#107C10", IconGlyph = "\uE821", SortOrder = 2, CreatedAt = now, UpdatedAt = now },

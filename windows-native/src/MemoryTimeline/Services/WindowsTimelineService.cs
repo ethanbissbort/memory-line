@@ -12,12 +12,42 @@ namespace MemoryTimeline.Services;
 public class WindowsTimelineService : IWindowsTimelineService
 {
     private readonly ILogger<WindowsTimelineService> _logger;
-    private readonly UserActivityChannel _channel;
+    private UserActivityChannel? _channel;
+    private bool _channelInitFailed;
 
     public WindowsTimelineService(ILogger<WindowsTimelineService> logger)
     {
         _logger = logger;
-        _channel = UserActivityChannel.GetDefault();
+    }
+
+    /// <summary>
+    /// Lazily acquires the default user activity channel. Returns null (and disables
+    /// further attempts) if the API is unavailable, e.g. in unpackaged contexts, so
+    /// Timeline integration degrades gracefully instead of crashing the app.
+    /// </summary>
+    private UserActivityChannel? GetChannel()
+    {
+        if (_channel != null)
+        {
+            return _channel;
+        }
+
+        if (_channelInitFailed)
+        {
+            return null;
+        }
+
+        try
+        {
+            _channel = UserActivityChannel.GetDefault();
+            return _channel;
+        }
+        catch (Exception ex)
+        {
+            _channelInitFailed = true;
+            _logger.LogWarning(ex, "Windows Timeline (UserActivityChannel) is unavailable; Timeline integration disabled");
+            return null;
+        }
     }
 
     /// <summary>
@@ -29,7 +59,13 @@ public class WindowsTimelineService : IWindowsTimelineService
         {
             _logger.LogInformation("Publishing event to Windows Timeline: {EventId}", evt.EventId);
 
-            var activity = await _channel.GetOrCreateUserActivityAsync(evt.EventId);
+            var channel = GetChannel();
+            if (channel == null)
+            {
+                return;
+            }
+
+            var activity = await channel.GetOrCreateUserActivityAsync(evt.EventId);
 
             // Set display text
             activity.VisualElements.DisplayText = evt.Title;
@@ -76,7 +112,13 @@ public class WindowsTimelineService : IWindowsTimelineService
         {
             _logger.LogInformation("Removing event from Windows Timeline: {EventId}", eventId);
 
-            await _channel.DeleteActivityAsync(eventId);
+            var channel = GetChannel();
+            if (channel == null)
+            {
+                return;
+            }
+
+            await channel.DeleteActivityAsync(eventId);
 
             _logger.LogInformation("Successfully removed event from Windows Timeline");
         }
@@ -97,7 +139,7 @@ public class WindowsTimelineService : IWindowsTimelineService
     /// <summary>
     /// Handles a deep link activation.
     /// </summary>
-    public async Task<string?> HandleDeepLinkAsync(string uri)
+    public Task<string?> HandleDeepLinkAsync(string uri)
     {
         try
         {
@@ -109,18 +151,16 @@ public class WindowsTimelineService : IWindowsTimelineService
             {
                 var eventId = parsedUri.AbsolutePath.TrimStart('/');
                 _logger.LogInformation("Deep link to event: {EventId}", eventId);
-                return eventId;
+                return Task.FromResult<string?>(eventId);
             }
 
-            return null;
+            return Task.FromResult<string?>(null);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error handling deep link");
-            return null;
+            return Task.FromResult<string?>(null);
         }
-
-        await Task.CompletedTask;
     }
 
     #region Private Methods

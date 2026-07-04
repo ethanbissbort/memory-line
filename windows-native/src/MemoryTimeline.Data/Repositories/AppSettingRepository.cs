@@ -13,7 +13,7 @@ public class AppSettingRepository : IAppSettingRepository
         await _context.AppSettings.FindAsync(id);
 
     public async Task<IEnumerable<AppSetting>> GetAllAsync() =>
-        await _context.AppSettings.OrderBy(s => s.SettingKey).ToListAsync();
+        await _context.AppSettings.AsNoTracking().OrderBy(s => s.SettingKey).ToListAsync();
 
     public async Task<AppSetting> AddAsync(AppSetting entity)
     {

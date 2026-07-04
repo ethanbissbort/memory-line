@@ -5,6 +5,7 @@ using Microsoft.UI.Input;
 using MemoryTimeline.ViewModels;
 using MemoryTimeline.Core.DTOs;
 using MemoryTimeline.Core.Models;
+using System.ComponentModel;
 
 namespace MemoryTimeline.Controls;
 
@@ -24,6 +25,10 @@ public sealed partial class TimelineControl : UserControl
     private string? _editingEventId;
     private bool _isUpdatingScrollbar;
 
+    // Cached last hovered date (day-resolution) to avoid re-formatting/updating the hover
+    // TextBlock on every pointer move within the same day.
+    private DateTime _lastHoverDate = DateTime.MinValue;
+
     // Default sequence duration in days (100 years = ~36525 days)
     private const double DefaultSequenceDurationDays = 36525;
 
@@ -37,6 +42,12 @@ public sealed partial class TimelineControl : UserControl
         {
             _viewModel = value;
             InitializeTimeline();
+
+            // The compiled bindings inside this control are rooted at the (plain CLR)
+            // ViewModel property, which does not raise change notifications. Force the
+            // x:Bind expressions to re-evaluate now that the ViewModel is available,
+            // otherwise the timeline can render empty until the next refresh.
+            Bindings.Update();
         }
     }
 
@@ -44,10 +55,21 @@ public sealed partial class TimelineControl : UserControl
     {
         InitializeComponent();
         Loaded += TimelineControl_Loaded;
+        Unloaded += TimelineControl_Unloaded;
         SizeChanged += TimelineControl_SizeChanged;
 
         // Wire up pointer wheel for cursor-anchored zoom
         TimelineCanvas.PointerWheelChanged += TimelineCanvas_PointerWheelChanged;
+    }
+
+    private void TimelineControl_Unloaded(object sender, RoutedEventArgs e)
+    {
+        // The ViewModel is a long-lived singleton; failing to unsubscribe here roots this
+        // (transient) control for the lifetime of the app, leaking a control per navigation.
+        if (_viewModel != null)
+        {
+            _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
+        }
     }
 
     private async void TimelineControl_Loaded(object sender, RoutedEventArgs e)
@@ -93,9 +115,24 @@ public sealed partial class TimelineControl : UserControl
         if (_viewModel == null)
             return;
 
-        // Set up property changed listeners
-        _viewModel.PropertyChanged += (s, e) =>
+        // Set up property changed listeners.
+        // Unsubscribe first so repeated ViewModel assignments never double-subscribe.
+        _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
+        _viewModel.PropertyChanged += ViewModel_PropertyChanged;
+    }
+
+    private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        var vm = _viewModel;
+        if (vm == null)
+            return;
+
+        void Apply()
         {
+            // Guard against updates that arrive after the control was unloaded.
+            if (_viewModel == null)
+                return;
+
             if (e.PropertyName == nameof(TimelineViewModel.IsLoading))
             {
                 LoadingOverlay.Visibility = _viewModel.IsLoading
@@ -107,7 +144,19 @@ public sealed partial class TimelineControl : UserControl
                 UpdateTimelineSize();
                 UpdateScrollbarFromViewport();
             }
-        };
+        }
+
+        // The ViewModel may raise change notifications from a background thread
+        // (e.g. after an awaited service call); marshal UI updates to the UI thread.
+        var dispatcher = DispatcherQueue;
+        if (dispatcher == null || dispatcher.HasThreadAccess)
+        {
+            Apply();
+        }
+        else
+        {
+            dispatcher.TryEnqueue(Apply);
+        }
     }
 
     private void UpdateTimelineSize()
@@ -450,7 +499,16 @@ public sealed partial class TimelineControl : UserControl
         // Calculate date at pointer position using viewport's actual PixelsPerDay
         var dateAtPointer = _viewModel.Viewport.PixelToDate(position.X);
 
-        // Update hover date display
+        // The hover label is day-resolution, so skip re-formatting/updating the TextBlock
+        // when the pointer moves within the same day (avoids per-move string allocation).
+        if (dateAtPointer.Date == _lastHoverDate)
+        {
+            if (HoverDateText.Visibility != Visibility.Visible)
+                HoverDateText.Visibility = Visibility.Visible;
+            return;
+        }
+
+        _lastHoverDate = dateAtPointer.Date;
         HoverDateText.Text = dateAtPointer.ToString("MMMM d, yyyy");
         HoverDateText.Visibility = Visibility.Visible;
     }

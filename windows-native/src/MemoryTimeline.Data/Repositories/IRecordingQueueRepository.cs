@@ -82,6 +82,7 @@ public class RecordingQueueRepository : IRecordingQueueRepository
     public async Task<IEnumerable<RecordingQueue>> GetAllAsync()
     {
         return await _context.RecordingQueues
+            .AsNoTracking()
             .OrderByDescending(q => q.CreatedAt)
             .ToListAsync();
     }
@@ -89,6 +90,7 @@ public class RecordingQueueRepository : IRecordingQueueRepository
     public async Task<IEnumerable<RecordingQueue>> GetByStatusAsync(string status)
     {
         return await _context.RecordingQueues
+            .AsNoTracking()
             .Where(q => q.Status == status)
             .OrderBy(q => q.CreatedAt)
             .ToListAsync();

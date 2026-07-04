@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
+using Microsoft.UI.Dispatching;
 using MemoryTimeline.Core.DTOs;
 using MemoryTimeline.Core.Services;
 using MemoryTimeline.Services;
@@ -11,12 +12,17 @@ namespace MemoryTimeline.ViewModels;
 /// <summary>
 /// ViewModel for the recording queue page.
 /// </summary>
-public partial class QueueViewModel : ObservableObject
+public partial class QueueViewModel : ObservableObject, IDisposable
 {
     private readonly IQueueService _queueService;
     private readonly IAudioRecordingService _recordingService;
     private readonly IAudioPlaybackService _playbackService;
     private readonly ILogger<QueueViewModel> _logger;
+
+    // Captured on construction (UI thread) so background service-event and timer
+    // callbacks can marshal UI/observable mutations back onto the dispatcher.
+    private readonly DispatcherQueue? _dispatcherQueue;
+    private bool _disposed;
 
     [ObservableProperty]
     private ObservableCollection<AudioRecordingDto> _queueItems = new();
@@ -86,11 +92,33 @@ public partial class QueueViewModel : ObservableObject
         _playbackService = playbackService;
         _logger = logger;
 
-        // Subscribe to service events
+        // Capture the UI dispatcher while we are still on the UI thread.
+        _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
+
+        // Subscribe to service events. NOTE: the audio recording/playback services
+        // are DI singletons while this ViewModel is transient, so these subscriptions
+        // root the ViewModel for the lifetime of the app unless Dispose() is called.
         _queueService.QueueItemStatusChanged += OnQueueItemStatusChanged;
         _recordingService.RecordingStateChanged += OnRecordingStateChanged;
         _playbackService.PlaybackStateChanged += OnPlaybackStateChanged;
         _playbackService.PositionChanged += OnPlaybackPositionChanged;
+    }
+
+    /// <summary>
+    /// Marshals the supplied action onto the UI dispatcher thread. Service events and
+    /// timer callbacks arrive on background threads; mutating observable state or
+    /// ObservableCollections off the UI thread corrupts/crashes the WinUI binding layer.
+    /// </summary>
+    private void RunOnUi(Action action)
+    {
+        if (_dispatcherQueue == null || _dispatcherQueue.HasThreadAccess)
+        {
+            action();
+        }
+        else
+        {
+            _dispatcherQueue.TryEnqueue(() => action());
+        }
     }
 
     /// <summary>
@@ -128,9 +156,10 @@ public partial class QueueViewModel : ObservableObject
             IsRecording = true;
             StatusText = "Recording...";
 
-            // Start timer to update duration
+            // Start timer to update duration. The timer callback runs on a threadpool
+            // thread, so marshal the observable update back onto the UI dispatcher.
             _recordingTimer = new System.Threading.Timer(
-                _ => RecordingDuration = _recordingService.GetRecordingDuration(),
+                _ => RunOnUi(() => RecordingDuration = _recordingService.GetRecordingDuration()),
                 null,
                 TimeSpan.Zero,
                 TimeSpan.FromMilliseconds(100));
@@ -448,38 +477,72 @@ public partial class QueueViewModel : ObservableObject
 
     private void OnQueueItemStatusChanged(object? sender, QueueItemStatusChangedEventArgs e)
     {
-        // Update UI on status change
-        var item = QueueItems.FirstOrDefault(i => i.QueueId == e.QueueId);
-        if (item != null)
+        // Service events arrive on a background thread; marshal all observable mutations.
+        RunOnUi(() =>
         {
-            item.Status = e.NewStatus;
-            item.ErrorMessage = e.ErrorMessage;
-        }
+            var item = QueueItems.FirstOrDefault(i => i.QueueId == e.QueueId);
+            if (item != null)
+            {
+                item.Status = e.NewStatus;
+                item.ErrorMessage = e.ErrorMessage;
+            }
 
-        _ = UpdateStatusCountsAsync();
+            _ = UpdateStatusCountsAsync();
+        });
     }
 
     private void OnRecordingStateChanged(object? sender, AudioRecordingStateChangedEventArgs e)
     {
-        IsRecording = e.NewState == AudioRecordingState.Recording;
+        RunOnUi(() =>
+        {
+            IsRecording = e.NewState == AudioRecordingState.Recording;
 
-        // Update command CanExecute states
-        StopRecordingCommand.NotifyCanExecuteChanged();
-        PauseRecordingCommand.NotifyCanExecuteChanged();
-        CancelRecordingCommand.NotifyCanExecuteChanged();
+            // Update command CanExecute states
+            StopRecordingCommand.NotifyCanExecuteChanged();
+            PauseRecordingCommand.NotifyCanExecuteChanged();
+            CancelRecordingCommand.NotifyCanExecuteChanged();
+        });
     }
 
     private void OnPlaybackStateChanged(object? sender, AudioPlaybackStateChangedEventArgs e)
     {
-        IsPlaying = e.NewState == AudioPlaybackState.Playing;
-        StopPlaybackCommand.NotifyCanExecuteChanged();
+        RunOnUi(() =>
+        {
+            IsPlaying = e.NewState == AudioPlaybackState.Playing;
+            StopPlaybackCommand.NotifyCanExecuteChanged();
+        });
     }
 
     private void OnPlaybackPositionChanged(object? sender, AudioPositionChangedEventArgs e)
     {
-        PlaybackPosition = e.Position;
-        PlaybackDuration = e.Duration;
+        // Fires very frequently on a background thread during playback.
+        RunOnUi(() =>
+        {
+            PlaybackPosition = e.Position;
+            PlaybackDuration = e.Duration;
+        });
     }
 
     #endregion
+
+    /// <summary>
+    /// Unsubscribes from service events and stops the recording timer. Must be called
+    /// when the owning page is unloaded/navigated away from, otherwise the singleton
+    /// audio services keep this transient ViewModel alive for the life of the app.
+    /// </summary>
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+
+        _queueService.QueueItemStatusChanged -= OnQueueItemStatusChanged;
+        _recordingService.RecordingStateChanged -= OnRecordingStateChanged;
+        _playbackService.PlaybackStateChanged -= OnPlaybackStateChanged;
+        _playbackService.PositionChanged -= OnPlaybackPositionChanged;
+
+        _recordingTimer?.Dispose();
+        _recordingTimer = null;
+
+        GC.SuppressFinalize(this);
+    }
 }

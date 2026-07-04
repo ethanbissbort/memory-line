@@ -259,10 +259,16 @@ public class DatabaseIntegrationTests : IDisposable
                 };
                 await _eventRepository.AddAsync(event1);
 
+                // Detach the tracked instance so the duplicate insert is rejected by the
+                // database's PRIMARY KEY constraint (DbUpdateException) rather than by the
+                // change tracker's identity resolution (which would throw
+                // InvalidOperationException before ever reaching the database).
+                _context.ChangeTracker.Clear();
+
                 // Try to add invalid event (duplicate ID)
                 var event2 = new Event
                 {
-                    EventId = event1.EventId, // Same ID - should fail
+                    EventId = event1.EventId, // Same ID - should fail at the DB level
                     Title = "Invalid Event",
                     StartDate = DateTime.UtcNow,
                     CreatedAt = DateTime.UtcNow
@@ -287,8 +293,20 @@ public class DatabaseIntegrationTests : IDisposable
     public async Task ConcurrentWrites_HandleCorrectly()
     {
         // Arrange & Act
+        // EF Core DbContext instances are NOT thread-safe and must not be shared across
+        // concurrent operations. Each parallel task therefore gets its own DbContext /
+        // connection to the same SQLite file. Microsoft.Data.Sqlite serializes writers
+        // (retrying on SQLITE_BUSY up to the command timeout), so the writes still
+        // succeed even though they are issued concurrently.
         var tasks = Enumerable.Range(1, 10).Select(async i =>
         {
+            var options = new DbContextOptionsBuilder<AppDbContext>()
+                .UseSqlite($"Data Source={_databasePath}")
+                .Options;
+
+            await using var context = new AppDbContext(options);
+            var repository = new EventRepository(context);
+
             var evt = new Event
             {
                 EventId = Guid.NewGuid().ToString(),
@@ -296,7 +314,7 @@ public class DatabaseIntegrationTests : IDisposable
                 StartDate = DateTime.UtcNow,
                 CreatedAt = DateTime.UtcNow
             };
-            return await _eventRepository.AddAsync(evt);
+            return await repository.AddAsync(evt);
         });
 
         var results = await Task.WhenAll(tasks);

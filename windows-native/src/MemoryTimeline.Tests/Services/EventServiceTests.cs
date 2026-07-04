@@ -194,6 +194,61 @@ public class EventServiceTests : IDisposable
         results.All(e => e.Title.Contains("Important")).Should().BeTrue();
     }
 
+    [Fact]
+    public async Task CreateEventAsync_EndDateBeforeStartDate_ThrowsArgumentException()
+    {
+        // Arrange
+        var newEvent = new Event
+        {
+            Title = "Bad Range",
+            StartDate = new DateTime(2024, 6, 15),
+            EndDate = new DateTime(2024, 6, 10) // Before start date
+        };
+
+        // Act & Assert
+        await Assert.ThrowsAsync<ArgumentException>(() => _eventService.CreateEventAsync(newEvent));
+    }
+
+    [Fact]
+    public async Task CreateEventAsync_InvalidCategory_ThrowsArgumentException()
+    {
+        // Arrange
+        var newEvent = new Event
+        {
+            Title = "Bad Category",
+            StartDate = DateTime.UtcNow,
+            Category = "not-a-real-category"
+        };
+
+        // Act & Assert
+        await Assert.ThrowsAsync<ArgumentException>(() => _eventService.CreateEventAsync(newEvent));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task SearchEventsAsync_EmptyOrWhitespaceTerm_ReturnsEmpty(string term)
+    {
+        // Arrange
+        await _eventService.CreateEventAsync(new Event { Title = "Some Event", StartDate = DateTime.UtcNow });
+
+        // Act
+        var results = await _eventService.SearchEventsAsync(term);
+
+        // Assert
+        results.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task GetTotalEventCountAsync_NoEvents_ReturnsZero()
+    {
+        // Act
+        var count = await _eventService.GetTotalEventCountAsync();
+
+        // Assert
+        count.Should().Be(0);
+    }
+
     public void Dispose()
     {
         _context.Database.EnsureDeleted();

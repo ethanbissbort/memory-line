@@ -13,7 +13,7 @@ public class LocationRepository : ILocationRepository
         await _context.Locations.Include(l => l.EventLocations).FirstOrDefaultAsync(l => l.LocationId == id);
 
     public async Task<IEnumerable<Location>> GetAllAsync() =>
-        await _context.Locations.OrderBy(l => l.Name).ToListAsync();
+        await _context.Locations.AsNoTracking().OrderBy(l => l.Name).ToListAsync();
 
     public async Task<Location> AddAsync(Location entity)
     {
@@ -61,13 +61,13 @@ public class LocationRepository : ILocationRepository
         await _context.Locations.Include(l => l.EventLocations).FirstOrDefaultAsync(l => l.Name == name);
 
     public async Task<IEnumerable<Location>> GetOrderedByNameAsync() =>
-        await _context.Locations.OrderBy(l => l.Name).ToListAsync();
+        await _context.Locations.AsNoTracking().OrderBy(l => l.Name).ToListAsync();
 
     public async Task<IEnumerable<Location>> SearchByNameAsync(string searchTerm) =>
-        await _context.Locations.Where(l => EF.Functions.Like(l.Name, $"%{searchTerm}%")).OrderBy(l => l.Name).ToListAsync();
+        await _context.Locations.AsNoTracking().Where(l => EF.Functions.Like(l.Name, $"%{searchTerm}%")).OrderBy(l => l.Name).ToListAsync();
 
     public async Task<IEnumerable<Location>> GetLocationsForEventAsync(string eventId) =>
-        await _context.Locations.Where(l => l.EventLocations.Any(el => el.EventId == eventId)).OrderBy(l => l.Name).ToListAsync();
+        await _context.Locations.AsNoTracking().Where(l => l.EventLocations.Any(el => el.EventId == eventId)).OrderBy(l => l.Name).ToListAsync();
 
     public async Task<int> GetEventCountForLocationAsync(string locationId) =>
         await _context.EventLocations.CountAsync(el => el.LocationId == locationId);

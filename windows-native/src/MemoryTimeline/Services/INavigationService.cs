@@ -27,7 +27,20 @@ public class NavigationService : INavigationService
         get => _frame;
         set
         {
+            if (ReferenceEquals(_frame, value))
+            {
+                return;
+            }
+
+            // Detach from the previous frame to avoid leaking the handler / handling
+            // navigation events for a frame we no longer own.
+            if (_frame != null)
+            {
+                _frame.Navigated -= OnNavigated;
+            }
+
             _frame = value;
+
             if (_frame != null)
             {
                 _frame.Navigated += OnNavigated;

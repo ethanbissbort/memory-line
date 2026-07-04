@@ -13,7 +13,7 @@ public class EventEmbeddingRepository : IEventEmbeddingRepository
         await _context.EventEmbeddings.Include(e => e.Event).FirstOrDefaultAsync(e => e.EmbeddingId == id);
 
     public async Task<IEnumerable<EventEmbedding>> GetAllAsync() =>
-        await _context.EventEmbeddings.ToListAsync();
+        await _context.EventEmbeddings.AsNoTracking().ToListAsync();
 
     public async Task<EventEmbedding> AddAsync(EventEmbedding entity)
     {
@@ -61,13 +61,13 @@ public class EventEmbeddingRepository : IEventEmbeddingRepository
         await _context.EventEmbeddings.FirstOrDefaultAsync(e => e.EventId == eventId);
 
     public async Task<IEnumerable<EventEmbedding>> GetByProviderAsync(string provider) =>
-        await _context.EventEmbeddings.Where(e => e.EmbeddingProvider == provider).ToListAsync();
+        await _context.EventEmbeddings.AsNoTracking().Where(e => e.EmbeddingProvider == provider).ToListAsync();
 
     public async Task<IEnumerable<EventEmbedding>> FindSimilarAsync(double[] queryVector, int topK = 10, double minimumSimilarity = 0.7)
     {
         // This is a simplified implementation - in production, use vector similarity search
         // For SQLite, we'd need to implement cosine similarity in-memory
-        var allEmbeddings = await _context.EventEmbeddings.Include(e => e.Event).ToListAsync();
+        var allEmbeddings = await _context.EventEmbeddings.AsNoTracking().Include(e => e.Event).ToListAsync();
 
         var similarities = allEmbeddings.Select(e => new
         {
@@ -92,7 +92,7 @@ public class EventEmbeddingRepository : IEventEmbeddingRepository
 
     private static double CalculateCosineSimilarity(double[] a, double[] b)
     {
-        if (a.Length != b.Length) return 0;
+        if (a.Length != b.Length || a.Length == 0) return 0;
 
         double dotProduct = 0, normA = 0, normB = 0;
         for (int i = 0; i < a.Length; i++)
@@ -102,6 +102,10 @@ public class EventEmbeddingRepository : IEventEmbeddingRepository
             normB += b[i] * b[i];
         }
 
-        return dotProduct / (Math.Sqrt(normA) * Math.Sqrt(normB));
+        // Guard against zero-magnitude vectors (would produce NaN/Infinity).
+        var denominator = Math.Sqrt(normA) * Math.Sqrt(normB);
+        if (denominator == 0) return 0;
+
+        return dotProduct / denominator;
     }
 }

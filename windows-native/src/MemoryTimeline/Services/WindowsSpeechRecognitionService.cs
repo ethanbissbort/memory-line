@@ -53,8 +53,11 @@ public class WindowsSpeechRecognitionService : ISpeechToTextService, IDisposable
             var audioFile = await StorageFile.GetFileFromPathAsync(audioFilePath);
             progress?.Report(0.3);
 
-            // Configure continuous recognition
-            _recognizer!.Constraints.Add(new SpeechRecognitionTopicConstraint(
+            // Configure continuous recognition. The recognizer is reused across calls,
+            // so clear any previously-added constraints to avoid duplicate-constraint
+            // errors on subsequent transcriptions.
+            _recognizer!.Constraints.Clear();
+            _recognizer.Constraints.Add(new SpeechRecognitionTopicConstraint(
                 SpeechRecognitionScenario.Dictation,
                 "dictation"));
 

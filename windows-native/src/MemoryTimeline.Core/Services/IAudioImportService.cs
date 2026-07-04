@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MemoryTimeline.Core.Models;
 using MemoryTimeline.Data;
@@ -332,12 +333,12 @@ public class AudioImportService : IAudioImportService
 
     private async Task<bool> CheckForDuplicateAsync(AudioImportItem item)
     {
-        // Check by file path containing filename and size in queue
+        // Check by file path containing filename and size in queue.
+        // Use the async EF query directly rather than blocking a thread-pool thread via Task.Run.
         var fileName = item.FileName;
-        var existingInQueue = await Task.Run(() =>
-            _dbContext.RecordingQueues.Any(q =>
-                q.AudioFilePath.Contains(fileName) &&
-                q.FileSizeBytes == item.FileSize));
+        var existingInQueue = await _dbContext.RecordingQueues.AnyAsync(q =>
+            q.AudioFilePath.Contains(fileName) &&
+            q.FileSizeBytes == item.FileSize);
 
         return existingInQueue;
     }

@@ -50,6 +50,8 @@
                 <Button x:Name="PauseButton"
                         Command="{x:Bind ViewModel.PauseRecordingCommand, Mode=OneWay}"
                         IsEnabled="{x:Bind ViewModel.CanPauseRecording, Mode=OneWay}"
+                        AutomationProperties.Name="Pause recording"
+                        ToolTipService.ToolTip="Pause"
                         Height="48" Width="48">
                     <FontIcon Glyph="&#xE769;" FontSize="20"/>
                 </Button>

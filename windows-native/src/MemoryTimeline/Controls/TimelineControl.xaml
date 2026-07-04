@@ -269,6 +269,7 @@
                 <!-- Quick date navigation -->
                 <TextBox x:Name="QuickDateBox"
                         PlaceholderText="mmddyy or yyyy"
+                        AutomationProperties.Name="Quick date navigation"
                         Width="110"
                         VerticalAlignment="Center"
                         KeyDown="QuickDateBox_KeyDown"/>
@@ -276,6 +277,8 @@
                 <Button Content="&#xE71E;"
                        FontFamily="Segoe MDL2 Assets"
                        FontSize="16"
+                       AutomationProperties.Name="Zoom out"
+                       ToolTipService.ToolTip="Zoom out"
                        Command="{x:Bind ViewModel.ZoomOutCommand}"
                        IsEnabled="{x:Bind ViewModel.CanZoomOut, Mode=OneWay}"
                        Style="{StaticResource AccentButtonStyle}"
@@ -294,6 +297,8 @@
                 <Button Content="&#xE71D;"
                        FontFamily="Segoe MDL2 Assets"
                        FontSize="16"
+                       AutomationProperties.Name="Zoom in"
+                       ToolTipService.ToolTip="Zoom in"
                        Command="{x:Bind ViewModel.ZoomInCommand}"
                        IsEnabled="{x:Bind ViewModel.CanZoomIn, Mode=OneWay}"
                        Style="{StaticResource AccentButtonStyle}"
@@ -318,6 +323,8 @@
                                    FontFamily="Segoe MDL2 Assets"
                                    HorizontalAlignment="Right"
                                    Background="Transparent"
+                                   AutomationProperties.Name="Close event details"
+                                   ToolTipService.ToolTip="Close"
                                    Command="{x:Bind ViewModel.SelectEventCommand}"/>
                         </Grid>
 

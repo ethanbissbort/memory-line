@@ -12,8 +12,11 @@ public class OpenAIEmbeddingService : IEmbeddingService
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<OpenAIEmbeddingService> _logger;
-    private readonly string _apiKey;
-    private readonly string _model;
+    private readonly ISettingsService _settingsService;
+    private readonly SemaphoreSlim _initLock = new(1, 1);
+    private string _apiKey = string.Empty;
+    private string _model = DefaultModel;
+    private bool _initialized;
 
     private const string OpenAIApiUrl = "https://api.openai.com/v1/embeddings";
     private const string DefaultModel = "text-embedding-3-small"; // 1536 dimensions
@@ -30,15 +33,40 @@ public class OpenAIEmbeddingService : IEmbeddingService
     {
         _httpClient = httpClient;
         _logger = logger;
+        _settingsService = settingsService;
+        // API key and model are loaded lazily on first use to avoid blocking
+        // (sync-over-async) during DI construction, which can deadlock on a
+        // captured synchronization context and stalls service resolution.
+    }
 
-        // Get API key from settings
-        _apiKey = settingsService.GetSettingAsync<string>("OpenAIApiKey", string.Empty).GetAwaiter().GetResult() ?? string.Empty;
-        _model = settingsService.GetSettingAsync<string>("OpenAIEmbeddingModel", DefaultModel).GetAwaiter().GetResult() ?? DefaultModel;
+    /// <summary>
+    /// Lazily loads the API key and model from settings and configures the HttpClient.
+    /// Guarded so initialization runs exactly once.
+    /// </summary>
+    private async Task EnsureInitializedAsync()
+    {
+        if (_initialized)
+            return;
 
-        // Configure HttpClient
-        if (!string.IsNullOrWhiteSpace(_apiKey))
+        await _initLock.WaitAsync().ConfigureAwait(false);
+        try
         {
-            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
+            if (_initialized)
+                return;
+
+            _apiKey = await _settingsService.GetSettingAsync<string>("OpenAIApiKey", string.Empty).ConfigureAwait(false) ?? string.Empty;
+            _model = await _settingsService.GetSettingAsync<string>("OpenAIEmbeddingModel", DefaultModel).ConfigureAwait(false) ?? DefaultModel;
+
+            if (!string.IsNullOrWhiteSpace(_apiKey))
+            {
+                _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
+            }
+
+            _initialized = true;
+        }
+        finally
+        {
+            _initLock.Release();
         }
     }
 
@@ -58,6 +86,8 @@ public class OpenAIEmbeddingService : IEmbeddingService
     {
         try
         {
+            await EnsureInitializedAsync();
+
             if (string.IsNullOrWhiteSpace(_apiKey))
             {
                 throw new InvalidOperationException("OpenAI API key not configured");
@@ -102,6 +132,11 @@ public class OpenAIEmbeddingService : IEmbeddingService
     /// </summary>
     public double CalculateCosineSimilarity(float[] embedding1, float[] embedding2)
     {
+        if (embedding1 == null || embedding2 == null)
+        {
+            throw new ArgumentNullException(embedding1 == null ? nameof(embedding1) : nameof(embedding2));
+        }
+
         if (embedding1.Length != embedding2.Length)
         {
             throw new ArgumentException("Embeddings must have the same dimension");
@@ -137,8 +172,24 @@ public class OpenAIEmbeddingService : IEmbeddingService
     {
         var similarities = new List<SimilarityResult>();
 
+        if (queryEmbedding == null || queryEmbedding.Length == 0)
+        {
+            _logger.LogWarning("Query embedding is null or empty; returning no neighbors");
+            return similarities;
+        }
+
         foreach (var (id, embedding) in candidateEmbeddings)
         {
+            // Skip candidates with missing or dimension-mismatched embeddings rather than
+            // aborting the whole search (e.g. corrupt row or an embedding-model change).
+            if (embedding == null || embedding.Length != queryEmbedding.Length)
+            {
+                _logger.LogDebug(
+                    "Skipping candidate {Id}: embedding null or dimension mismatch (expected {Expected})",
+                    id, queryEmbedding.Length);
+                continue;
+            }
+
             var similarity = CalculateCosineSimilarity(queryEmbedding, embedding);
 
             if (similarity >= threshold)

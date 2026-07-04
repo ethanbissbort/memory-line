@@ -27,6 +27,7 @@ public class TagRepository : ITagRepository
     public async Task<IEnumerable<Tag>> GetAllAsync()
     {
         return await _context.Tags
+            .AsNoTracking()
             .OrderBy(t => t.TagName)
             .ToListAsync();
     }
@@ -93,6 +94,7 @@ public class TagRepository : ITagRepository
     public async Task<IEnumerable<Tag>> GetOrderedByNameAsync()
     {
         return await _context.Tags
+            .AsNoTracking()
             .OrderBy(t => t.TagName)
             .ToListAsync();
     }
@@ -100,6 +102,7 @@ public class TagRepository : ITagRepository
     public async Task<IEnumerable<Tag>> GetFrequentlyUsedAsync(int minimumUsageCount = 5)
     {
         return await _context.Tags
+            .AsNoTracking()
             .Where(t => t.EventTags.Count >= minimumUsageCount)
             .OrderByDescending(t => t.EventTags.Count)
             .ToListAsync();
@@ -108,6 +111,7 @@ public class TagRepository : ITagRepository
     public async Task<IEnumerable<Tag>> SearchByNameAsync(string searchTerm)
     {
         return await _context.Tags
+            .AsNoTracking()
             .Where(t => EF.Functions.Like(t.TagName, $"%{searchTerm}%"))
             .OrderBy(t => t.TagName)
             .ToListAsync();
@@ -116,6 +120,7 @@ public class TagRepository : ITagRepository
     public async Task<IEnumerable<Tag>> GetTagsForEventAsync(string eventId)
     {
         return await _context.Tags
+            .AsNoTracking()
             .Where(t => t.EventTags.Any(et => et.EventId == eventId))
             .OrderBy(t => t.TagName)
             .ToListAsync();

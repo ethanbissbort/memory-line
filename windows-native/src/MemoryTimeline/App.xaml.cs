@@ -161,6 +161,20 @@ public partial class App : Application
         }
     }
 
+    private void OnMainWindowClosed(object sender, WindowEventArgs args)
+    {
+        try
+        {
+            WriteToLog("Main window closed - disposing host...");
+            _host?.Dispose();
+            WriteToLog("Host disposed");
+        }
+        catch (Exception ex)
+        {
+            LogException("Host disposal on window close failed", ex);
+        }
+    }
+
     private void App_UnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
     {
         LogException("Unhandled UI Exception", e.Exception);
@@ -230,6 +244,11 @@ public partial class App : Application
 
             WriteToLog("Creating MainWindow...");
             _mainWindow = Services.GetRequiredService<MainWindow>();
+
+            // Dispose the host when the main window closes so singleton services get a
+            // chance to release native resources (microphone, notification registration).
+            _mainWindow.Closed += OnMainWindowClosed;
+
             WriteToLog("Activating MainWindow...");
             _mainWindow.Activate();
             WriteToLog("MainWindow activated");

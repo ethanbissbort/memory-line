@@ -19,6 +19,7 @@ public class EraCategoryRepository : IEraCategoryRepository
     public async Task<IEnumerable<EraCategory>> GetAllAsync()
     {
         return await _context.EraCategories
+            .AsNoTracking()
             .OrderBy(c => c.SortOrder)
             .ToListAsync();
     }
@@ -37,6 +38,7 @@ public class EraCategoryRepository : IEraCategoryRepository
     public async Task<IEnumerable<EraCategory>> GetOrderedAsync()
     {
         return await _context.EraCategories
+            .AsNoTracking()
             .OrderBy(c => c.SortOrder)
             .ToListAsync();
     }
@@ -44,6 +46,7 @@ public class EraCategoryRepository : IEraCategoryRepository
     public async Task<IEnumerable<EraCategory>> GetVisibleAsync()
     {
         return await _context.EraCategories
+            .AsNoTracking()
             .Where(c => c.IsVisible)
             .OrderBy(c => c.SortOrder)
             .ToListAsync();

@@ -18,6 +18,13 @@ public class AnthropicLlmService : ILlmService
     private AnthropicClient? _client;
     private string? _model;
 
+    // Reuse serializer options; allocating JsonSerializerOptions per call is expensive
+    // (each instance builds and caches its own metadata).
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     public string ProviderName => "Anthropic Claude";
     public string ModelName => _model ?? AnthropicModels.Claude35Sonnet;
     public bool RequiresInternet => true;
@@ -98,9 +105,21 @@ public class AnthropicLlmService : ILlmService
                 };
             }
 
-            // Parse the JSON response
-            var extractedData = JsonSerializer.Deserialize<EventExtractionResponse>(jsonResponse,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            // Parse the JSON response (guard against malformed LLM output)
+            EventExtractionResponse? extractedData;
+            try
+            {
+                extractedData = JsonSerializer.Deserialize<EventExtractionResponse>(jsonResponse, JsonOptions);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogError(ex, "Malformed JSON in Claude extraction response");
+                return new EventExtractionResult
+                {
+                    Success = false,
+                    ErrorMessage = "Claude returned malformed JSON that could not be parsed"
+                };
+            }
 
             if (extractedData == null)
             {

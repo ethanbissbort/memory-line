@@ -22,6 +22,13 @@ public class AnthropicClaudeService : ILlmService
 
     private const string DefaultModel = "claude-3-5-sonnet-20241022";
 
+    // Reuse serializer options; allocating JsonSerializerOptions per call is expensive.
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
     public string ProviderName => "Anthropic Claude";
     public string ModelName => _model;
     public bool RequiresInternet => true;
@@ -291,13 +298,7 @@ public class AnthropicClaudeService : ILlmService
 
             jsonContent = jsonContent.Trim();
 
-            var options = new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true,
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-            };
-
-            var parsed = JsonSerializer.Deserialize<ExtractionJsonResponse>(jsonContent, options);
+            var parsed = JsonSerializer.Deserialize<ExtractionJsonResponse>(jsonContent, JsonOptions);
 
             if (parsed == null)
             {

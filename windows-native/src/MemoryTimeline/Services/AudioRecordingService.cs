@@ -20,6 +20,7 @@ public class AudioRecordingService : IAudioRecordingService, IDisposable
     private AudioRecordingState _recordingState = AudioRecordingState.Idle;
     private readonly Stopwatch _recordingTimer = new();
     private AudioRecordingSettings? _currentSettings;
+    private bool _disposed;
 
     public event EventHandler<AudioRecordingStateChangedEventArgs>? RecordingStateChanged;
     public event EventHandler<AudioLevelChangedEventArgs>? AudioLevelChanged;
@@ -348,6 +349,7 @@ public class AudioRecordingService : IAudioRecordingService, IDisposable
 
         _recordingFile = null;
         _currentSettings = null;
+        _recordingTimer.Reset();
 
         await Task.CompletedTask;
     }
@@ -356,7 +358,34 @@ public class AudioRecordingService : IAudioRecordingService, IDisposable
 
     public void Dispose()
     {
-        _mediaCapture?.Dispose();
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+
+        // Release the microphone / native capture resources. Disposing MediaCapture
+        // stops any in-progress capture and frees the underlying hardware. We cannot
+        // await StopRecordAsync from a synchronous Dispose, so rely on Dispose to
+        // release the device deterministically.
+        try
+        {
+            _mediaCapture?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error disposing MediaCapture during Dispose");
+        }
+        finally
+        {
+            _mediaCapture = null;
+            _recordingFile = null;
+            _currentSettings = null;
+            _recordingTimer.Reset();
+            _recordingState = AudioRecordingState.Idle;
+        }
+
         GC.SuppressFinalize(this);
     }
 }

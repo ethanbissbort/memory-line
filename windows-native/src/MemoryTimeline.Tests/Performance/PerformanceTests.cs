@@ -233,11 +233,20 @@ public class PerformanceTests : IDisposable
         var events = GenerateTestEvents(1000);
         await _eventRepository.AddRangeAsync(events);
 
-        // Act - Simulate 20 concurrent read operations
+        // Act - Simulate 20 concurrent read operations.
+        // EF Core DbContext is not thread-safe, so each concurrent read uses its own
+        // DbContext / connection to the same SQLite file rather than sharing _context.
         var stopwatch = Stopwatch.StartNew();
         var tasks = Enumerable.Range(1, 20).Select(async _ =>
         {
-            var (pageEvents, _) = await _eventRepository.GetPagedAsync(1, 50);
+            var options = new DbContextOptionsBuilder<AppDbContext>()
+                .UseSqlite($"Data Source={_databasePath}")
+                .Options;
+
+            await using var context = new AppDbContext(options);
+            var repository = new EventRepository(context);
+
+            var (pageEvents, _) = await repository.GetPagedAsync(1, 50);
             return pageEvents.Count();
         });
 

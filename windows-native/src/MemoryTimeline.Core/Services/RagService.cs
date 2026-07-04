@@ -49,7 +49,7 @@ public class RagService : IRagService
                 return new List<SimilarEvent>();
             }
 
-            var queryEmbedding = JsonSerializer.Deserialize<float[]>(sourceEventEmbedding.Embedding);
+            var queryEmbedding = TryDeserializeEmbedding(sourceEventEmbedding.Embedding);
             if (queryEmbedding == null)
             {
                 throw new Exception("Failed to deserialize embedding");
@@ -61,7 +61,9 @@ public class RagService : IRagService
                 .ToListAsync();
 
             var candidateEmbeddings = allEmbeddings
-                .Select(ee => (ee.EventId, JsonSerializer.Deserialize<float[]>(ee.Embedding!)!))
+                .Select(ee => (ee.EventId, Embedding: TryDeserializeEmbedding(ee.Embedding)))
+                .Where(x => x.Embedding != null)
+                .Select(x => (x.EventId, x.Embedding!))
                 .ToList();
 
             // Find K nearest neighbors
@@ -280,7 +282,9 @@ public class RagService : IRagService
                 .ToListAsync();
 
             var candidateEmbeddings = allEmbeddings
-                .Select(ee => (ee.EventId, JsonSerializer.Deserialize<float[]>(ee.Embedding!)!))
+                .Select(ee => (ee.EventId, Embedding: TryDeserializeEmbedding(ee.Embedding)))
+                .Where(x => x.Embedding != null)
+                .Select(x => (x.EventId, x.Embedding!))
                 .ToList();
 
             // Find similar events
@@ -334,6 +338,26 @@ public class RagService : IRagService
     }
 
     #region Private Methods
+
+    /// <summary>
+    /// Safely deserializes a stored embedding, returning null (and logging) on malformed data
+    /// instead of throwing so a single corrupt row cannot abort an entire similarity search.
+    /// </summary>
+    private float[]? TryDeserializeEmbedding(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return null;
+
+        try
+        {
+            return JsonSerializer.Deserialize<float[]>(json);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex, "Failed to deserialize stored embedding; skipping");
+            return null;
+        }
+    }
 
     private async Task<List<CrossReferenceResult>> AnalyzeRelationshipsWithLLMAsync(Event sourceEvent, List<Event> candidates)
     {

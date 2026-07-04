@@ -398,7 +398,10 @@ public class ImportServiceTests : IDisposable
         await File.WriteAllTextAsync(filePath, JsonSerializer.Serialize(importData));
 
         var progressReports = new List<(int percentage, string message)>();
-        var progress = new Progress<(int, string)>(p => progressReports.Add(p));
+        // Use a synchronous IProgress so reports are captured inline (deterministic).
+        // System.Progress<T> reports asynchronously and can run its callbacks after the
+        // assertions, making this test flaky.
+        var progress = new SynchronousProgress<(int, string)>(p => progressReports.Add(p));
 
         // Act
         await _importService.ImportFromJsonAsync(filePath, progress: progress);
@@ -417,5 +420,18 @@ public class ImportServiceTests : IDisposable
         {
             Directory.Delete(_tempDirectory, true);
         }
+    }
+
+    /// <summary>
+    /// An <see cref="IProgress{T}"/> that invokes its handler synchronously on the
+    /// calling thread, making progress-report assertions deterministic in tests.
+    /// </summary>
+    private sealed class SynchronousProgress<T> : IProgress<T>
+    {
+        private readonly Action<T> _handler;
+
+        public SynchronousProgress(Action<T> handler) => _handler = handler;
+
+        public void Report(T value) => _handler(value);
     }
 }
