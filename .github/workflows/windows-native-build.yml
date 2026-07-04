@@ -37,8 +37,28 @@ jobs:
         run: dotnet restore MemoryTimeline.sln
 
       - name: Build (Release | x64)
-        run: dotnet build MemoryTimeline.sln -c Release -p:Platform=x64 --no-restore
+        shell: pwsh
+        run: |
+          dotnet build MemoryTimeline.sln -c Release -p:Platform=x64 --no-restore `
+            -clp:NoSummary -v minimal 2>&1 | Tee-Object -FilePath build.log
+          $code = $LASTEXITCODE
+          # Surface every distinct MSBuild/compiler error line as a GH annotation so
+          # it is readable without downloading auth-gated logs. Dedupe + cap at 30.
+          $errs = Select-String -Path build.log -Pattern ': error ' |
+                  ForEach-Object { $_.Line.Trim() } | Sort-Object -Unique
+          $errs | Select-Object -First 30 | ForEach-Object { "::error::$_" }
+          "### Build errors ($($errs.Count))" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          $errs | ForEach-Object { "- $_" } | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          exit $code
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: windows-native/src/build.log
+          if-no-files-found: ignore
 
       - name: Test (Release | x64)
-        # Build already produced the assemblies; run the xUnit suite.
+        if: success()
         run: dotnet test MemoryTimeline.sln -c Release -p:Platform=x64 --no-build --logger "console;verbosity=detailed"
