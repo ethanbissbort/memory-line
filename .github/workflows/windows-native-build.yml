@@ -1,0 +1,44 @@
+name: Windows Native Build
+
+# Full compile + test of the native Windows (WinUI 3 / .NET 8) implementation.
+# The solution only defines x64/x86/ARM64 platforms (no AnyCPU) and the test
+# project references the WinUI app, so the whole solution is built for x64 on a
+# Windows runner (the WinUI target cannot build on Linux).
+
+on:
+  push:
+    branches: [ claude/multi-agent-code-review-bVmNX ]
+    paths:
+      - 'windows-native/**'
+      - '.github/workflows/windows-native-build.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        working-directory: windows-native/src
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: dotnet --info
+        run: dotnet --info
+
+      - name: Restore
+        run: dotnet restore MemoryTimeline.sln
+
+      - name: Build (Release | x64)
+        run: dotnet build MemoryTimeline.sln -c Release -p:Platform=x64 --no-restore
+
+      - name: Test (Release | x64)
+        # Build already produced the assemblies; run the xUnit suite.
+        run: dotnet test MemoryTimeline.sln -c Release -p:Platform=x64 --no-build --logger "console;verbosity=detailed"
