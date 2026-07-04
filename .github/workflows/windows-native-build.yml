@@ -4,6 +4,12 @@ name: Windows Native Build
 # The solution only defines x64/x86/ARM64 platforms (no AnyCPU) and the test
 # project references the WinUI app, so the whole solution is built for x64 on a
 # Windows runner (the WinUI target cannot build on Linux).
+#
+# WinUI 3 PRI resource generation (MrtCore.PriGen -> ExpandPriContent task) uses a
+# .NET Framework MSBuild task that does NOT load under the `dotnet build` (.NET Core)
+# MSBuild engine, so the build is driven by the full Visual Studio msbuild.exe.
+# The .NET SDK is still pinned to 8.0 via windows-native/src/global.json for the
+# C# compilation.
 
 on:
   push:
@@ -30,20 +36,21 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      - name: Setup MSBuild (Visual Studio)
+        uses: microsoft/setup-msbuild@v2
+
       - name: dotnet --info
         run: dotnet --info
 
-      - name: Restore
-        run: dotnet restore MemoryTimeline.sln
-
-      - name: Build (Release | x64)
+      - name: Build (Release | x64) via VS MSBuild
         shell: pwsh
         run: |
-          dotnet build MemoryTimeline.sln -c Release -p:Platform=x64 --no-restore `
-            -clp:NoSummary -v minimal 2>&1 | Tee-Object -FilePath build.log
+          msbuild MemoryTimeline.sln /t:Restore,Build `
+            /p:Configuration=Release /p:Platform=x64 /m /v:minimal `
+            /clp:NoSummary 2>&1 | Tee-Object -FilePath build.log
           $code = $LASTEXITCODE
-          # Surface every distinct MSBuild/compiler error line as a GH annotation so
-          # it is readable without downloading auth-gated logs. Dedupe + cap at 30.
+          # Surface distinct MSBuild/compiler error lines as GH annotations (readable
+          # without auth-gated logs), plus a job-summary list. Cap at 30.
           $errs = Select-String -Path build.log -Pattern ': error ' |
                   ForEach-Object { $_.Line.Trim() } | Sort-Object -Unique
           $errs | Select-Object -First 30 | ForEach-Object { "::error::$_" }
@@ -61,4 +68,13 @@ jobs:
 
       - name: Test (Release | x64)
         if: success()
-        run: dotnet test MemoryTimeline.sln -c Release -p:Platform=x64 --no-build --logger "console;verbosity=detailed"
+        shell: pwsh
+        run: |
+          # Tests reference the WinUI app, so re-building via `dotnet test` would hit
+          # the same .NET-Core-MSBuild PRI failure. Run VSTest directly on the
+          # already-built test assembly instead.
+          $dll = Get-ChildItem -Recurse -Path MemoryTimeline.Tests/bin/x64/Release `
+                   -Filter MemoryTimeline.Tests.dll | Select-Object -First 1
+          if (-not $dll) { Write-Error "Test assembly not found"; exit 1 }
+          Write-Host "Running tests in $($dll.FullName)"
+          dotnet vstest $dll.FullName --logger:"console;verbosity=normal"
