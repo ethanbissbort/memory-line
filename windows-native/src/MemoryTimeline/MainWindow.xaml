@@ -8,6 +8,10 @@
     Title="Memory Timeline">
 
     <Grid x:Name="RootGrid" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        <Grid.KeyboardAccelerators>
+            <!-- Ctrl+R refreshes the current page in place (timeline refresh, not renavigation) -->
+            <KeyboardAccelerator Key="R" Modifiers="Control" Invoked="Refresh_Invoked"/>
+        </Grid.KeyboardAccelerators>
         <NavigationView
             x:Name="NavigationView"
             IsBackButtonVisible="Auto"
@@ -17,21 +21,9 @@
             SelectionChanged="NavigationView_SelectionChanged">
 
             <NavigationView.MenuItems>
-                <NavigationViewItem Content="Timeline" Tag="Timeline" Icon="Calendar">
-                    <NavigationViewItem.InfoBadge>
-                        <InfoBadge x:Name="TimelineBadge"/>
-                    </NavigationViewItem.InfoBadge>
-                </NavigationViewItem>
-                <NavigationViewItem Content="Queue" Tag="Queue" Icon="Microphone">
-                    <NavigationViewItem.InfoBadge>
-                        <InfoBadge x:Name="QueueBadge"/>
-                    </NavigationViewItem.InfoBadge>
-                </NavigationViewItem>
-                <NavigationViewItem Content="Review" Tag="Review" Icon="Accept">
-                    <NavigationViewItem.InfoBadge>
-                        <InfoBadge x:Name="ReviewBadge"/>
-                    </NavigationViewItem.InfoBadge>
-                </NavigationViewItem>
+                <NavigationViewItem Content="Timeline" Tag="Timeline" Icon="Calendar"/>
+                <NavigationViewItem Content="Queue" Tag="Queue" Icon="Microphone"/>
+                <NavigationViewItem Content="Review" Tag="Review" Icon="Accept"/>
                 <NavigationViewItem Content="Connections" Tag="Connections">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE71B;"/>

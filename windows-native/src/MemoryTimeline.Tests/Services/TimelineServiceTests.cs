@@ -1,11 +1,11 @@
 using FluentAssertions;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MemoryTimeline.Core.Models;
 using MemoryTimeline.Core.Services;
 using MemoryTimeline.Data;
 using MemoryTimeline.Data.Models;
 using MemoryTimeline.Data.Repositories;
+using MemoryTimeline.Tests;
 using Moq;
 using Xunit;
 
@@ -13,7 +13,7 @@ namespace MemoryTimeline.Tests.Services;
 
 public class TimelineServiceTests : IDisposable
 {
-    private readonly AppDbContext _context;
+    private readonly TestDbContextFactory _contextFactory;
     private readonly IEventRepository _eventRepository;
     private readonly IEraRepository _eraRepository;
     private readonly ITimelineService _timelineService;
@@ -21,14 +21,11 @@ public class TimelineServiceTests : IDisposable
 
     public TimelineServiceTests()
     {
-        // Create in-memory database
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseInMemoryDatabase(databaseName: $"TestDb_{Guid.NewGuid()}")
-            .Options;
-
-        _context = new AppDbContext(options);
-        _eventRepository = new EventRepository(_context);
-        _eraRepository = new EraRepository(_context);
+        // Factory over a uniquely named in-memory database; repositories create a
+        // fresh context per operation against the same store.
+        _contextFactory = TestDbContextFactory.CreateInMemory();
+        _eventRepository = new EventRepository(_contextFactory);
+        _eraRepository = new EraRepository(_contextFactory);
         _loggerMock = new Mock<ILogger<TimelineService>>();
         _timelineService = new TimelineService(_eventRepository, _eraRepository, _loggerMock.Object);
     }
@@ -493,7 +490,7 @@ public class TimelineServiceTests : IDisposable
 
     public void Dispose()
     {
-        _context.Database.EnsureDeleted();
-        _context.Dispose();
+        using var context = _contextFactory.CreateDbContext();
+        context.Database.EnsureDeleted();
     }
 }

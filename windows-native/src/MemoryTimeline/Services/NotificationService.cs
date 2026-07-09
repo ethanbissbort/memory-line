@@ -1,3 +1,4 @@
+using MemoryTimeline.Core.Services;
 using Microsoft.Windows.AppNotifications;
 using Microsoft.Windows.AppNotifications.Builder;
 using System;
@@ -8,8 +9,10 @@ namespace MemoryTimeline.Services;
 
 /// <summary>
 /// Windows notification service implementation using Windows App SDK.
+/// Implements the Core <see cref="INotificationService"/> contract so that
+/// Core consumers (e.g. QueueService) and the app share a single abstraction.
 /// </summary>
-public class NotificationService : INotificationService
+public class NotificationService : INotificationService, IDisposable
 {
     private readonly Dictionary<string, Action> _actionCallbacks = new();
     private readonly object _callbackLock = new();

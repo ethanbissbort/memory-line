@@ -31,15 +31,15 @@ public interface ISettingsService
 /// </summary>
 public class SettingsService : ISettingsService
 {
-    private readonly AppDbContext _context;
+    private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly ILogger<SettingsService> _logger;
     private readonly Dictionary<string, string> _cache;
     private bool _cacheInitialized;
     private readonly SemaphoreSlim _cacheLock = new(1, 1);
 
-    public SettingsService(AppDbContext context, ILogger<SettingsService> logger)
+    public SettingsService(IDbContextFactory<AppDbContext> contextFactory, ILogger<SettingsService> logger)
     {
-        _context = context;
+        _contextFactory = contextFactory;
         _logger = logger;
         _cache = new Dictionary<string, string>();
         _cacheInitialized = false;
@@ -86,7 +86,9 @@ public class SettingsService : ISettingsService
         {
             var serializedValue = SerializeValue(value);
 
-            var setting = await _context.AppSettings.FindAsync(key);
+            await using var context = await _contextFactory.CreateDbContextAsync();
+
+            var setting = await context.AppSettings.FindAsync(key);
 
             if (setting != null)
             {
@@ -101,10 +103,10 @@ public class SettingsService : ISettingsService
                     SettingValue = serializedValue,
                     UpdatedAt = DateTime.UtcNow
                 };
-                await _context.AppSettings.AddAsync(setting);
+                await context.AppSettings.AddAsync(setting);
             }
 
-            await _context.SaveChangesAsync();
+            await context.SaveChangesAsync();
 
             // Update cache
             await _cacheLock.WaitAsync();
@@ -159,11 +161,13 @@ public class SettingsService : ISettingsService
     {
         try
         {
-            var setting = await _context.AppSettings.FindAsync(key);
+            await using var context = await _contextFactory.CreateDbContextAsync();
+
+            var setting = await context.AppSettings.FindAsync(key);
             if (setting != null)
             {
-                _context.AppSettings.Remove(setting);
-                await _context.SaveChangesAsync();
+                context.AppSettings.Remove(setting);
+                await context.SaveChangesAsync();
 
                 await _cacheLock.WaitAsync();
                 try
@@ -189,27 +193,27 @@ public class SettingsService : ISettingsService
 
     public async Task<string> GetThemeAsync()
     {
-        return await GetSettingAsync<string>("theme", "dark") ?? "dark";
+        return await GetSettingAsync<string>(SettingKeys.Theme, "dark") ?? "dark";
     }
 
     public async Task SetThemeAsync(string theme)
     {
-        await SetSettingAsync("theme", theme);
+        await SetSettingAsync(SettingKeys.Theme, theme);
     }
 
     public async Task<string> GetDefaultZoomLevelAsync()
     {
-        return await GetSettingAsync<string>("default_zoom_level", "month") ?? "month";
+        return await GetSettingAsync<string>(SettingKeys.DefaultZoomLevel, "month") ?? "month";
     }
 
     public async Task<string> GetLlmProviderAsync()
     {
-        return await GetSettingAsync<string>("llm_provider", "anthropic") ?? "anthropic";
+        return await GetSettingAsync<string>(SettingKeys.LlmProvider, "anthropic") ?? "anthropic";
     }
 
     public async Task<string> GetLlmModelAsync()
     {
-        return await GetSettingAsync<string>("llm_model", "claude-sonnet-4-20250514") ?? "claude-sonnet-4-20250514";
+        return await GetSettingAsync<string>(SettingKeys.LlmModel, "claude-sonnet-4-20250514") ?? "claude-sonnet-4-20250514";
     }
 
     // Private helper methods
@@ -225,7 +229,8 @@ public class SettingsService : ISettingsService
             if (_cacheInitialized)
                 return;
 
-            var settings = await _context.AppSettings.ToListAsync();
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var settings = await context.AppSettings.ToListAsync();
             foreach (var setting in settings)
             {
                 _cache[setting.SettingKey] = setting.SettingValue;

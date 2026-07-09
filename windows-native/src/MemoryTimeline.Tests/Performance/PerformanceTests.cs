@@ -5,6 +5,7 @@ using MemoryTimeline.Core.Services;
 using MemoryTimeline.Data;
 using MemoryTimeline.Data.Models;
 using MemoryTimeline.Data.Repositories;
+using MemoryTimeline.Tests;
 using Moq;
 using System.Diagnostics;
 using Xunit;
@@ -15,10 +16,12 @@ namespace MemoryTimeline.Tests.Performance;
 /// <summary>
 /// Performance tests to ensure the application meets scalability requirements.
 /// Target: Handle 5000+ events with good performance.
+/// Uses a FILE-based temp SQLite database because factory-based repositories open a
+/// fresh connection per operation (a ":memory:" DB would not survive across them).
 /// </summary>
 public class PerformanceTests : IDisposable
 {
-    private readonly AppDbContext _context;
+    private readonly TestDbContextFactory _contextFactory;
     private readonly EventRepository _eventRepository;
     private readonly IEventService _eventService;
     private readonly string _databasePath;
@@ -31,16 +34,16 @@ public class PerformanceTests : IDisposable
         // Create a real SQLite database for performance testing
         _databasePath = Path.Combine(Path.GetTempPath(), $"PerfTest_{Guid.NewGuid()}.db");
 
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlite($"Data Source={_databasePath}")
-            .Options;
+        _contextFactory = TestDbContextFactory.CreateSqliteFile(_databasePath);
 
-        _context = new AppDbContext(options);
-        _context.Database.EnsureCreated();
+        using (var context = _contextFactory.CreateDbContext())
+        {
+            context.Database.EnsureCreated();
+        }
 
-        _eventRepository = new EventRepository(_context);
+        _eventRepository = new EventRepository(_contextFactory);
         var loggerMock = new Mock<ILogger<EventService>>();
-        _eventService = new EventService(_eventRepository, _context, loggerMock.Object);
+        _eventService = new EventService(_eventRepository, _contextFactory, loggerMock.Object);
     }
 
     [Fact]
@@ -211,7 +214,8 @@ public class PerformanceTests : IDisposable
         var beforeMemory = GC.GetTotalMemory(true);
 
         // Load events using AsNoTracking (should use less memory)
-        var results = await _context.Events
+        await using var context = _contextFactory.CreateDbContext();
+        var results = await context.Events
             .AsNoTracking()
             .ToListAsync();
 
@@ -234,19 +238,12 @@ public class PerformanceTests : IDisposable
         await _eventRepository.AddRangeAsync(events);
 
         // Act - Simulate 20 concurrent read operations.
-        // EF Core DbContext is not thread-safe, so each concurrent read uses its own
-        // DbContext / connection to the same SQLite file rather than sharing _context.
+        // The factory-based repository opens its own short-lived DbContext / connection
+        // per operation, so the shared repository instance is safe to use concurrently.
         var stopwatch = Stopwatch.StartNew();
         var tasks = Enumerable.Range(1, 20).Select(async _ =>
         {
-            var options = new DbContextOptionsBuilder<AppDbContext>()
-                .UseSqlite($"Data Source={_databasePath}")
-                .Options;
-
-            await using var context = new AppDbContext(options);
-            var repository = new EventRepository(context);
-
-            var (pageEvents, _) = await repository.GetPagedAsync(1, 50);
+            var (pageEvents, _) = await _eventRepository.GetPagedAsync(1, 50);
             return pageEvents.Count();
         });
 
@@ -314,8 +311,10 @@ public class PerformanceTests : IDisposable
 
     public void Dispose()
     {
-        _context.Database.EnsureDeleted();
-        _context.Dispose();
+        using (var context = _contextFactory.CreateDbContext())
+        {
+            context.Database.EnsureDeleted();
+        }
 
         if (File.Exists(_databasePath))
         {

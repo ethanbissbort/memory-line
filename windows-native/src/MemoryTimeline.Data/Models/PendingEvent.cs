@@ -53,7 +53,7 @@ public class PendingEvent
 
     [Column("category")]
     [MaxLength(50)]
-    public string Category { get; set; } = "Other";
+    public string Category { get; set; } = "other"; // canonical lowercase (matches EventCategory.AllCategories)
 
     [Column("confidence_score")]
     public double ConfidenceScore { get; set; } = 0.0;

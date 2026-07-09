@@ -1,6 +1,8 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.Logging;
+using Microsoft.UI.Dispatching;
 using MemoryTimeline.Core.DTOs;
 using MemoryTimeline.Core.Models;
 using MemoryTimeline.Core.Services;
@@ -18,6 +20,10 @@ public partial class TimelineViewModel : ObservableObject
     private readonly ITimelineService _timelineService;
     private readonly IEventService _eventService;
     private readonly ILogger<TimelineViewModel> _logger;
+
+    // Captured at construction time (the ViewModel is created on the UI thread) so
+    // messenger callbacks arriving from background threads can marshal to the UI thread.
+    private readonly DispatcherQueue? _dispatcherQueue;
 
     [ObservableProperty]
     private TimelineViewport? _viewport;
@@ -69,6 +75,14 @@ public partial class TimelineViewModel : ObservableObject
     [ObservableProperty]
     private string _statusText = "Ready";
 
+    /// <summary>
+    /// User-visible error message. Non-null when the last operation failed;
+    /// surfaced in the UI as an error InfoBar. Cleared (set to null) when a
+    /// new operation starts or the user dismisses the InfoBar.
+    /// </summary>
+    [ObservableProperty]
+    private string? _errorMessage;
+
     [ObservableProperty]
     private int _totalEventCount;
 
@@ -99,6 +113,69 @@ public partial class TimelineViewModel : ObservableObject
         _timelineService = timelineService;
         _eventService = eventService;
         _logger = logger;
+
+        // The ViewModel is constructed on the UI thread; capture its dispatcher so
+        // messages arriving from background threads can be marshalled back.
+        _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
+
+        // React to events created anywhere in the app (Add Event dialog, review
+        // approval, imports) so the timeline updates without renavigation.
+        WeakReferenceMessenger.Default.Register<EventCreatedMessage>(this, static (recipient, message) =>
+        {
+            ((TimelineViewModel)recipient).OnEventCreated(message);
+        });
+    }
+
+    /// <summary>
+    /// Handles an <see cref="EventCreatedMessage"/> from any thread by marshalling
+    /// the viewport reload onto the UI thread.
+    /// </summary>
+    private void OnEventCreated(EventCreatedMessage message)
+    {
+        void Handle() => _ = HandleEventCreatedAsync(message);
+
+        if (_dispatcherQueue == null || _dispatcherQueue.HasThreadAccess)
+        {
+            Handle();
+        }
+        else
+        {
+            _dispatcherQueue.TryEnqueue(Handle);
+        }
+    }
+
+    /// <summary>
+    /// Reloads the viewport after an event was created elsewhere in the app,
+    /// navigating to the event's date when it is outside the current viewport.
+    /// </summary>
+    private async Task HandleEventCreatedAsync(EventCreatedMessage message)
+    {
+        // Our own CRUD paths (CreateEventAsync etc.) set IsLoading and already
+        // reload/navigate themselves; skip to avoid overlapping service calls.
+        if (IsLoading)
+            return;
+
+        try
+        {
+            TotalEventCount = await _eventService.GetTotalEventCountAsync();
+
+            if (Viewport == null)
+                return;
+
+            if (!Viewport.IsDateVisible(message.StartDate))
+            {
+                // The new event is outside the current viewport - navigate to it.
+                await CreateViewportAsync(CurrentZoomLevel, message.StartDate);
+            }
+            else
+            {
+                await LoadEventsForViewportAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error refreshing timeline after event created: {EventId}", message.EventId);
+        }
     }
 
     /// <summary>
@@ -179,6 +256,7 @@ public partial class TimelineViewModel : ObservableObject
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error loading events for viewport");
+            ErrorMessage = $"Could not load events: {ex.Message}";
         }
     }
 
@@ -655,6 +733,7 @@ public partial class TimelineViewModel : ObservableObject
         {
             IsLoading = true;
             StatusText = "Refreshing...";
+            ErrorMessage = null;
 
             TotalEventCount = await _eventService.GetTotalEventCountAsync();
 
@@ -667,6 +746,7 @@ public partial class TimelineViewModel : ObservableObject
             {
                 await LoadEventsForViewportAsync();
                 await LoadErasForViewportAsync();
+                GenerateTimeRulerTicks();
             }
 
             StatusText = $"Refreshed - {Events.Count} events shown";
@@ -675,6 +755,7 @@ public partial class TimelineViewModel : ObservableObject
         {
             _logger.LogError(ex, "Error refreshing timeline");
             StatusText = "Error refreshing";
+            ErrorMessage = $"Could not refresh the timeline: {ex.Message}";
         }
         finally
         {
@@ -735,27 +816,41 @@ public partial class TimelineViewModel : ObservableObject
         string? category,
         string? location)
     {
-        if (IsLoading) return;
+        // Don't silently return when busy: the Add Event dialog awaits this call
+        // and would close as if the save succeeded. Throw so it stays open.
+        if (IsLoading)
+            throw new InvalidOperationException("The timeline is busy with another operation. Please try again.");
 
         try
         {
             IsLoading = true;
             StatusText = "Creating event...";
+            ErrorMessage = null;
 
             var eventData = new Event
             {
                 Title = title,
                 StartDate = date,
                 Description = description,
-                Category = category ?? EventCategory.Other,
+                // Categories are canonically lowercase (EventCategory constants).
+                Category = category?.ToLowerInvariant() ?? EventCategory.Other,
                 Location = location
             };
 
             await _eventService.CreateEventAsync(eventData);
             TotalEventCount = await _eventService.GetTotalEventCountAsync();
 
-            // Refresh the timeline to show the new event
-            await LoadEventsForViewportAsync();
+            if (Viewport != null && !Viewport.IsDateVisible(date))
+            {
+                // The new event is outside the current viewport - navigate to it
+                // so the user can see what they just created.
+                await CreateViewportAsync(CurrentZoomLevel, date);
+            }
+            else
+            {
+                // Refresh the timeline to show the new event
+                await LoadEventsForViewportAsync();
+            }
 
             StatusText = $"Event '{title}' created";
             _logger.LogInformation("Created event: {Title} on {Date}", title, date);
@@ -764,6 +859,11 @@ public partial class TimelineViewModel : ObservableObject
         {
             _logger.LogError(ex, "Error creating event: {Title}", title);
             StatusText = $"Error creating event: {ex.Message}";
+            ErrorMessage = $"Could not create event '{title}': {ex.Message}";
+
+            // Rethrow so callers (e.g. the Add Event dialog) can keep the dialog
+            // open and show the error to the user instead of silently closing.
+            throw;
         }
         finally
         {
@@ -782,24 +882,31 @@ public partial class TimelineViewModel : ObservableObject
         string? category,
         string? location)
     {
-        if (IsLoading || string.IsNullOrEmpty(eventId)) return;
+        if (string.IsNullOrEmpty(eventId)) return;
+
+        // Don't silently return when busy: the Edit Event dialog awaits this call
+        // and would close as if the save succeeded. Throw so it stays open.
+        if (IsLoading)
+            throw new InvalidOperationException("The timeline is busy with another operation. Please try again.");
 
         try
         {
             IsLoading = true;
             StatusText = "Updating event...";
+            ErrorMessage = null;
 
             var existingEvent = await _eventService.GetEventByIdAsync(eventId);
             if (existingEvent == null)
             {
                 StatusText = "Event not found";
-                return;
+                throw new InvalidOperationException("The event could not be found. It may have been deleted.");
             }
 
             existingEvent.Title = title;
             existingEvent.StartDate = date;
             existingEvent.Description = description;
-            existingEvent.Category = category ?? EventCategory.Other;
+            // Categories are canonically lowercase (EventCategory constants).
+            existingEvent.Category = category?.ToLowerInvariant() ?? EventCategory.Other;
             existingEvent.Location = location;
 
             await _eventService.UpdateEventAsync(existingEvent);
@@ -820,6 +927,11 @@ public partial class TimelineViewModel : ObservableObject
         {
             _logger.LogError(ex, "Error updating event: {EventId}", eventId);
             StatusText = "Error updating event";
+            ErrorMessage = $"Could not update event '{title}': {ex.Message}";
+
+            // Rethrow so callers (e.g. the Edit Event dialog) can keep the dialog
+            // open and show the error to the user instead of silently closing.
+            throw;
         }
         finally
         {

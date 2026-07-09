@@ -68,12 +68,12 @@ public enum HeatmapType
 /// </summary>
 public class AnalyticsService : IAnalyticsService
 {
-    private readonly AppDbContext _dbContext;
+    private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly ILogger<AnalyticsService> _logger;
 
-    public AnalyticsService(AppDbContext dbContext, ILogger<AnalyticsService> logger)
+    public AnalyticsService(IDbContextFactory<AppDbContext> contextFactory, ILogger<AnalyticsService> logger)
     {
-        _dbContext = dbContext;
+        _contextFactory = contextFactory;
         _logger = logger;
     }
 
@@ -85,20 +85,22 @@ public class AnalyticsService : IAnalyticsService
 
         try
         {
-            // Overview statistics
-            analytics.TotalEvents = await _dbContext.Events.CountAsync();
-            analytics.TotalEras = await _dbContext.Eras.CountAsync();
-            analytics.TotalTags = await _dbContext.Tags.CountAsync();
-            analytics.TotalPeople = await _dbContext.People.CountAsync();
-            analytics.TotalLocations = await _dbContext.Locations.CountAsync();
+            await using var dbContext = await _contextFactory.CreateDbContextAsync();
 
-            analytics.EventsWithAudio = await _dbContext.Events
+            // Overview statistics
+            analytics.TotalEvents = await dbContext.Events.CountAsync();
+            analytics.TotalEras = await dbContext.Eras.CountAsync();
+            analytics.TotalTags = await dbContext.Tags.CountAsync();
+            analytics.TotalPeople = await dbContext.People.CountAsync();
+            analytics.TotalLocations = await dbContext.Locations.CountAsync();
+
+            analytics.EventsWithAudio = await dbContext.Events
                 .CountAsync(e => e.AudioFilePath != null && e.AudioFilePath != "");
-            analytics.EventsWithTranscript = await _dbContext.Events
+            analytics.EventsWithTranscript = await dbContext.Events
                 .CountAsync(e => e.RawTranscript != null && e.RawTranscript != "");
 
             // Date range
-            var dates = await _dbContext.Events
+            var dates = await dbContext.Events
                 .Select(e => e.StartDate)
                 .ToListAsync();
 
@@ -136,7 +138,9 @@ public class AnalyticsService : IAnalyticsService
 
         try
         {
-            var categoryCounts = await _dbContext.Events
+            await using var dbContext = await _contextFactory.CreateDbContextAsync();
+
+            var categoryCounts = await dbContext.Events
                 .Where(e => e.Category != null)
                 .GroupBy(e => e.Category!)
                 .Select(g => new { Category = g.Key, Count = g.Count() })
@@ -170,7 +174,9 @@ public class AnalyticsService : IAnalyticsService
 
         try
         {
-            var events = await _dbContext.Events
+            await using var dbContext = await _contextFactory.CreateDbContextAsync();
+
+            var events = await dbContext.Events
                 .Select(e => e.StartDate)
                 .ToListAsync();
 
@@ -225,10 +231,12 @@ public class AnalyticsService : IAnalyticsService
 
         try
         {
-            var tagCounts = await _dbContext.EventTags
-                .Include(et => et.Tag)
-                .GroupBy(et => new { et.TagId, et.Tag.Name, et.Tag.Color })
-                .Select(g => new { g.Key.TagId, g.Key.Name, g.Key.Color, Count = g.Count() })
+            await using var dbContext = await _contextFactory.CreateDbContextAsync();
+
+            // Group by the mapped TagName column, not the [NotMapped] Name alias
+            var tagCounts = await dbContext.EventTags
+                .GroupBy(et => new { et.TagId, et.Tag.TagName, et.Tag.Color })
+                .Select(g => new { g.Key.TagId, Name = g.Key.TagName, g.Key.Color, Count = g.Count() })
                 .OrderByDescending(x => x.Count)
                 .Take(maxTags)
                 .ToListAsync();
@@ -275,8 +283,10 @@ public class AnalyticsService : IAnalyticsService
 
         try
         {
+            await using var dbContext = await _contextFactory.CreateDbContextAsync();
+
             // Get all people with their event counts
-            var people = await _dbContext.People
+            var people = await dbContext.People
                 .Include(p => p.EventPeople)
                 .ToListAsync();
 
@@ -355,7 +365,9 @@ public class AnalyticsService : IAnalyticsService
 
         try
         {
-            var events = await _dbContext.Events
+            await using var dbContext = await _contextFactory.CreateDbContextAsync();
+
+            var events = await dbContext.Events
                 .Select(e => e.StartDate)
                 .ToListAsync();
 

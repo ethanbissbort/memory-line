@@ -108,6 +108,18 @@
                               Style="{StaticResource CaptionTextBlockStyle}"
                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 </StackPanel>
+
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Embedding API Key (OpenAI)"
+                              Style="{StaticResource BodyTextBlockStyle}"/>
+                    <PasswordBox x:Name="EmbeddingApiKeyBox"
+                                Password="{x:Bind ViewModel.EmbeddingApiKey, Mode=TwoWay}"
+                                PlaceholderText="Enter OpenAI API key for embeddings"
+                                HorizontalAlignment="Stretch"/>
+                    <TextBlock Text="Required for Connections: similar events, cross-references, and tag suggestions"
+                              Style="{StaticResource CaptionTextBlockStyle}"
+                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
             </StackPanel>
 
             <!-- Audio Section -->

@@ -16,7 +16,6 @@ public class OpenAIEmbeddingService : IEmbeddingService
     private readonly SemaphoreSlim _initLock = new(1, 1);
     private string _apiKey = string.Empty;
     private string _model = DefaultModel;
-    private bool _initialized;
 
     private const string OpenAIApiUrl = "https://api.openai.com/v1/embeddings";
     private const string DefaultModel = "text-embedding-3-small"; // 1536 dimensions
@@ -40,33 +39,52 @@ public class OpenAIEmbeddingService : IEmbeddingService
     }
 
     /// <summary>
-    /// Lazily loads the API key and model from settings and configures the HttpClient.
-    /// Guarded so initialization runs exactly once.
+    /// Loads the API key and model from settings and configures the HttpClient.
+    /// Re-reads settings on every call (the settings service caches in memory,
+    /// so this is cheap) and reconfigures when the key or model changed — the
+    /// user can therefore fix the embedding key in Settings without restarting.
+    /// Keys are read via <see cref="SettingKeys"/> so the Settings UI writer and
+    /// this reader can never drift apart again.
     /// </summary>
     private async Task EnsureInitializedAsync()
     {
-        if (_initialized)
+        var apiKey = await _settingsService.GetSettingAsync<string>(SettingKeys.EmbeddingApiKey, string.Empty).ConfigureAwait(false) ?? string.Empty;
+        var model = await _settingsService.GetSettingAsync<string>(SettingKeys.EmbeddingModel, DefaultModel).ConfigureAwait(false) ?? DefaultModel;
+
+        if (apiKey == _apiKey && model == _model)
             return;
 
         await _initLock.WaitAsync().ConfigureAwait(false);
         try
         {
-            if (_initialized)
-                return;
+            _apiKey = apiKey;
+            _model = string.IsNullOrWhiteSpace(model) ? DefaultModel : model;
 
-            _apiKey = await _settingsService.GetSettingAsync<string>("OpenAIApiKey", string.Empty).ConfigureAwait(false) ?? string.Empty;
-            _model = await _settingsService.GetSettingAsync<string>("OpenAIEmbeddingModel", DefaultModel).ConfigureAwait(false) ?? DefaultModel;
-
-            if (!string.IsNullOrWhiteSpace(_apiKey))
-            {
-                _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
-            }
-
-            _initialized = true;
+            _httpClient.DefaultRequestHeaders.Authorization = string.IsNullOrWhiteSpace(_apiKey)
+                ? null
+                : new AuthenticationHeaderValue("Bearer", _apiKey);
         }
         finally
         {
             _initLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Returns true when an embedding API key is configured. Lets the
+    /// Connections UI show a call-to-action instead of failing silently.
+    /// </summary>
+    public async Task<bool> IsAvailableAsync()
+    {
+        try
+        {
+            var apiKey = await _settingsService.GetSettingAsync<string>(SettingKeys.EmbeddingApiKey, string.Empty).ConfigureAwait(false);
+            return !string.IsNullOrWhiteSpace(apiKey);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error checking embedding service availability");
+            return false;
         }
     }
 
@@ -90,7 +108,7 @@ public class OpenAIEmbeddingService : IEmbeddingService
 
             if (string.IsNullOrWhiteSpace(_apiKey))
             {
-                throw new InvalidOperationException("OpenAI API key not configured");
+                throw new ConfigurationException("Embedding API key not configured — add it in Settings");
             }
 
             var textList = texts.ToList();

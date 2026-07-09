@@ -38,6 +38,9 @@ public partial class SettingsViewModel : ObservableObject
     private string _apiKey = string.Empty;
 
     [ObservableProperty]
+    private string _embeddingApiKey = string.Empty;
+
+    [ObservableProperty]
     private int _audioSampleRate = 16000;
 
     [ObservableProperty]
@@ -104,8 +107,15 @@ public partial class SettingsViewModel : ObservableObject
                 "solarized-dark" => "Solarized Dark",
                 _ => "System"
             };
-            SelectedZoomLevel = await _settingsService.GetDefaultZoomLevelAsync();
-            LlmProvider = await _settingsService.GetLlmProviderAsync();
+            // Stored values are canonical lowercase ("month", "anthropic");
+            // normalize to the Title-case display values used by the ComboBoxes
+            // so the selection is not blank on load.
+            var storedZoomLevel = await _settingsService.GetDefaultZoomLevelAsync();
+            SelectedZoomLevel = ToDisplayOption(storedZoomLevel, ZoomLevelOptions, "Month");
+
+            var storedProvider = await _settingsService.GetLlmProviderAsync();
+            LlmProvider = ToDisplayOption(storedProvider, LlmProviderOptions, "Anthropic");
+
             LlmModel = await _settingsService.GetLlmModelAsync();
 
             // Load audio settings
@@ -115,8 +125,12 @@ public partial class SettingsViewModel : ObservableObject
             AudioBitsPerSample = bitsPerSample;
 
             // Load API key (masked)
-            var apiKey = await _settingsService.GetSettingAsync<string>("ApiKey", string.Empty);
+            var apiKey = await _settingsService.GetSettingAsync<string>(SettingKeys.AnthropicApiKey, string.Empty);
             ApiKey = !string.IsNullOrEmpty(apiKey) ? "••••••••" : string.Empty;
+
+            // Load embedding API key (masked)
+            var embeddingApiKey = await _settingsService.GetSettingAsync<string>(SettingKeys.EmbeddingApiKey, string.Empty);
+            EmbeddingApiKey = !string.IsNullOrEmpty(embeddingApiKey) ? "••••••••" : string.Empty;
 
             StatusMessage = "Settings loaded";
         }
@@ -154,12 +168,12 @@ public partial class SettingsViewModel : ObservableObject
                 _ => AppTheme.System
             });
 
-            // Save zoom level
-            await _settingsService.SetSettingAsync("DefaultZoomLevel", SelectedZoomLevel);
+            // Save zoom level (canonical lowercase to match readers/seeds, e.g. "month")
+            await _settingsService.SetSettingAsync(SettingKeys.DefaultZoomLevel, SelectedZoomLevel.ToLowerInvariant());
 
-            // Save LLM settings
-            await _settingsService.SetSettingAsync("LlmProvider", LlmProvider);
-            await _settingsService.SetSettingAsync("LlmModel", LlmModel);
+            // Save LLM settings (canonical lowercase provider, e.g. "anthropic")
+            await _settingsService.SetSettingAsync(SettingKeys.LlmProvider, LlmProvider.ToLowerInvariant());
+            await _settingsService.SetSettingAsync(SettingKeys.LlmModel, LlmModel);
 
             // Save audio settings
             await _settingsService.SetSettingAsync("AudioSampleRate", AudioSampleRate);
@@ -168,7 +182,13 @@ public partial class SettingsViewModel : ObservableObject
             // Save API key (only if changed)
             if (!string.IsNullOrEmpty(ApiKey) && ApiKey != "••••••••")
             {
-                await _settingsService.SetSettingAsync("ApiKey", ApiKey);
+                await _settingsService.SetSettingAsync(SettingKeys.AnthropicApiKey, ApiKey);
+            }
+
+            // Save embedding API key (only if changed)
+            if (!string.IsNullOrEmpty(EmbeddingApiKey) && EmbeddingApiKey != "••••••••")
+            {
+                await _settingsService.SetSettingAsync(SettingKeys.EmbeddingApiKey, EmbeddingApiKey);
             }
 
             StatusMessage = "Settings saved successfully";
@@ -198,6 +218,7 @@ public partial class SettingsViewModel : ObservableObject
             AudioSampleRate = 16000;
             AudioBitsPerSample = 16;
             ApiKey = string.Empty;
+            EmbeddingApiKey = string.Empty;
 
             await SaveSettingsAsync();
             StatusMessage = "Settings reset to defaults";
@@ -429,6 +450,28 @@ public partial class SettingsViewModel : ObservableObject
     }
 
     #endregion
+
+    /// <summary>
+    /// Maps a canonical (lowercase) stored value to the matching Title-case
+    /// display option so ComboBox selection is never blank on load.
+    /// Falls back to simple first-letter capitalization, then to the default.
+    /// </summary>
+    private static string ToDisplayOption(string? storedValue, List<string> options, string defaultOption)
+    {
+        if (string.IsNullOrWhiteSpace(storedValue))
+        {
+            return defaultOption;
+        }
+
+        var match = options.FirstOrDefault(o =>
+            string.Equals(o, storedValue, StringComparison.OrdinalIgnoreCase));
+        if (match != null)
+        {
+            return match;
+        }
+
+        return char.ToUpper(storedValue[0]) + storedValue[1..];
+    }
 
     partial void OnSelectedThemeChanged(string value)
     {

@@ -5,28 +5,33 @@ namespace MemoryTimeline.Data.Repositories;
 
 /// <summary>
 /// Repository implementation for Person entity.
+/// Creates a short-lived <see cref="AppDbContext"/> per operation via
+/// <see cref="IDbContextFactory{TContext}"/> so operations are thread-safe
+/// and never share change-tracker state.
 /// </summary>
 public class PersonRepository : IPersonRepository
 {
-    private readonly AppDbContext _context;
+    private readonly IDbContextFactory<AppDbContext> _contextFactory;
 
-    public PersonRepository(AppDbContext context)
+    public PersonRepository(IDbContextFactory<AppDbContext> contextFactory)
     {
-        _context = context;
+        _contextFactory = contextFactory;
     }
 
     #region IRepository<Person> Implementation
 
     public async Task<Person?> GetByIdAsync(string id)
     {
-        return await _context.People
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.People
             .Include(p => p.EventPeople)
             .FirstOrDefaultAsync(p => p.PersonId == id);
     }
 
     public async Task<IEnumerable<Person>> GetAllAsync()
     {
-        return await _context.People
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.People
             .AsNoTracking()
             .OrderBy(p => p.Name)
             .ToListAsync();
@@ -34,50 +39,60 @@ public class PersonRepository : IPersonRepository
 
     public async Task<Person> AddAsync(Person entity)
     {
-        _context.People.Add(entity);
-        await _context.SaveChangesAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        context.People.Add(entity);
+        await context.SaveChangesAsync();
         return entity;
     }
 
     public async Task UpdateAsync(Person entity)
     {
-        _context.People.Update(entity);
-        await _context.SaveChangesAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        // Entity is detached; Update attaches it and marks it Modified.
+        context.People.Update(entity);
+        await context.SaveChangesAsync();
     }
 
     public async Task DeleteAsync(Person entity)
     {
-        _context.People.Remove(entity);
-        await _context.SaveChangesAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        // Remove attaches the detached entity and marks it Deleted.
+        context.People.Remove(entity);
+        await context.SaveChangesAsync();
     }
 
     public async Task AddRangeAsync(IEnumerable<Person> entities)
     {
-        _context.People.AddRange(entities);
-        await _context.SaveChangesAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        context.People.AddRange(entities);
+        await context.SaveChangesAsync();
     }
 
     public async Task DeleteRangeAsync(IEnumerable<Person> entities)
     {
-        _context.People.RemoveRange(entities);
-        await _context.SaveChangesAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        context.People.RemoveRange(entities);
+        await context.SaveChangesAsync();
     }
 
     public async Task<bool> ExistsAsync(System.Linq.Expressions.Expression<Func<Person, bool>> predicate)
     {
-        return await _context.People.AnyAsync(predicate);
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.People.AnyAsync(predicate);
     }
 
     public async Task<int> CountAsync(System.Linq.Expressions.Expression<Func<Person, bool>>? predicate = null)
     {
+        await using var context = await _contextFactory.CreateDbContextAsync();
         return predicate == null
-            ? await _context.People.CountAsync()
-            : await _context.People.CountAsync(predicate);
+            ? await context.People.CountAsync()
+            : await context.People.CountAsync(predicate);
     }
 
     public async Task<IEnumerable<Person>> FindAsync(System.Linq.Expressions.Expression<Func<Person, bool>> predicate)
     {
-        return await _context.People.Where(predicate).ToListAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.People.AsNoTracking().Where(predicate).ToListAsync();
     }
 
     #endregion
@@ -86,14 +101,16 @@ public class PersonRepository : IPersonRepository
 
     public async Task<Person?> GetByNameAsync(string name)
     {
-        return await _context.People
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.People
             .Include(p => p.EventPeople)
             .FirstOrDefaultAsync(p => p.Name == name);
     }
 
     public async Task<IEnumerable<Person>> GetOrderedByNameAsync()
     {
-        return await _context.People
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.People
             .AsNoTracking()
             .OrderBy(p => p.Name)
             .ToListAsync();
@@ -101,7 +118,8 @@ public class PersonRepository : IPersonRepository
 
     public async Task<IEnumerable<Person>> SearchByNameAsync(string searchTerm)
     {
-        return await _context.People
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.People
             .AsNoTracking()
             .Where(p => EF.Functions.Like(p.Name, $"%{searchTerm}%"))
             .OrderBy(p => p.Name)
@@ -110,7 +128,8 @@ public class PersonRepository : IPersonRepository
 
     public async Task<IEnumerable<Person>> GetPeopleForEventAsync(string eventId)
     {
-        return await _context.People
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.People
             .AsNoTracking()
             .Where(p => p.EventPeople.Any(ep => ep.EventId == eventId))
             .OrderBy(p => p.Name)
@@ -119,7 +138,8 @@ public class PersonRepository : IPersonRepository
 
     public async Task<int> GetEventCountForPersonAsync(string personId)
     {
-        return await _context.EventPeople
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.EventPeople
             .CountAsync(ep => ep.PersonId == personId);
     }
 

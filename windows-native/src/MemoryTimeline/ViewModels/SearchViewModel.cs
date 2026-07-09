@@ -13,9 +13,24 @@ namespace MemoryTimeline.ViewModels;
 /// </summary>
 public partial class SearchViewModel : ObservableObject
 {
+    private const int AutocompleteDebounceMilliseconds = 300;
+
     private readonly IAdvancedSearchService _searchService;
     private readonly IEventService _eventService;
     private readonly ILogger<SearchViewModel> _logger;
+
+    /// <summary>
+    /// Serializes all VM-initiated service calls (search, autocomplete, facets,
+    /// saved-search CRUD, event update/delete) so a late autocomplete load and
+    /// any other operation can never overlap from this ViewModel.
+    /// </summary>
+    private readonly SemaphoreSlim _serviceLock = new(1, 1);
+
+    /// <summary>
+    /// Cancellation for the in-flight (or debouncing) autocomplete request.
+    /// Cancelled and recreated on every user keystroke.
+    /// </summary>
+    private CancellationTokenSource? _suggestionsCts;
 
     #region Observable Properties
 
@@ -24,7 +39,58 @@ public partial class SearchViewModel : ObservableObject
 
     partial void OnSearchTermChanged(string value)
     {
-        _ = LoadAutocompleteSuggestionsAsync();
+        // Autocomplete loads are triggered from the view's TextChanged handler
+        // (user input only) — see OnSearchTermUserInput. Programmatic changes
+        // (ApplyFilter, ClearFilters, suggestion selection) must not fire them.
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            CancelPendingSuggestions();
+            AutocompleteSuggestions.Clear();
+            ShowAutocompleteSuggestions = false;
+        }
+    }
+
+    /// <summary>
+    /// Called by the view when the search box text changes due to user input.
+    /// Debounces ~300ms and cancels any prior pending autocomplete load.
+    /// </summary>
+    public void OnSearchTermUserInput()
+    {
+        CancelPendingSuggestions();
+
+        if (string.IsNullOrWhiteSpace(SearchTerm))
+        {
+            AutocompleteSuggestions.Clear();
+            ShowAutocompleteSuggestions = false;
+            return;
+        }
+
+        _suggestionsCts = new CancellationTokenSource();
+        _ = DebouncedLoadSuggestionsAsync(_suggestionsCts.Token);
+    }
+
+    private void CancelPendingSuggestions()
+    {
+        _suggestionsCts?.Cancel();
+        _suggestionsCts?.Dispose();
+        _suggestionsCts = null;
+    }
+
+    private async Task DebouncedLoadSuggestionsAsync(CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(AutocompleteDebounceMilliseconds, token);
+        }
+        catch (TaskCanceledException)
+        {
+            return; // Superseded by a newer keystroke.
+        }
+
+        if (token.IsCancellationRequested)
+            return;
+
+        await LoadAutocompleteSuggestionsAsync(token);
     }
 
     [ObservableProperty]
@@ -50,6 +116,20 @@ public partial class SearchViewModel : ObservableObject
 
     [ObservableProperty]
     private string _statusMessage = string.Empty;
+
+    /// <summary>
+    /// Non-empty when the last search failed; surfaced via an error InfoBar.
+    /// Cleared on the next successful search.
+    /// </summary>
+    [ObservableProperty]
+    private string _errorMessage = string.Empty;
+
+    partial void OnErrorMessageChanged(string value) => OnPropertyChanged(nameof(HasError));
+
+    /// <summary>
+    /// True when <see cref="ErrorMessage"/> is set; drives the error InfoBar's IsOpen.
+    /// </summary>
+    public bool HasError => !string.IsNullOrEmpty(ErrorMessage);
 
     [ObservableProperty]
     private int _totalResults;
@@ -168,7 +248,7 @@ public partial class SearchViewModel : ObservableObject
             StatusMessage = "Loading...";
 
             // Load facets for empty filter
-            Facets = await _searchService.GetFacetsAsync();
+            Facets = await RunSerializedAsync(() => _searchService.GetFacetsAsync());
 
             // Load saved searches
             await LoadSavedSearchesAsync();
@@ -198,10 +278,12 @@ public partial class SearchViewModel : ObservableObject
         {
             IsLoading = true;
             ShowAutocompleteSuggestions = false;
+            CancelPendingSuggestions();
             StatusMessage = "Searching...";
 
             var filter = BuildSearchFilter();
-            var results = await _searchService.SearchAsync(filter);
+
+            var results = await RunSerializedAsync(() => _searchService.SearchAsync(filter));
 
             SearchResults.Clear();
             foreach (var evt in results.Events)
@@ -214,6 +296,7 @@ public partial class SearchViewModel : ObservableObject
             SearchDuration = results.SearchDuration;
             Facets = results.Facets;
 
+            ErrorMessage = string.Empty;
             StatusMessage = TotalResults > 0
                 ? $"Found {TotalResults} results in {SearchDuration.TotalMilliseconds:F0}ms"
                 : "No results found";
@@ -225,7 +308,8 @@ public partial class SearchViewModel : ObservableObject
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error executing search");
-            StatusMessage = "Search error";
+            StatusMessage = $"Search error: {ex.Message}";
+            ErrorMessage = ex.Message;
         }
         finally
         {
@@ -467,7 +551,7 @@ public partial class SearchViewModel : ObservableObject
         try
         {
             var filter = BuildSearchFilter();
-            await _searchService.SaveSearchAsync(SaveSearchName, filter, SaveSearchAsFavorite);
+            await RunSerializedAsync(() => _searchService.SaveSearchAsync(SaveSearchName, filter, SaveSearchAsFavorite));
 
             ShowSaveSearchDialog = false;
             await LoadSavedSearchesAsync();
@@ -501,7 +585,7 @@ public partial class SearchViewModel : ObservableObject
             var filter = _searchService.ConvertToFilter(savedSearch);
             ApplyFilter(filter);
 
-            await _searchService.MarkSearchAsUsedAsync(savedSearch.SavedSearchId);
+            await RunSerializedAsync(() => _searchService.MarkSearchAsUsedAsync(savedSearch.SavedSearchId));
             await SearchAsync();
         }
         catch (Exception ex)
@@ -519,7 +603,7 @@ public partial class SearchViewModel : ObservableObject
     {
         try
         {
-            await _searchService.DeleteSavedSearchAsync(savedSearch.SavedSearchId);
+            await RunSerializedAsync(() => _searchService.DeleteSavedSearchAsync(savedSearch.SavedSearchId));
             await LoadSavedSearchesAsync();
             StatusMessage = "Saved search deleted";
         }
@@ -539,7 +623,7 @@ public partial class SearchViewModel : ObservableObject
         try
         {
             savedSearch.IsFavorite = !savedSearch.IsFavorite;
-            await _searchService.UpdateSavedSearchAsync(savedSearch);
+            await RunSerializedAsync(() => _searchService.UpdateSavedSearchAsync(savedSearch));
             await LoadSavedSearchesAsync();
         }
         catch (Exception ex)
@@ -562,14 +646,13 @@ public partial class SearchViewModel : ObservableObject
     /// </summary>
     public async Task UpdateEventAsync(Event evt)
     {
+        var succeeded = false;
         try
         {
             IsLoading = true;
-            await _eventService.UpdateEventAsync(evt);
+            await RunSerializedAsync(() => _eventService.UpdateEventAsync(evt));
             StatusMessage = "Event updated successfully";
-
-            // Refresh search results
-            await SearchAsync();
+            succeeded = true;
         }
         catch (Exception ex)
         {
@@ -578,7 +661,14 @@ public partial class SearchViewModel : ObservableObject
         }
         finally
         {
+            // Must be reset before the refresh: SearchAsync no-ops while IsLoading.
             IsLoading = false;
+        }
+
+        if (succeeded)
+        {
+            // Refresh search results
+            await SearchAsync();
         }
     }
 
@@ -587,14 +677,13 @@ public partial class SearchViewModel : ObservableObject
     /// </summary>
     public async Task DeleteEventAsync(string eventId)
     {
+        var succeeded = false;
         try
         {
             IsLoading = true;
-            await _eventService.DeleteEventAsync(eventId);
+            await RunSerializedAsync(() => _eventService.DeleteEventAsync(eventId));
             StatusMessage = "Event deleted successfully";
-
-            // Refresh search results
-            await SearchAsync();
+            succeeded = true;
         }
         catch (Exception ex)
         {
@@ -603,15 +692,54 @@ public partial class SearchViewModel : ObservableObject
         }
         finally
         {
+            // Must be reset before the refresh: SearchAsync no-ops while IsLoading.
             IsLoading = false;
+        }
+
+        if (succeeded)
+        {
+            // Refresh search results
+            await SearchAsync();
         }
     }
 
     #region Private Methods
 
-    private async Task LoadAutocompleteSuggestionsAsync()
+    /// <summary>
+    /// Runs a single service call while holding <see cref="_serviceLock"/>.
+    /// Never call while the lock is already held (it is not reentrant).
+    /// </summary>
+    private async Task<T> RunSerializedAsync<T>(Func<Task<T>> serviceCall)
     {
-        if (string.IsNullOrWhiteSpace(SearchTerm) || SearchTerm.Length < 2)
+        await _serviceLock.WaitAsync();
+        try
+        {
+            return await serviceCall();
+        }
+        finally
+        {
+            _serviceLock.Release();
+        }
+    }
+
+    /// <inheritdoc cref="RunSerializedAsync{T}(Func{Task{T}})"/>
+    private async Task RunSerializedAsync(Func<Task> serviceCall)
+    {
+        await _serviceLock.WaitAsync();
+        try
+        {
+            await serviceCall();
+        }
+        finally
+        {
+            _serviceLock.Release();
+        }
+    }
+
+    private async Task LoadAutocompleteSuggestionsAsync(CancellationToken token)
+    {
+        var term = SearchTerm;
+        if (string.IsNullOrWhiteSpace(term) || term.Length < 2)
         {
             AutocompleteSuggestions.Clear();
             ShowAutocompleteSuggestions = false;
@@ -620,13 +748,35 @@ public partial class SearchViewModel : ObservableObject
 
         try
         {
-            var suggestions = await _searchService.GetAutocompleteSuggestionsAsync(SearchTerm);
+            // The service signature takes no token; cancellation gates whether
+            // we call at all and whether we apply the results.
+            await _serviceLock.WaitAsync(token);
+            List<AutocompleteSuggestion> suggestions;
+            try
+            {
+                if (token.IsCancellationRequested)
+                    return;
+
+                suggestions = await _searchService.GetAutocompleteSuggestionsAsync(term);
+            }
+            finally
+            {
+                _serviceLock.Release();
+            }
+
+            if (token.IsCancellationRequested)
+                return;
+
             AutocompleteSuggestions.Clear();
             foreach (var suggestion in suggestions)
             {
                 AutocompleteSuggestions.Add(suggestion);
             }
             ShowAutocompleteSuggestions = suggestions.Any();
+        }
+        catch (OperationCanceledException)
+        {
+            // Superseded by a newer keystroke or an explicit search — ignore.
         }
         catch (Exception ex)
         {
@@ -638,14 +788,14 @@ public partial class SearchViewModel : ObservableObject
     {
         try
         {
-            var all = await _searchService.GetAllSavedSearchesAsync();
+            var all = await RunSerializedAsync(() => _searchService.GetAllSavedSearchesAsync());
             SavedSearches.Clear();
             foreach (var search in all)
             {
                 SavedSearches.Add(search);
             }
 
-            var recent = await _searchService.GetRecentSavedSearchesAsync(5);
+            var recent = await RunSerializedAsync(() => _searchService.GetRecentSavedSearchesAsync(5));
             RecentSearches.Clear();
             foreach (var search in recent)
             {

@@ -1,5 +1,7 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using MemoryTimeline.Core.Services;
@@ -76,53 +78,58 @@ public partial class App : Application
             _host = Host.CreateDefaultBuilder()
                 .ConfigureServices((context, services) =>
                 {
-                    // Register DbContext
-                    services.AddDbContext<AppDbContext>();
+                    // Database access goes through a context factory: every operation opens a
+                    // short-lived AppDbContext, so no context is ever shared across features
+                    // or threads (the audit's "captive DbContext" fix). Connection config
+                    // lives in AppDbContext.OnConfiguring.
+                    services.AddDbContextFactory<AppDbContext>();
 
-                    // Register repositories
-                    services.AddScoped<IEventRepository, EventRepository>();
-                    services.AddScoped<IEraRepository, EraRepository>();
-                    services.AddScoped<IEraCategoryRepository, EraCategoryRepository>();
-                    services.AddScoped<IMilestoneRepository, MilestoneRepository>();
-                    services.AddScoped<IRecordingQueueRepository, RecordingQueueRepository>();
-                    services.AddScoped<ITagRepository, TagRepository>();
-                    services.AddScoped<IPersonRepository, PersonRepository>();
-                    services.AddScoped<ILocationRepository, LocationRepository>();
-                    services.AddScoped<ICrossReferenceRepository, CrossReferenceRepository>();
-                    services.AddScoped<IEventEmbeddingRepository, EventEmbeddingRepository>();
-                    services.AddScoped<IAppSettingRepository, AppSettingRepository>();
-                    services.AddScoped<IPendingEventRepository, PendingEventRepository>();
+                    // Repositories are stateless over the singleton factory.
+                    services.AddSingleton<IEventRepository, EventRepository>();
+                    services.AddSingleton<IEraRepository, EraRepository>();
+                    services.AddSingleton<IEraCategoryRepository, EraCategoryRepository>();
+                    services.AddSingleton<IMilestoneRepository, MilestoneRepository>();
+                    services.AddSingleton<IRecordingQueueRepository, RecordingQueueRepository>();
+                    services.AddSingleton<ITagRepository, TagRepository>();
+                    services.AddSingleton<IPersonRepository, PersonRepository>();
+                    services.AddSingleton<ILocationRepository, LocationRepository>();
+                    services.AddSingleton<ICrossReferenceRepository, CrossReferenceRepository>();
+                    services.AddSingleton<IEventEmbeddingRepository, EventEmbeddingRepository>();
+                    services.AddSingleton<IAppSettingRepository, AppSettingRepository>();
+                    services.AddSingleton<IPendingEventRepository, PendingEventRepository>();
 
-                    // Register core services
+                    // Register core services (stateless over the factory/repositories)
                     services.AddSingleton<ISettingsService, SettingsService>();
-                    services.AddScoped<IEventService, EventService>();
-                    services.AddScoped<ITimelineService, TimelineService>();
+                    services.AddSingleton<IEventService, EventService>();
+                    services.AddSingleton<ITimelineService, TimelineService>();
 
                     // Phase 3: Audio & Queue services
                     services.AddSingleton<IAudioRecordingService, AudioRecordingService>();
                     services.AddSingleton<IAudioPlaybackService, AudioPlaybackService>();
-                    services.AddScoped<IQueueService, QueueService>();
-                    services.AddScoped<ISpeechToTextService, WindowsSpeechRecognitionService>();
+                    services.AddSingleton<IQueueService, QueueService>();
+                    // Whisper transcribes the recorded file locally; the Windows
+                    // SpeechRecognizer cannot transcribe files (mic-only API).
+                    services.AddSingleton<ISpeechToTextService, WhisperSpeechToTextService>();
 
                     // Phase 4: LLM & Event Extraction services
                     services.AddSingleton<ILlmService, AnthropicLlmService>();
-                    services.AddScoped<IEventExtractionService, EventExtractionService>();
+                    services.AddSingleton<IEventExtractionService, EventExtractionService>();
 
                     // Phase 5: RAG & Embedding services
                     services.AddHttpClient<IEmbeddingService, OpenAIEmbeddingService>();
-                    services.AddScoped<IRagService, RagService>();
+                    services.AddSingleton<IRagService, RagService>();
 
                     // Phase 6: Export/Import & Windows Integration services
-                    services.AddScoped<IExportService, ExportService>();
-                    services.AddScoped<IImportService, ImportService>();
-                    services.AddSingleton<Services.INotificationService, Services.NotificationService>();
+                    services.AddSingleton<IExportService, ExportService>();
+                    services.AddSingleton<IImportService, ImportService>();
+                    services.AddSingleton<INotificationService, Services.NotificationService>();
                     services.AddSingleton<IWindowsTimelineService, WindowsTimelineService>();
                     services.AddSingleton<IJumpListService, JumpListService>();
 
                     // Phase 7: Advanced Search, Analytics, & Audio Import services
-                    services.AddScoped<IAdvancedSearchService, AdvancedSearchService>();
-                    services.AddScoped<IAnalyticsService, AnalyticsService>();
-                    services.AddScoped<IAudioImportService, AudioImportService>();
+                    services.AddSingleton<IAdvancedSearchService, AdvancedSearchService>();
+                    services.AddSingleton<IAnalyticsService, AnalyticsService>();
+                    services.AddSingleton<IAudioImportService, AudioImportService>();
 
                     // Register app services
                     services.AddSingleton<INavigationService, NavigationService>();
@@ -139,16 +146,10 @@ public partial class App : Application
                     services.AddTransient<AnalyticsViewModel>();
                     services.AddTransient<ErasViewModel>();
 
-                    // Register Views
+                    // Register Views. Pages are NOT registered: Frame.Navigate creates them
+                    // via Activator, so page registrations were dead code; each page pulls
+                    // its ViewModel from App.Current.Services in its constructor.
                     services.AddTransient<MainWindow>();
-                    services.AddTransient<TimelinePage>();
-                    services.AddTransient<QueuePage>();
-                    services.AddTransient<ReviewPage>();
-                    services.AddTransient<SearchPage>();
-                    services.AddTransient<AnalyticsPage>();
-                    services.AddTransient<SettingsPage>();
-                    services.AddTransient<ConnectionsPage>();
-                    services.AddTransient<ErasPage>();
                 })
                 .Build();
 
@@ -161,17 +162,21 @@ public partial class App : Application
         }
     }
 
-    private void OnMainWindowClosed(object sender, WindowEventArgs args)
+    private async void OnMainWindowClosed(object sender, WindowEventArgs args)
     {
         try
         {
-            WriteToLog("Main window closed - disposing host...");
-            _host?.Dispose();
-            WriteToLog("Host disposed");
+            WriteToLog("Main window closed - stopping host...");
+            if (_host != null)
+            {
+                await _host.StopAsync(TimeSpan.FromSeconds(5));
+                _host.Dispose();
+            }
+            WriteToLog("Host stopped and disposed");
         }
         catch (Exception ex)
         {
-            LogException("Host disposal on window close failed", ex);
+            LogException("Host shutdown on window close failed", ex);
         }
     }
 
@@ -232,15 +237,16 @@ public partial class App : Application
             await _host.StartAsync();
             WriteToLog("Host started");
 
-            // Ensure database is created and migrated
-            WriteToLog("Creating database scope...");
-            using (var scope = Services.CreateScope())
+            // Ensure the database exists and repair schema drift on databases created
+            // by older builds (SchemaUpgrader = EnsureCreated + idempotent DDL repairs).
+            WriteToLog("Ensuring database schema...");
+            var contextFactory = Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
+            await using (var dbContext = await contextFactory.CreateDbContextAsync())
             {
-                var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                WriteToLog("Ensuring database created...");
-                await dbContext.Database.EnsureCreatedAsync();
-                WriteToLog("Database ready");
+                var schemaLogger = Services.GetRequiredService<ILoggerFactory>().CreateLogger("SchemaUpgrader");
+                await SchemaUpgrader.EnsureSchemaAsync(dbContext, schemaLogger);
             }
+            WriteToLog("Database ready");
 
             WriteToLog("Creating MainWindow...");
             _mainWindow = Services.GetRequiredService<MainWindow>();
@@ -258,6 +264,42 @@ public partial class App : Application
             var themeService = Services.GetRequiredService<IThemeService>();
             await themeService.InitializeAsync();
             WriteToLog("Theme initialized - startup complete!");
+
+            // Populate JumpList quick actions (no-ops where unsupported).
+            try
+            {
+                var jumpListService = Services.GetRequiredService<IJumpListService>();
+                await jumpListService.AddQuickActionsAsync();
+            }
+            catch (Exception jumpListEx)
+            {
+                LogException("JumpList initialization failed", jumpListEx);
+            }
+
+            // Honor a jump-list / command-line launch action captured by Program.Main.
+            var launchAction = Program.LaunchAction?.ToLowerInvariant();
+            if (!string.IsNullOrEmpty(launchAction))
+            {
+                try
+                {
+                    var navigationService = Services.GetRequiredService<INavigationService>();
+                    var target = launchAction switch
+                    {
+                        "action:new-event" or "action:view-timeline" => "Timeline",
+                        "action:start-recording" => "Queue",
+                        "action:search" => "Search",
+                        _ => null
+                    };
+                    if (target != null)
+                    {
+                        navigationService.NavigateTo(target);
+                    }
+                }
+                catch (Exception launchEx)
+                {
+                    LogException("Launch action navigation failed", launchEx);
+                }
+            }
         }
         catch (Exception ex)
         {

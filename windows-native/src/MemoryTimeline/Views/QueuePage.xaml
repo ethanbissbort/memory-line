@@ -39,7 +39,7 @@
 
                 <Button x:Name="StopButton"
                         Command="{x:Bind ViewModel.StopRecordingCommand, Mode=OneWay}"
-                        IsEnabled="{x:Bind ViewModel.IsRecording, Mode=OneWay}"
+                        IsEnabled="{x:Bind ViewModel.CanStopRecording, Mode=OneWay}"
                         Height="48" Width="120">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon Glyph="&#xE71A;" FontSize="20"/>
@@ -47,23 +47,50 @@
                     </StackPanel>
                 </Button>
 
+                <!-- Pause is shown while capturing; it swaps with Resume when paused. -->
                 <Button x:Name="PauseButton"
                         Command="{x:Bind ViewModel.PauseRecordingCommand, Mode=OneWay}"
                         IsEnabled="{x:Bind ViewModel.CanPauseRecording, Mode=OneWay}"
+                        Visibility="{x:Bind ViewModel.IsPaused, Converter={StaticResource InvertedBoolToVisibilityConverter}, Mode=OneWay}"
                         AutomationProperties.Name="Pause recording"
                         ToolTipService.ToolTip="Pause"
                         Height="48" Width="48">
                     <FontIcon Glyph="&#xE769;" FontSize="20"/>
                 </Button>
+
+                <Button x:Name="ResumeButton"
+                        Command="{x:Bind ViewModel.ResumeRecordingCommand, Mode=OneWay}"
+                        IsEnabled="{x:Bind ViewModel.CanResumeRecording, Mode=OneWay}"
+                        Visibility="{x:Bind ViewModel.IsPaused, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}"
+                        AutomationProperties.Name="Resume recording"
+                        ToolTipService.ToolTip="Resume"
+                        Height="48" Width="48">
+                    <FontIcon Glyph="&#xE768;" FontSize="20"/>
+                </Button>
+
+                <Button x:Name="CancelButton"
+                        Command="{x:Bind ViewModel.CancelRecordingCommand, Mode=OneWay}"
+                        IsEnabled="{x:Bind ViewModel.CanCancelRecording, Mode=OneWay}"
+                        AutomationProperties.Name="Cancel recording"
+                        ToolTipService.ToolTip="Cancel recording (discard audio)"
+                        Height="48" Width="48">
+                    <FontIcon Glyph="&#xE711;" FontSize="20"/>
+                </Button>
             </StackPanel>
 
             <!-- Recording Status -->
             <StackPanel Grid.Column="1" Margin="24,0,0,0" VerticalAlignment="Center">
+                <!-- Duration stays visible while paused (IsRecordingActive = recording OR paused). -->
                 <TextBlock x:Name="RecordingDurationText"
                            Text="{x:Bind ViewModel.FormattedRecordingDuration, Mode=OneWay}"
                            FontSize="28"
                            FontWeight="SemiBold"
-                           Visibility="{x:Bind ViewModel.IsRecording, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}"/>
+                           Visibility="{x:Bind ViewModel.IsRecordingActive, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}"/>
+
+                <TextBlock Text="Paused"
+                           FontSize="16"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           Visibility="{x:Bind ViewModel.IsPaused, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}"/>
 
                 <ProgressBar IsIndeterminate="True"
                              Margin="0,8,0,0"

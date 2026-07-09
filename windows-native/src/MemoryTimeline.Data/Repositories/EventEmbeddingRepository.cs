@@ -3,71 +3,109 @@ using MemoryTimeline.Data.Models;
 
 namespace MemoryTimeline.Data.Repositories;
 
+/// <summary>
+/// Repository implementation for EventEmbedding entity.
+/// Creates a short-lived <see cref="AppDbContext"/> per operation via
+/// <see cref="IDbContextFactory{TContext}"/> so operations are thread-safe
+/// and never share change-tracker state.
+/// </summary>
 public class EventEmbeddingRepository : IEventEmbeddingRepository
 {
-    private readonly AppDbContext _context;
+    private readonly IDbContextFactory<AppDbContext> _contextFactory;
 
-    public EventEmbeddingRepository(AppDbContext context) => _context = context;
+    public EventEmbeddingRepository(IDbContextFactory<AppDbContext> contextFactory)
+    {
+        _contextFactory = contextFactory;
+    }
 
-    public async Task<EventEmbedding?> GetByIdAsync(string id) =>
-        await _context.EventEmbeddings.Include(e => e.Event).FirstOrDefaultAsync(e => e.EmbeddingId == id);
+    public async Task<EventEmbedding?> GetByIdAsync(string id)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.EventEmbeddings.Include(e => e.Event).FirstOrDefaultAsync(e => e.EmbeddingId == id);
+    }
 
-    public async Task<IEnumerable<EventEmbedding>> GetAllAsync() =>
-        await _context.EventEmbeddings.AsNoTracking().ToListAsync();
+    public async Task<IEnumerable<EventEmbedding>> GetAllAsync()
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.EventEmbeddings.AsNoTracking().ToListAsync();
+    }
 
     public async Task<EventEmbedding> AddAsync(EventEmbedding entity)
     {
-        _context.EventEmbeddings.Add(entity);
-        await _context.SaveChangesAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        context.EventEmbeddings.Add(entity);
+        await context.SaveChangesAsync();
         return entity;
     }
 
     public async Task UpdateAsync(EventEmbedding entity)
     {
-        _context.EventEmbeddings.Update(entity);
-        await _context.SaveChangesAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        // Entity is detached; Update attaches it and marks it Modified.
+        context.EventEmbeddings.Update(entity);
+        await context.SaveChangesAsync();
     }
 
     public async Task DeleteAsync(EventEmbedding entity)
     {
-        _context.EventEmbeddings.Remove(entity);
-        await _context.SaveChangesAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        // Remove attaches the detached entity and marks it Deleted.
+        context.EventEmbeddings.Remove(entity);
+        await context.SaveChangesAsync();
     }
 
     public async Task AddRangeAsync(IEnumerable<EventEmbedding> entities)
     {
-        _context.EventEmbeddings.AddRange(entities);
-        await _context.SaveChangesAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        context.EventEmbeddings.AddRange(entities);
+        await context.SaveChangesAsync();
     }
 
     public async Task DeleteRangeAsync(IEnumerable<EventEmbedding> entities)
     {
-        _context.EventEmbeddings.RemoveRange(entities);
-        await _context.SaveChangesAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        context.EventEmbeddings.RemoveRange(entities);
+        await context.SaveChangesAsync();
     }
 
-    public async Task<bool> ExistsAsync(System.Linq.Expressions.Expression<Func<EventEmbedding, bool>> predicate) =>
-        await _context.EventEmbeddings.AnyAsync(predicate);
+    public async Task<bool> ExistsAsync(System.Linq.Expressions.Expression<Func<EventEmbedding, bool>> predicate)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.EventEmbeddings.AnyAsync(predicate);
+    }
 
-    public async Task<int> CountAsync(System.Linq.Expressions.Expression<Func<EventEmbedding, bool>>? predicate = null) =>
-        predicate == null
-            ? await _context.EventEmbeddings.CountAsync()
-            : await _context.EventEmbeddings.CountAsync(predicate);
+    public async Task<int> CountAsync(System.Linq.Expressions.Expression<Func<EventEmbedding, bool>>? predicate = null)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return predicate == null
+            ? await context.EventEmbeddings.CountAsync()
+            : await context.EventEmbeddings.CountAsync(predicate);
+    }
 
-    public async Task<IEnumerable<EventEmbedding>> FindAsync(System.Linq.Expressions.Expression<Func<EventEmbedding, bool>> predicate) =>
-        await _context.EventEmbeddings.Where(predicate).ToListAsync();
+    public async Task<IEnumerable<EventEmbedding>> FindAsync(System.Linq.Expressions.Expression<Func<EventEmbedding, bool>> predicate)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.EventEmbeddings.AsNoTracking().Where(predicate).ToListAsync();
+    }
 
-    public async Task<EventEmbedding?> GetByEventIdAsync(string eventId) =>
-        await _context.EventEmbeddings.FirstOrDefaultAsync(e => e.EventId == eventId);
+    public async Task<EventEmbedding?> GetByEventIdAsync(string eventId)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.EventEmbeddings.FirstOrDefaultAsync(e => e.EventId == eventId);
+    }
 
-    public async Task<IEnumerable<EventEmbedding>> GetByProviderAsync(string provider) =>
-        await _context.EventEmbeddings.AsNoTracking().Where(e => e.EmbeddingProvider == provider).ToListAsync();
+    public async Task<IEnumerable<EventEmbedding>> GetByProviderAsync(string provider)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.EventEmbeddings.AsNoTracking().Where(e => e.EmbeddingProvider == provider).ToListAsync();
+    }
 
     public async Task<IEnumerable<EventEmbedding>> FindSimilarAsync(double[] queryVector, int topK = 10, double minimumSimilarity = 0.7)
     {
         // This is a simplified implementation - in production, use vector similarity search
         // For SQLite, we'd need to implement cosine similarity in-memory
-        var allEmbeddings = await _context.EventEmbeddings.AsNoTracking().Include(e => e.Event).ToListAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        var allEmbeddings = await context.EventEmbeddings.AsNoTracking().Include(e => e.Event).ToListAsync();
 
         var similarities = allEmbeddings.Select(e => new
         {
@@ -77,13 +115,17 @@ public class EventEmbeddingRepository : IEventEmbeddingRepository
         .Where(x => x.Similarity >= minimumSimilarity)
         .OrderByDescending(x => x.Similarity)
         .Take(topK)
-        .Select(x => x.Embedding);
+        .Select(x => x.Embedding)
+        .ToList();
 
         return similarities;
     }
 
-    public async Task<int> GetCountByProviderAsync(string provider) =>
-        await _context.EventEmbeddings.CountAsync(e => e.EmbeddingProvider == provider);
+    public async Task<int> GetCountByProviderAsync(string provider)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.EventEmbeddings.CountAsync(e => e.EmbeddingProvider == provider);
+    }
 
     private static double[] DeserializeVector(string vectorString)
     {

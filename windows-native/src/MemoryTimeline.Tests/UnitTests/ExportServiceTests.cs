@@ -1,9 +1,9 @@
 using FluentAssertions;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MemoryTimeline.Core.Services;
 using MemoryTimeline.Data;
 using MemoryTimeline.Data.Models;
+using MemoryTimeline.Tests;
 using Moq;
 using System.Text.Json;
 using Xunit;
@@ -12,21 +12,20 @@ namespace MemoryTimeline.Tests.UnitTests;
 
 public class ExportServiceTests : IDisposable
 {
-    private readonly AppDbContext _context;
+    private readonly TestDbContextFactory _contextFactory;
+    private readonly AppDbContext _context; // seeding context over the same in-memory store
     private readonly ExportService _exportService;
     private readonly Mock<ILogger<ExportService>> _loggerMock;
     private readonly string _tempDirectory;
 
     public ExportServiceTests()
     {
-        // Create in-memory database
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseInMemoryDatabase(databaseName: $"ExportTestDb_{Guid.NewGuid()}")
-            .Options;
-
-        _context = new AppDbContext(options);
+        // Factory over a uniquely named in-memory database; ExportService creates
+        // its own short-lived contexts from it.
+        _contextFactory = TestDbContextFactory.CreateInMemory();
+        _context = _contextFactory.CreateDbContext();
         _loggerMock = new Mock<ILogger<ExportService>>();
-        _exportService = new ExportService(_context, _loggerMock.Object);
+        _exportService = new ExportService(_contextFactory, _loggerMock.Object);
 
         // Create temp directory for test files
         _tempDirectory = Path.Combine(Path.GetTempPath(), $"MemoryTimelineTests_{Guid.NewGuid()}");

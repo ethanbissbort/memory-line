@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -131,9 +132,20 @@ public sealed partial class MainWindow : Window
 
     private void Refresh_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        // Refresh the current page by re-navigating to it
-        if (ContentFrame.CurrentSourcePageType != null)
+        // On the timeline, refresh the data in place: re-navigating the Frame
+        // no-ops for the singleton TimelineViewModel (its viewport/state is
+        // preserved across navigation), so the user would see nothing happen.
+        if (ContentFrame.CurrentSourcePageType == typeof(TimelinePage))
         {
+            var timelineViewModel = App.Current.Services.GetRequiredService<TimelineViewModel>();
+            if (timelineViewModel.RefreshCommand.CanExecute(null))
+            {
+                timelineViewModel.RefreshCommand.Execute(null);
+            }
+        }
+        else if (ContentFrame.CurrentSourcePageType != null)
+        {
+            // Other pages reload their data on navigation; re-navigate to refresh.
             ContentFrame.Navigate(ContentFrame.CurrentSourcePageType);
         }
         args.Handled = true;

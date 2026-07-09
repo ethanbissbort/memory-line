@@ -13,17 +13,18 @@ namespace MemoryTimeline.Core.Services;
 
 /// <summary>
 /// Import service implementation for timeline data.
+/// Creates a short-lived DbContext per operation via IDbContextFactory.
 /// </summary>
 public class ImportService : IImportService
 {
-    private readonly AppDbContext _dbContext;
+    private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly ILogger<ImportService> _logger;
 
     public ImportService(
-        AppDbContext dbContext,
+        IDbContextFactory<AppDbContext> contextFactory,
         ILogger<ImportService> logger)
     {
-        _dbContext = dbContext;
+        _contextFactory = contextFactory;
         _logger = logger;
     }
 
@@ -52,30 +53,41 @@ public class ImportService : IImportService
                 return result;
             }
 
-            progress?.Report((30, "Validating data..."));
+            progress?.Report((20, "Validating data..."));
+
+            await using var dbContext = await _contextFactory.CreateDbContextAsync();
+
+            // Back up the database file before making any changes
+            if (options.CreateBackup)
+            {
+                progress?.Report((25, "Creating database backup..."));
+                CreateDatabaseBackup(dbContext, result);
+            }
+
+            progress?.Report((30, "Importing data..."));
 
             // Import events
             if (importData.Events?.Any() == true)
             {
                 progress?.Report((40, $"Importing {importData.Events.Count} events..."));
-                await ImportEventsAsync(importData.Events, options, result);
+                await ImportEventsAsync(dbContext, importData.Events, options, result);
             }
 
             // Import eras
             if (options.ImportEras && importData.Eras?.Any() == true)
             {
                 progress?.Report((70, $"Importing {importData.Eras.Count} eras..."));
-                await ImportErasAsync(importData.Eras, result);
+                await ImportErasAsync(dbContext, importData.Eras, result);
             }
 
             // Import tags
             if (options.ImportTags && importData.Tags?.Any() == true)
             {
                 progress?.Report((85, $"Importing {importData.Tags.Count} tags..."));
-                await ImportTagsAsync(importData.Tags, result);
+                await ImportTagsAsync(dbContext, importData.Tags, result);
             }
 
-            await _dbContext.SaveChangesAsync();
+            await dbContext.SaveChangesAsync();
 
             result.Success = true;
             progress?.Report((100, "Import complete"));
@@ -163,18 +175,62 @@ public class ImportService : IImportService
 
     #region Private Methods
 
-    private async Task ImportEventsAsync(List<JsonEvent> events, ImportOptions options, ImportResult result)
+    /// <summary>
+    /// Copies the SQLite database file to a timestamped .bak next to it.
+    /// A backup failure is reported as a warning but does not abort the import.
+    /// </summary>
+    private void CreateDatabaseBackup(AppDbContext dbContext, ImportResult result)
+    {
+        try
+        {
+            var databasePath = dbContext.Database.GetDbConnection().DataSource;
+
+            if (string.IsNullOrWhiteSpace(databasePath) || !File.Exists(databasePath))
+            {
+                _logger.LogWarning("Cannot back up database: file not found at '{Path}'", databasePath);
+                result.Warnings.Add("Backup skipped: database file not found");
+                return;
+            }
+
+            var backupPath = $"{databasePath}.{DateTime.Now:yyyyMMdd_HHmmss}.bak";
+            File.Copy(databasePath, backupPath, overwrite: false);
+
+            _logger.LogInformation("Database backed up to {BackupPath}", backupPath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to create database backup before import");
+            result.Warnings.Add($"Backup failed: {ex.Message}");
+        }
+    }
+
+    private async Task ImportEventsAsync(AppDbContext dbContext, List<JsonEvent> events, ImportOptions options, ImportResult result)
     {
         foreach (var jsonEvent in events)
         {
             try
             {
-                // Check for duplicates
-                var existingEvent = await _dbContext.Events
+                // Check for duplicates (same title + start date)
+                var existingEvent = await dbContext.Events
                     .FirstOrDefaultAsync(e => e.Title == jsonEvent.Title && e.StartDate == jsonEvent.StartDate);
 
                 if (existingEvent != null)
                 {
+                    // The simple boolean options take precedence, then the
+                    // ConflictResolution strategy decides the remaining cases.
+                    if (options.UpdateExisting)
+                    {
+                        UpdateEventFromJson(existingEvent, jsonEvent);
+                        result.EventsUpdated++;
+                        continue;
+                    }
+
+                    if (options.SkipDuplicates)
+                    {
+                        result.EventsSkipped++;
+                        continue;
+                    }
+
                     switch (options.ConflictResolution)
                     {
                         case ConflictResolution.Skip:
@@ -183,11 +239,11 @@ public class ImportService : IImportService
 
                         case ConflictResolution.Overwrite:
                             UpdateEventFromJson(existingEvent, jsonEvent);
-                            result.EventsImported++;
+                            result.EventsUpdated++;
                             break;
 
                         case ConflictResolution.CreateDuplicate:
-                            await CreateEventFromJson(jsonEvent);
+                            await CreateEventFromJson(dbContext, jsonEvent);
                             result.EventsImported++;
                             break;
 
@@ -195,14 +251,18 @@ public class ImportService : IImportService
                             if (jsonEvent.UpdatedAt > existingEvent.UpdatedAt)
                             {
                                 UpdateEventFromJson(existingEvent, jsonEvent);
+                                result.EventsUpdated++;
                             }
-                            result.EventsImported++;
+                            else
+                            {
+                                result.EventsSkipped++;
+                            }
                             break;
                     }
                 }
                 else
                 {
-                    await CreateEventFromJson(jsonEvent);
+                    await CreateEventFromJson(dbContext, jsonEvent);
                     result.EventsImported++;
                 }
             }
@@ -214,7 +274,7 @@ public class ImportService : IImportService
         }
     }
 
-    private async Task CreateEventFromJson(JsonEvent jsonEvent)
+    private async Task CreateEventFromJson(AppDbContext dbContext, JsonEvent jsonEvent)
     {
         var evt = new Event
         {
@@ -223,7 +283,7 @@ public class ImportService : IImportService
             Description = jsonEvent.Description,
             StartDate = jsonEvent.StartDate,
             EndDate = jsonEvent.EndDate,
-            Category = jsonEvent.Category,
+            Category = jsonEvent.Category?.ToLowerInvariant(),
             Location = jsonEvent.Location,
             Confidence = jsonEvent.Confidence,
             CreatedAt = jsonEvent.CreatedAt != default ? jsonEvent.CreatedAt : DateTime.UtcNow,
@@ -235,16 +295,21 @@ public class ImportService : IImportService
         {
             foreach (var tagName in jsonEvent.Tags)
             {
-                var tag = await _dbContext.Tags.FirstOrDefaultAsync(t => t.Name == tagName);
+                // Query on the mapped TagName column ([NotMapped] Tag.Name is
+                // untranslatable in EF), checking rows added earlier this import too
+                var tag = dbContext.Tags.Local
+                        .FirstOrDefault(t => string.Equals(t.TagName, tagName, StringComparison.OrdinalIgnoreCase))
+                    ?? await dbContext.Tags.FirstOrDefaultAsync(t => t.TagName == tagName);
+
                 if (tag == null)
                 {
                     tag = new Tag
                     {
                         TagId = Guid.NewGuid().ToString(),
-                        Name = tagName,
+                        TagName = tagName,
                         CreatedAt = DateTime.UtcNow
                     };
-                    _dbContext.Tags.Add(tag);
+                    dbContext.Tags.Add(tag);
                 }
                 evt.EventTags.Add(new EventTag
                 {
@@ -257,7 +322,7 @@ public class ImportService : IImportService
             }
         }
 
-        _dbContext.Events.Add(evt);
+        dbContext.Events.Add(evt);
     }
 
     private void UpdateEventFromJson(Event existingEvent, JsonEvent jsonEvent)
@@ -272,13 +337,13 @@ public class ImportService : IImportService
         existingEvent.UpdatedAt = DateTime.UtcNow;
     }
 
-    private async Task ImportErasAsync(List<JsonEra> eras, ImportResult result)
+    private async Task ImportErasAsync(AppDbContext dbContext, List<JsonEra> eras, ImportResult result)
     {
         foreach (var jsonEra in eras)
         {
             try
             {
-                var existingEra = await _dbContext.Eras
+                var existingEra = await dbContext.Eras
                     .FirstOrDefaultAsync(e => e.Name == jsonEra.Name);
 
                 if (existingEra == null)
@@ -294,7 +359,7 @@ public class ImportService : IImportService
                         CreatedAt = jsonEra.CreatedAt != default ? jsonEra.CreatedAt : DateTime.UtcNow
                     };
 
-                    _dbContext.Eras.Add(era);
+                    dbContext.Eras.Add(era);
                     result.ErasImported++;
                 }
             }
@@ -306,26 +371,29 @@ public class ImportService : IImportService
         }
     }
 
-    private async Task ImportTagsAsync(List<JsonTag> tags, ImportResult result)
+    private async Task ImportTagsAsync(AppDbContext dbContext, List<JsonTag> tags, ImportResult result)
     {
         foreach (var jsonTag in tags)
         {
             try
             {
-                var existingTag = await _dbContext.Tags
-                    .FirstOrDefaultAsync(t => t.Name == jsonTag.Name);
+                // Query on the mapped TagName column ([NotMapped] Tag.Name is
+                // untranslatable in EF), checking rows added earlier this import too
+                var existingTag = dbContext.Tags.Local
+                        .FirstOrDefault(t => string.Equals(t.TagName, jsonTag.Name, StringComparison.OrdinalIgnoreCase))
+                    ?? await dbContext.Tags.FirstOrDefaultAsync(t => t.TagName == jsonTag.Name);
 
                 if (existingTag == null)
                 {
                     var tag = new Tag
                     {
                         TagId = string.IsNullOrWhiteSpace(jsonTag.TagId) ? Guid.NewGuid().ToString() : jsonTag.TagId,
-                        Name = jsonTag.Name,
+                        TagName = jsonTag.Name,
                         Color = jsonTag.Color,
                         CreatedAt = jsonTag.CreatedAt != default ? jsonTag.CreatedAt : DateTime.UtcNow
                     };
 
-                    _dbContext.Tags.Add(tag);
+                    dbContext.Tags.Add(tag);
                     result.TagsImported++;
                 }
             }

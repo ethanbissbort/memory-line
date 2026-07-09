@@ -1,7 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI;
-using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using MemoryTimeline.Data.Models;
 
@@ -31,7 +30,7 @@ public partial class PendingEventDto : ObservableObject
     private DateTime? _endDate;
 
     [ObservableProperty]
-    private string _category = "Other";
+    private string _category = "other";
 
     [ObservableProperty]
     private double _confidenceScore;
@@ -44,6 +43,12 @@ public partial class PendingEventDto : ObservableObject
 
     [ObservableProperty]
     private string? _extractedData;
+
+    [ObservableProperty]
+    private string? _transcript;
+
+    [ObservableProperty]
+    private string? _audioFilePath;
 
     [ObservableProperty]
     private bool _isSelected;
@@ -90,24 +95,55 @@ public partial class PendingEventDto : ObservableObject
         }
     }
 
-    public string CategoryIcon => Category switch
+    public string CategoryIcon => Category?.ToLowerInvariant() switch
     {
-        "Milestone" => "\uE735", // Flag
-        "Work" => "\uE821", // Briefcase
-        "Education" => "\uE7BE", // Education
-        "Health" => "\uE95E", // Health
-        "Travel" => "\uE804", // Airplane
-        "Social" => "\uE716", // People
-        "Personal" => "\uE77B", // Contact
-        "Family" => "\uE728", // Home
+        "milestone" => "\uE735", // Flag
+        "work" => "\uE821", // Briefcase
+        "education" => "\uE7BE", // Education
+        "health" => "\uE95E", // Health
+        "travel" => "\uE804", // Airplane
+        "social" => "\uE716", // People
+        "personal" => "\uE77B", // Contact
+        "family" => "\uE728", // Home
         _ => "\uE8EB" // Calendar
     };
 
-    public Visibility HasEndDate => EndDate.HasValue ? Visibility.Visible : Visibility.Collapsed;
+    /// <summary>True when the event has an end date. Bind through BoolToVisibilityConverter in XAML.</summary>
+    public bool HasEndDate => EndDate.HasValue;
 
-    public Visibility IsLongEvent => EndDate.HasValue && (EndDate.Value - StartDate).TotalDays > 1
-        ? Visibility.Visible
-        : Visibility.Collapsed;
+    /// <summary>True when the event spans more than one day. Bind through BoolToVisibilityConverter in XAML.</summary>
+    public bool IsLongEvent => EndDate.HasValue && (EndDate.Value - StartDate).TotalDays > 1;
+
+    /// <summary>True when a source transcript is available for display.</summary>
+    public bool HasTranscript => !string.IsNullOrWhiteSpace(Transcript);
+
+    /// <summary>
+    /// DateTimeOffset bridge over <see cref="StartDate"/> for CalendarDatePicker.Date bindings.
+    /// Date-only semantics: the time component is discarded on write.
+    /// </summary>
+    public DateTimeOffset? StartDateOffset
+    {
+        get => new DateTimeOffset(DateTime.SpecifyKind(StartDate.Date, DateTimeKind.Local));
+        set
+        {
+            if (value.HasValue)
+            {
+                StartDate = value.Value.Date;
+            }
+        }
+    }
+
+    /// <summary>
+    /// DateTimeOffset bridge over <see cref="EndDate"/> for CalendarDatePicker.Date bindings.
+    /// Null clears the end date; date-only semantics.
+    /// </summary>
+    public DateTimeOffset? EndDateOffset
+    {
+        get => EndDate.HasValue
+            ? new DateTimeOffset(DateTime.SpecifyKind(EndDate.Value.Date, DateTimeKind.Local))
+            : null;
+        set => EndDate = value?.Date;
+    }
 
     // Property change notifications
     partial void OnStartDateChanged(DateTime value)
@@ -115,6 +151,7 @@ public partial class PendingEventDto : ObservableObject
         OnPropertyChanged(nameof(StartDateDisplay));
         OnPropertyChanged(nameof(DurationDisplay));
         OnPropertyChanged(nameof(IsLongEvent));
+        OnPropertyChanged(nameof(StartDateOffset));
     }
 
     partial void OnEndDateChanged(DateTime? value)
@@ -123,6 +160,12 @@ public partial class PendingEventDto : ObservableObject
         OnPropertyChanged(nameof(DurationDisplay));
         OnPropertyChanged(nameof(HasEndDate));
         OnPropertyChanged(nameof(IsLongEvent));
+        OnPropertyChanged(nameof(EndDateOffset));
+    }
+
+    partial void OnTranscriptChanged(string? value)
+    {
+        OnPropertyChanged(nameof(HasTranscript));
     }
 
     partial void OnConfidenceScoreChanged(double value)
@@ -153,7 +196,9 @@ public partial class PendingEventDto : ObservableObject
             ConfidenceScore = pendingEvent.ConfidenceScore,
             IsApproved = pendingEvent.IsApproved,
             CreatedAt = pendingEvent.CreatedAt,
-            ExtractedData = pendingEvent.ExtractedData
+            ExtractedData = pendingEvent.ExtractedData,
+            Transcript = pendingEvent.Transcript,
+            AudioFilePath = pendingEvent.AudioFilePath
         };
     }
 
@@ -170,11 +215,13 @@ public partial class PendingEventDto : ObservableObject
             Description = Description,
             StartDate = StartDate,
             EndDate = EndDate,
-            Category = Category ?? "Other",
+            Category = string.IsNullOrWhiteSpace(Category) ? "other" : Category,
             ConfidenceScore = ConfidenceScore,
             IsApproved = IsApproved,
             CreatedAt = CreatedAt,
-            ExtractedData = ExtractedData ?? string.Empty
+            ExtractedData = ExtractedData ?? string.Empty,
+            Transcript = Transcript,
+            AudioFilePath = AudioFilePath
         };
     }
 }

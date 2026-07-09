@@ -39,12 +39,12 @@ public interface IAdvancedSearchService
 /// </summary>
 public class AdvancedSearchService : IAdvancedSearchService
 {
-    private readonly AppDbContext _dbContext;
+    private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly ILogger<AdvancedSearchService> _logger;
 
-    public AdvancedSearchService(AppDbContext dbContext, ILogger<AdvancedSearchService> logger)
+    public AdvancedSearchService(IDbContextFactory<AppDbContext> contextFactory, ILogger<AdvancedSearchService> logger)
     {
-        _dbContext = dbContext;
+        _contextFactory = contextFactory;
         _logger = logger;
     }
 
@@ -61,7 +61,9 @@ public class AdvancedSearchService : IAdvancedSearchService
 
         try
         {
-            var query = _dbContext.Events
+            await using var dbContext = await _contextFactory.CreateDbContextAsync();
+
+            var query = dbContext.Events
                 .AsNoTracking() // Ensure fresh data from database, avoid caching issues
                 .Include(e => e.EventTags).ThenInclude(et => et.Tag)
                 .Include(e => e.EventPeople).ThenInclude(ep => ep.Person)
@@ -202,49 +204,65 @@ public class AdvancedSearchService : IAdvancedSearchService
     {
         var facets = new SearchFacets();
 
+        await using var dbContext = await _contextFactory.CreateDbContextAsync();
+
+        var baseQuery = dbContext.Events.AsNoTracking().AsQueryable();
+
+        // Apply base filter if provided (excluding the facet being calculated)
+        if (baseFilter != null)
+        {
+            if (!string.IsNullOrWhiteSpace(baseFilter.SearchTerm))
+            {
+                var term = baseFilter.SearchTerm.ToLower();
+                baseQuery = baseQuery.Where(e =>
+                    e.Title.ToLower().Contains(term) ||
+                    (e.Description != null && e.Description.ToLower().Contains(term)));
+            }
+            if (baseFilter.StartDate.HasValue)
+                baseQuery = baseQuery.Where(e => e.StartDate >= baseFilter.StartDate.Value);
+            if (baseFilter.EndDate.HasValue)
+                baseQuery = baseQuery.Where(e => e.StartDate <= baseFilter.EndDate.Value);
+        }
+
+        // Each facet is calculated independently so one failure doesn't abort the rest.
+
+        // Category facets
         try
         {
-            var baseQuery = _dbContext.Events.AsQueryable();
-
-            // Apply base filter if provided (excluding the facet being calculated)
-            if (baseFilter != null)
-            {
-                if (!string.IsNullOrWhiteSpace(baseFilter.SearchTerm))
-                {
-                    var term = baseFilter.SearchTerm.ToLower();
-                    baseQuery = baseQuery.Where(e =>
-                        e.Title.ToLower().Contains(term) ||
-                        (e.Description != null && e.Description.ToLower().Contains(term)));
-                }
-                if (baseFilter.StartDate.HasValue)
-                    baseQuery = baseQuery.Where(e => e.StartDate >= baseFilter.StartDate.Value);
-                if (baseFilter.EndDate.HasValue)
-                    baseQuery = baseQuery.Where(e => e.StartDate <= baseFilter.EndDate.Value);
-            }
-
-            // Category facets
             facets.Categories = await baseQuery
                 .Where(e => e.Category != null)
                 .GroupBy(e => e.Category!)
                 .Select(g => new { Category = g.Key, Count = g.Count() })
                 .ToDictionaryAsync(x => x.Category, x => x.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error calculating category facets");
+        }
 
-            // Tag facets
-            var tagCounts = await _dbContext.EventTags
+        // Tag facets (group by mapped TagName column, not the [NotMapped] Name alias)
+        try
+        {
+            var tagCounts = await dbContext.EventTags
                 .Where(et => baseQuery.Any(e => e.EventId == et.EventId))
-                .Include(et => et.Tag)
-                .GroupBy(et => new { et.TagId, et.Tag.Name, et.Tag.Color })
-                .Select(g => new { g.Key.TagId, g.Key.Name, g.Key.Color, Count = g.Count() })
+                .GroupBy(et => new { et.TagId, et.Tag.TagName, et.Tag.Color })
+                .Select(g => new { g.Key.TagId, g.Key.TagName, g.Key.Color, Count = g.Count() })
                 .ToListAsync();
 
             facets.Tags = tagCounts.ToDictionary(
                 x => x.TagId,
-                x => new FacetItem { Id = x.TagId, Name = x.Name, Count = x.Count, Color = x.Color });
+                x => new FacetItem { Id = x.TagId, Name = x.TagName, Count = x.Count, Color = x.Color });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error calculating tag facets");
+        }
 
-            // People facets
-            var personCounts = await _dbContext.EventPeople
+        // People facets
+        try
+        {
+            var personCounts = await dbContext.EventPeople
                 .Where(ep => baseQuery.Any(e => e.EventId == ep.EventId))
-                .Include(ep => ep.Person)
                 .GroupBy(ep => new { ep.PersonId, ep.Person.Name })
                 .Select(g => new { g.Key.PersonId, g.Key.Name, Count = g.Count() })
                 .ToListAsync();
@@ -252,11 +270,17 @@ public class AdvancedSearchService : IAdvancedSearchService
             facets.People = personCounts.ToDictionary(
                 x => x.PersonId,
                 x => new FacetItem { Id = x.PersonId, Name = x.Name, Count = x.Count });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error calculating people facets");
+        }
 
-            // Location facets
-            var locationCounts = await _dbContext.EventLocations
+        // Location facets
+        try
+        {
+            var locationCounts = await dbContext.EventLocations
                 .Where(el => baseQuery.Any(e => e.EventId == el.EventId))
-                .Include(el => el.Location)
                 .GroupBy(el => new { el.LocationId, el.Location.Name })
                 .Select(g => new { g.Key.LocationId, g.Key.Name, Count = g.Count() })
                 .ToListAsync();
@@ -264,29 +288,50 @@ public class AdvancedSearchService : IAdvancedSearchService
             facets.Locations = locationCounts.ToDictionary(
                 x => x.LocationId,
                 x => new FacetItem { Id = x.LocationId, Name = x.Name, Count = x.Count });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error calculating location facets");
+        }
 
-            // Era facets
+        // Era facets (group by mapped ColorCode column, not the [NotMapped] Color alias)
+        try
+        {
             var eraCounts = await baseQuery
                 .Where(e => e.EraId != null && e.Era != null)
-                .GroupBy(e => new { e.EraId, e.Era!.Name, e.Era.Color })
-                .Select(g => new { EraId = g.Key.EraId!, g.Key.Name, g.Key.Color, Count = g.Count() })
+                .GroupBy(e => new { e.EraId, e.Era!.Name, e.Era.ColorCode })
+                .Select(g => new { EraId = g.Key.EraId!, g.Key.Name, g.Key.ColorCode, Count = g.Count() })
                 .ToListAsync();
 
             facets.Eras = eraCounts.ToDictionary(
                 x => x.EraId,
-                x => new FacetItem { Id = x.EraId, Name = x.Name, Count = x.Count, Color = x.Color });
+                x => new FacetItem { Id = x.EraId, Name = x.Name, Count = x.Count, Color = x.ColorCode });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error calculating era facets");
+        }
 
-            // Audio/transcript counts
+        // Audio/transcript counts
+        try
+        {
             facets.WithAudioCount = await baseQuery.CountAsync(e => e.AudioFilePath != null && e.AudioFilePath != "");
             facets.WithTranscriptCount = await baseQuery.CountAsync(e => e.RawTranscript != null && e.RawTranscript != "");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error calculating audio/transcript facet counts");
+        }
 
-            // Date range
+        // Date range
+        try
+        {
             facets.EarliestDate = await baseQuery.MinAsync(e => (DateTime?)e.StartDate);
             facets.LatestDate = await baseQuery.MaxAsync(e => (DateTime?)e.StartDate);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error calculating facets");
+            _logger.LogWarning(ex, "Error calculating date range facets");
         }
 
         return facets;
@@ -305,11 +350,13 @@ public class AdvancedSearchService : IAdvancedSearchService
 
         try
         {
+            await using var dbContext = await _contextFactory.CreateDbContextAsync();
+
             var lowerQuery = query.ToLower();
             var halfResults = maxResults / 2;
 
             // Event title suggestions
-            var eventSuggestions = await _dbContext.Events
+            var eventSuggestions = await dbContext.Events
                 .Where(e => e.Title.ToLower().Contains(lowerQuery))
                 .OrderByDescending(e => e.StartDate)
                 .Take(halfResults)
@@ -323,13 +370,13 @@ public class AdvancedSearchService : IAdvancedSearchService
                 .ToListAsync();
             suggestions.AddRange(eventSuggestions);
 
-            // Tag suggestions
-            var tagSuggestions = await _dbContext.Tags
-                .Where(t => t.Name.ToLower().Contains(lowerQuery))
+            // Tag suggestions (query the mapped TagName column, not the [NotMapped] Name alias)
+            var tagSuggestions = await dbContext.Tags
+                .Where(t => t.TagName.ToLower().Contains(lowerQuery))
                 .Take(halfResults / 2)
                 .Select(t => new AutocompleteSuggestion
                 {
-                    Text = t.Name,
+                    Text = t.TagName,
                     Type = "tag",
                     Id = t.TagId
                 })
@@ -337,7 +384,7 @@ public class AdvancedSearchService : IAdvancedSearchService
             suggestions.AddRange(tagSuggestions);
 
             // Person suggestions
-            var personSuggestions = await _dbContext.People
+            var personSuggestions = await dbContext.People
                 .Where(p => p.Name.ToLower().Contains(lowerQuery))
                 .Take(halfResults / 2)
                 .Select(p => new AutocompleteSuggestion
@@ -350,7 +397,7 @@ public class AdvancedSearchService : IAdvancedSearchService
             suggestions.AddRange(personSuggestions);
 
             // Location suggestions
-            var locationSuggestions = await _dbContext.Locations
+            var locationSuggestions = await dbContext.Locations
                 .Where(l => l.Name.ToLower().Contains(lowerQuery))
                 .Take(halfResults / 2)
                 .Select(l => new AutocompleteSuggestion
@@ -363,7 +410,7 @@ public class AdvancedSearchService : IAdvancedSearchService
             suggestions.AddRange(locationSuggestions);
 
             // Era suggestions
-            var eraSuggestions = await _dbContext.Eras
+            var eraSuggestions = await dbContext.Eras
                 .Where(e => e.Name.ToLower().Contains(lowerQuery))
                 .Take(halfResults / 2)
                 .Select(e => new AutocompleteSuggestion
@@ -424,8 +471,9 @@ public class AdvancedSearchService : IAdvancedSearchService
                 UpdatedAt = DateTime.UtcNow
             };
 
-            _dbContext.SavedSearches.Add(savedSearch);
-            await _dbContext.SaveChangesAsync();
+            await using var dbContext = await _contextFactory.CreateDbContextAsync();
+            dbContext.SavedSearches.Add(savedSearch);
+            await dbContext.SaveChangesAsync();
 
             _logger.LogInformation("Saved search created: {Name}", name);
             return savedSearch;
@@ -439,12 +487,14 @@ public class AdvancedSearchService : IAdvancedSearchService
 
     public async Task<SavedSearch?> GetSavedSearchAsync(string savedSearchId)
     {
-        return await _dbContext.SavedSearches.FindAsync(savedSearchId);
+        await using var dbContext = await _contextFactory.CreateDbContextAsync();
+        return await dbContext.SavedSearches.FindAsync(savedSearchId);
     }
 
     public async Task<List<SavedSearch>> GetAllSavedSearchesAsync()
     {
-        return await _dbContext.SavedSearches
+        await using var dbContext = await _contextFactory.CreateDbContextAsync();
+        return await dbContext.SavedSearches
             .OrderByDescending(s => s.IsFavorite)
             .ThenByDescending(s => s.LastUsedAt ?? s.CreatedAt)
             .ToListAsync();
@@ -452,7 +502,8 @@ public class AdvancedSearchService : IAdvancedSearchService
 
     public async Task<List<SavedSearch>> GetFavoriteSavedSearchesAsync()
     {
-        return await _dbContext.SavedSearches
+        await using var dbContext = await _contextFactory.CreateDbContextAsync();
+        return await dbContext.SavedSearches
             .Where(s => s.IsFavorite)
             .OrderByDescending(s => s.UseCount)
             .ToListAsync();
@@ -460,7 +511,8 @@ public class AdvancedSearchService : IAdvancedSearchService
 
     public async Task<List<SavedSearch>> GetRecentSavedSearchesAsync(int count = 10)
     {
-        return await _dbContext.SavedSearches
+        await using var dbContext = await _contextFactory.CreateDbContextAsync();
+        return await dbContext.SavedSearches
             .Where(s => s.LastUsedAt.HasValue)
             .OrderByDescending(s => s.LastUsedAt)
             .Take(count)
@@ -472,8 +524,9 @@ public class AdvancedSearchService : IAdvancedSearchService
         try
         {
             savedSearch.UpdatedAt = DateTime.UtcNow;
-            _dbContext.SavedSearches.Update(savedSearch);
-            await _dbContext.SaveChangesAsync();
+            await using var dbContext = await _contextFactory.CreateDbContextAsync();
+            dbContext.SavedSearches.Update(savedSearch);
+            await dbContext.SaveChangesAsync();
             _logger.LogInformation("Saved search updated: {Id}", savedSearch.SavedSearchId);
         }
         catch (Exception ex)
@@ -487,11 +540,12 @@ public class AdvancedSearchService : IAdvancedSearchService
     {
         try
         {
-            var savedSearch = await _dbContext.SavedSearches.FindAsync(savedSearchId);
+            await using var dbContext = await _contextFactory.CreateDbContextAsync();
+            var savedSearch = await dbContext.SavedSearches.FindAsync(savedSearchId);
             if (savedSearch != null)
             {
-                _dbContext.SavedSearches.Remove(savedSearch);
-                await _dbContext.SaveChangesAsync();
+                dbContext.SavedSearches.Remove(savedSearch);
+                await dbContext.SaveChangesAsync();
                 _logger.LogInformation("Saved search deleted: {Id}", savedSearchId);
             }
         }
@@ -506,12 +560,13 @@ public class AdvancedSearchService : IAdvancedSearchService
     {
         try
         {
-            var savedSearch = await _dbContext.SavedSearches.FindAsync(savedSearchId);
+            await using var dbContext = await _contextFactory.CreateDbContextAsync();
+            var savedSearch = await dbContext.SavedSearches.FindAsync(savedSearchId);
             if (savedSearch != null)
             {
                 savedSearch.UseCount++;
                 savedSearch.LastUsedAt = DateTime.UtcNow;
-                await _dbContext.SaveChangesAsync();
+                await dbContext.SaveChangesAsync();
             }
         }
         catch (Exception ex)
