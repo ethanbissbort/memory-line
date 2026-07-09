@@ -38,7 +38,7 @@ public sealed partial class SearchPage : Page
     {
         // Only user keystrokes should trigger (debounced) autocomplete loads,
         // not programmatic Text changes or suggestion selection.
-        if (args.Reason == AutoSuggestBoxTextChangeReason.UserInput)
+        if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
         {
             ViewModel.OnSearchTermUserInput();
         }
