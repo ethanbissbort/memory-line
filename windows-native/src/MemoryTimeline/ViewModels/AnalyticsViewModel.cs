@@ -4,6 +4,9 @@ using Microsoft.Extensions.Logging;
 using MemoryTimeline.Core.Models;
 using MemoryTimeline.Core.Services;
 using System.Collections.ObjectModel;
+using System.Text;
+using Windows.Storage.Pickers;
+using WinRT.Interop;
 
 namespace MemoryTimeline.ViewModels;
 
@@ -22,6 +25,13 @@ public partial class AnalyticsViewModel : ObservableObject
 
     [ObservableProperty]
     private string _statusMessage = string.Empty;
+
+    /// <summary>
+    /// True when analytics loaded successfully but the timeline has no events —
+    /// drives the empty-state panel on the Analytics page.
+    /// </summary>
+    [ObservableProperty]
+    private bool _showEmptyState;
 
     // Overview stats
     [ObservableProperty]
@@ -269,13 +279,15 @@ public partial class AnalyticsViewModel : ObservableObject
             }
             OnPropertyChanged(nameof(CurrentHeatmap));
 
+            ShowEmptyState = TotalEvents == 0;
+
             StatusMessage = $"Analytics loaded: {TotalEvents} events analyzed";
             _logger.LogInformation("Analytics loaded successfully");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error loading analytics");
-            StatusMessage = "Error loading analytics";
+            StatusMessage = $"Error loading analytics: {ex.Message}";
         }
         finally
         {
@@ -361,20 +373,99 @@ public partial class AnalyticsViewModel : ObservableObject
     public void ToggleActivityHeatmap() => ShowActivityHeatmap = !ShowActivityHeatmap;
 
     /// <summary>
-    /// Export analytics as JSON.
+    /// Exports the currently loaded analytics (summary stats, category
+    /// distribution, and tag cloud) to a CSV file chosen by the user.
     /// </summary>
     [RelayCommand]
     public async Task ExportAnalyticsAsync()
     {
         try
         {
-            StatusMessage = "Export functionality coming soon...";
-            await Task.CompletedTask;
+            StatusMessage = "Selecting export location...";
+
+            var savePicker = new FileSavePicker
+            {
+                SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+                SuggestedFileName = $"MemoryTimeline_Analytics_{DateTime.Now:yyyyMMdd_HHmmss}"
+            };
+            savePicker.FileTypeChoices.Add("CSV File", new List<string> { ".csv" });
+
+            // Get the main window handle for WinUI 3
+            var hwnd = WindowNative.GetWindowHandle(App.Current.Window);
+            InitializeWithWindow.Initialize(savePicker, hwnd);
+
+            var file = await savePicker.PickSaveFileAsync();
+            if (file == null)
+            {
+                StatusMessage = "Export cancelled";
+                return;
+            }
+
+            StatusMessage = "Exporting analytics...";
+
+            var csv = BuildAnalyticsCsv();
+            await File.WriteAllTextAsync(file.Path, csv);
+
+            StatusMessage = $"Analytics exported: {file.Path}";
+            _logger.LogInformation("Exported analytics to CSV: {Path}", file.Path);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error exporting analytics");
-            StatusMessage = "Error exporting analytics";
+            StatusMessage = $"Error exporting analytics: {ex.Message}";
         }
+    }
+
+    /// <summary>
+    /// Builds the CSV payload from the currently loaded analytics data.
+    /// </summary>
+    private string BuildAnalyticsCsv()
+    {
+        var sb = new StringBuilder();
+
+        // Summary statistics
+        sb.AppendLine("Summary");
+        sb.AppendLine("Metric,Value");
+        sb.AppendLine($"Total Events,{TotalEvents}");
+        sb.AppendLine($"Total Eras,{TotalEras}");
+        sb.AppendLine($"Total Tags,{TotalTags}");
+        sb.AppendLine($"Total People,{TotalPeople}");
+        sb.AppendLine($"Total Locations,{TotalLocations}");
+        sb.AppendLine($"Events With Audio,{EventsWithAudio}");
+        sb.AppendLine($"Events With Transcript,{EventsWithTranscript}");
+        sb.AppendLine($"Earliest Event,{CsvField(EarliestDate?.ToString("yyyy-MM-dd") ?? "N/A")}");
+        sb.AppendLine($"Latest Event,{CsvField(LatestDate?.ToString("yyyy-MM-dd") ?? "N/A")}");
+        sb.AppendLine($"Timeline Span,{CsvField(TimelineSpanText)}");
+        sb.AppendLine();
+
+        // Category distribution
+        sb.AppendLine("Category Distribution");
+        sb.AppendLine("Category,Count,Percentage");
+        foreach (var category in CategoryDistribution)
+        {
+            sb.AppendLine($"{CsvField(category.DisplayName)},{category.Count},{category.Percentage:F1}%");
+        }
+        sb.AppendLine();
+
+        // Tag cloud
+        sb.AppendLine("Tag Cloud");
+        sb.AppendLine("Tag,Count");
+        foreach (var tag in TagCloud)
+        {
+            sb.AppendLine($"{CsvField(tag.Name)},{tag.Count}");
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Escapes a value for CSV (quotes fields containing commas, quotes, or newlines).
+    /// </summary>
+    private static string CsvField(string? value)
+    {
+        value ??= string.Empty;
+        return value.Contains(',') || value.Contains('"') || value.Contains('\n') || value.Contains('\r')
+            ? $"\"{value.Replace("\"", "\"\"")}\""
+            : value;
     }
 }

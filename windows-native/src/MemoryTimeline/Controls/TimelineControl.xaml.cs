@@ -1,10 +1,14 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Input;
+using MemoryTimeline.Services;
 using MemoryTimeline.ViewModels;
 using MemoryTimeline.Core.DTOs;
 using MemoryTimeline.Core.Models;
+using MemoryTimeline.Data.Models;
+using System.ComponentModel;
 
 namespace MemoryTimeline.Controls;
 
@@ -24,6 +28,10 @@ public sealed partial class TimelineControl : UserControl
     private string? _editingEventId;
     private bool _isUpdatingScrollbar;
 
+    // Cached last hovered date (day-resolution) to avoid re-formatting/updating the hover
+    // TextBlock on every pointer move within the same day.
+    private DateTime _lastHoverDate = DateTime.MinValue;
+
     // Default sequence duration in days (100 years = ~36525 days)
     private const double DefaultSequenceDurationDays = 36525;
 
@@ -37,6 +45,12 @@ public sealed partial class TimelineControl : UserControl
         {
             _viewModel = value;
             InitializeTimeline();
+
+            // The compiled bindings inside this control are rooted at the (plain CLR)
+            // ViewModel property, which does not raise change notifications. Force the
+            // x:Bind expressions to re-evaluate now that the ViewModel is available,
+            // otherwise the timeline can render empty until the next refresh.
+            Bindings.Update();
         }
     }
 
@@ -44,10 +58,21 @@ public sealed partial class TimelineControl : UserControl
     {
         InitializeComponent();
         Loaded += TimelineControl_Loaded;
+        Unloaded += TimelineControl_Unloaded;
         SizeChanged += TimelineControl_SizeChanged;
 
         // Wire up pointer wheel for cursor-anchored zoom
         TimelineCanvas.PointerWheelChanged += TimelineCanvas_PointerWheelChanged;
+    }
+
+    private void TimelineControl_Unloaded(object sender, RoutedEventArgs e)
+    {
+        // The ViewModel is a long-lived singleton; failing to unsubscribe here roots this
+        // (transient) control for the lifetime of the app, leaking a control per navigation.
+        if (_viewModel != null)
+        {
+            _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
+        }
     }
 
     private async void TimelineControl_Loaded(object sender, RoutedEventArgs e)
@@ -93,9 +118,24 @@ public sealed partial class TimelineControl : UserControl
         if (_viewModel == null)
             return;
 
-        // Set up property changed listeners
-        _viewModel.PropertyChanged += (s, e) =>
+        // Set up property changed listeners.
+        // Unsubscribe first so repeated ViewModel assignments never double-subscribe.
+        _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
+        _viewModel.PropertyChanged += ViewModel_PropertyChanged;
+    }
+
+    private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        var vm = _viewModel;
+        if (vm == null)
+            return;
+
+        void Apply()
         {
+            // Guard against updates that arrive after the control was unloaded.
+            if (_viewModel == null)
+                return;
+
             if (e.PropertyName == nameof(TimelineViewModel.IsLoading))
             {
                 LoadingOverlay.Visibility = _viewModel.IsLoading
@@ -107,7 +147,19 @@ public sealed partial class TimelineControl : UserControl
                 UpdateTimelineSize();
                 UpdateScrollbarFromViewport();
             }
-        };
+        }
+
+        // The ViewModel may raise change notifications from a background thread
+        // (e.g. after an awaited service call); marshal UI updates to the UI thread.
+        var dispatcher = DispatcherQueue;
+        if (dispatcher == null || dispatcher.HasThreadAccess)
+        {
+            Apply();
+        }
+        else
+        {
+            dispatcher.TryEnqueue(Apply);
+        }
     }
 
     private void UpdateTimelineSize()
@@ -450,7 +502,16 @@ public sealed partial class TimelineControl : UserControl
         // Calculate date at pointer position using viewport's actual PixelsPerDay
         var dateAtPointer = _viewModel.Viewport.PixelToDate(position.X);
 
-        // Update hover date display
+        // The hover label is day-resolution, so skip re-formatting/updating the TextBlock
+        // when the pointer moves within the same day (avoids per-move string allocation).
+        if (dateAtPointer.Date == _lastHoverDate)
+        {
+            if (HoverDateText.Visibility != Visibility.Visible)
+                HoverDateText.Visibility = Visibility.Visible;
+            return;
+        }
+
+        _lastHoverDate = dateAtPointer.Date;
         HoverDateText.Text = dateAtPointer.ToString("MMMM d, yyyy");
         HoverDateText.Visibility = Visibility.Visible;
     }
@@ -660,8 +721,12 @@ public sealed partial class TimelineControl : UserControl
         EventDatePicker.Date = new DateTimeOffset(defaultDate);
         _isSyncingDateFields = false;
         EventDescriptionBox.Text = "";
-        EventCategoryCombo.SelectedIndex = -1;
+        // Pre-select the canonical default category instead of leaving the field
+        // unselected (an unselected combo used to silently fall back to an invalid
+        // capitalized literal and fail validation - see FEATURE-AUDIT Bug 1).
+        SelectCategoryComboItem(EventCategory.Other);
         EventLocationBox.Text = "";
+        EventDialogErrorBar.IsOpen = false;
 
         EventDialog.XamlRoot = XamlRoot;
         await EventDialog.ShowAsync();
@@ -705,20 +770,43 @@ public sealed partial class TimelineControl : UserControl
         EventDescriptionBox.Text = eventDto.Description ?? "";
         EventLocationBox.Text = eventDto.Location ?? "";
 
-        // Select the category
-        var category = eventDto.Category ?? "other";
-        for (int i = 0; i < EventCategoryCombo.Items.Count; i++)
-        {
-            if (EventCategoryCombo.Items[i] is ComboBoxItem item &&
-                item.Tag?.ToString() == category)
-            {
-                EventCategoryCombo.SelectedIndex = i;
-                break;
-            }
-        }
+        // Select the category (case-insensitive; falls back to "other" when the
+        // stored category isn't in the list, so the Edit path can never save an
+        // invalid category or silently keep a stale selection).
+        SelectCategoryComboItem(eventDto.Category ?? EventCategory.Other);
+        EventDialogErrorBar.IsOpen = false;
 
         EventDialog.XamlRoot = XamlRoot;
         await EventDialog.ShowAsync();
+    }
+
+    /// <summary>
+    /// Selects the combo item whose Tag matches <paramref name="category"/>
+    /// (case-insensitive). Unknown categories fall back to <see cref="EventCategory.Other"/>.
+    /// </summary>
+    private void SelectCategoryComboItem(string category)
+    {
+        int fallbackIndex = -1;
+
+        for (int i = 0; i < EventCategoryCombo.Items.Count; i++)
+        {
+            if (EventCategoryCombo.Items[i] is not ComboBoxItem item)
+                continue;
+
+            var tag = item.Tag?.ToString();
+            if (string.Equals(tag, category, StringComparison.OrdinalIgnoreCase))
+            {
+                EventCategoryCombo.SelectedIndex = i;
+                return;
+            }
+
+            if (string.Equals(tag, EventCategory.Other, StringComparison.OrdinalIgnoreCase))
+            {
+                fallbackIndex = i;
+            }
+        }
+
+        EventCategoryCombo.SelectedIndex = fallbackIndex;
     }
 
     private async void DeleteEventMenuItem_Click(object sender, RoutedEventArgs e)
@@ -750,47 +838,119 @@ public sealed partial class TimelineControl : UserControl
 
     private async void EventDialog_PrimaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
     {
-        // Validate input
-        if (string.IsNullOrWhiteSpace(EventTitleBox.Text))
+        // Take a deferral so the dialog stays open while we await the save and
+        // can be kept open (args.Cancel) with a visible error if the save fails.
+        var deferral = args.GetDeferral();
+        try
         {
+            // Validate input - keep the dialog open and say why instead of
+            // silently cancelling the close.
+            if (string.IsNullOrWhiteSpace(EventTitleBox.Text))
+            {
+                args.Cancel = true;
+                ShowEventDialogError("Please enter a title for the event.");
+                return;
+            }
+
+            if (!EventDatePicker.Date.HasValue)
+            {
+                args.Cancel = true;
+                ShowEventDialogError("Please select a date for the event.");
+                return;
+            }
+
+            if (_viewModel == null)
+            {
+                args.Cancel = true;
+                ShowEventDialogError("The timeline is still loading. Please try again.");
+                return;
+            }
+
+            // Categories are canonically lowercase (EventCategory.AllCategories).
+            // The dialog pre-selects "Other", and the service normalizes casing
+            // too - this fallback is defense in depth, never "Other" (capital O),
+            // which used to fail validation (FEATURE-AUDIT Bug 1).
+            var category = EventCategory.Other;
+            if (EventCategoryCombo.SelectedItem is ComboBoxItem selectedCategory)
+            {
+                category = selectedCategory.Tag?.ToString()?.ToLowerInvariant()
+                    ?? EventCategory.Other;
+            }
+
+            EventDialogErrorBar.IsOpen = false;
+
+            if (_editingEventId == null)
+            {
+                // Create new event
+                await _viewModel.CreateEventAsync(
+                    EventTitleBox.Text,
+                    EventDatePicker.Date.Value.DateTime,
+                    EventDescriptionBox.Text,
+                    category,
+                    EventLocationBox.Text);
+            }
+            else
+            {
+                // Update existing event
+                await _viewModel.UpdateEventAsync(
+                    _editingEventId,
+                    EventTitleBox.Text,
+                    EventDatePicker.Date.Value.DateTime,
+                    EventDescriptionBox.Text,
+                    category,
+                    EventLocationBox.Text);
+            }
+        }
+        catch (Exception ex)
+        {
+            // The ViewModel logs and rethrows; keep the dialog open and show
+            // the reason in-dialog instead of closing as if the save succeeded.
             args.Cancel = true;
-            // Could show validation error here
+            ShowEventDialogError(ex.Message);
+        }
+        finally
+        {
+            deferral.Complete();
+        }
+    }
+
+    /// <summary>
+    /// Shows an error message inside the Add/Edit Event dialog.
+    /// </summary>
+    private void ShowEventDialogError(string message)
+    {
+        EventDialogErrorBar.Message = message;
+        EventDialogErrorBar.IsOpen = true;
+    }
+
+    #endregion
+
+    #region Error Surface / Navigation Handlers
+
+    /// <summary>
+    /// Clears the ViewModel error when the user dismisses the timeline error bar,
+    /// so the OneWay IsOpen binding doesn't immediately reopen it and a repeat of
+    /// the same error message still re-raises the bar.
+    /// </summary>
+    private void TimelineErrorBar_Closed(InfoBar sender, InfoBarClosedEventArgs args)
+    {
+        if (_viewModel != null)
+        {
+            _viewModel.ErrorMessage = null;
+        }
+    }
+
+    /// <summary>
+    /// Navigates to the Connections page for the currently selected event.
+    /// </summary>
+    private void ViewConnections_Click(object sender, RoutedEventArgs e)
+    {
+        var selectedEvent = _viewModel?.SelectedEvent;
+        if (selectedEvent == null || string.IsNullOrEmpty(selectedEvent.EventId))
             return;
-        }
 
-        if (!EventDatePicker.Date.HasValue)
-        {
-            args.Cancel = true;
-            return;
-        }
-
-        var category = "Other";
-        if (EventCategoryCombo.SelectedItem is ComboBoxItem selectedCategory)
-        {
-            category = selectedCategory.Tag?.ToString() ?? "Other";
-        }
-
-        if (_editingEventId == null)
-        {
-            // Create new event
-            await _viewModel!.CreateEventAsync(
-                EventTitleBox.Text,
-                EventDatePicker.Date.Value.DateTime,
-                EventDescriptionBox.Text,
-                category,
-                EventLocationBox.Text);
-        }
-        else
-        {
-            // Update existing event
-            await _viewModel!.UpdateEventAsync(
-                _editingEventId,
-                EventTitleBox.Text,
-                EventDatePicker.Date.Value.DateTime,
-                EventDescriptionBox.Text,
-                category,
-                EventLocationBox.Text);
-        }
+        var navigationService = App.Current.Services.GetRequiredService<INavigationService>();
+        navigationService.NavigateTo("Connections", selectedEvent.EventId);
     }
 
     #endregion

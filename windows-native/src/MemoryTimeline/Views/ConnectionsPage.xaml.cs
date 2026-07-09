@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
 using MemoryTimeline.ViewModels;
@@ -22,10 +23,28 @@ public sealed partial class ConnectionsPage : Page
     {
         base.OnNavigatedTo(e);
 
+        // Check embedding-service availability so the Settings CTA shows even
+        // when the page is opened without an event.
+        await ViewModel.InitializeAsync();
+
         // Check if an event ID was passed as a parameter
         if (e.Parameter is string eventId && !string.IsNullOrEmpty(eventId))
         {
             await ViewModel.LoadConnectionsForEventAsync(eventId);
+        }
+    }
+
+    /// <summary>
+    /// Invokes the ViewModel's NavigateToEventCommand for the similar-event item
+    /// whose "View on timeline" button was clicked. A Click handler is used because
+    /// x:Bind inside a DataTemplate is scoped to the item's x:DataType and cannot
+    /// reach the page's ViewModel property.
+    /// </summary>
+    private void SimilarEvent_ViewOnTimeline_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string eventId } && !string.IsNullOrEmpty(eventId))
+        {
+            ViewModel.NavigateToEventCommand.Execute(eventId);
         }
     }
 }

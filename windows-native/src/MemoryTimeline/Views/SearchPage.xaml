@@ -34,9 +34,13 @@
                     Grid.Column="0"
                     PlaceholderText="Search events, tags, people, locations..."
                     Text="{x:Bind ViewModel.SearchTerm, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                    ItemsSource="{x:Bind ViewModel.AutocompleteSuggestions, Mode=OneWay}"
                     QueryIcon="Find"
+                    TextChanged="SearchBox_TextChanged"
+                    SuggestionChosen="SearchBox_SuggestionChosen"
                     QuerySubmitted="SearchBox_QuerySubmitted"
-                    TextMemberPath="Text">
+                    TextMemberPath="Text"
+                    DisplayMemberPath="Text">
                 </AutoSuggestBox>
 
                 <Button Grid.Column="1" Margin="8,0,0,0" Command="{x:Bind ViewModel.SearchCommand}">
@@ -60,6 +64,15 @@
                     </StackPanel>
                 </Button>
             </Grid>
+
+            <!-- Search Error -->
+            <InfoBar x:Name="SearchErrorInfoBar"
+                     Severity="Error"
+                     Title="Search failed"
+                     Message="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
+                     IsOpen="{x:Bind ViewModel.HasError, Mode=OneWay}"
+                     IsClosable="True"
+                     CloseButtonClick="SearchErrorInfoBar_CloseButtonClick"/>
 
             <!-- Status Message -->
             <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
@@ -178,11 +191,12 @@
                     <ComboBox Grid.Column="1" Header="Sort by" Width="180"
                               x:Name="SortByComboBox"
                               SelectionChanged="SortBy_SelectionChanged">
-                        <ComboBoxItem Content="Date (Newest First)" Tag="date_desc"/>
+                        <!-- Default matches SearchViewModel.SortBy (SearchSortOptions.DateDesc) -->
+                        <ComboBoxItem Content="Date (Newest First)" Tag="date_desc" IsSelected="True"/>
                         <ComboBoxItem Content="Date (Oldest First)" Tag="date_asc"/>
                         <ComboBoxItem Content="Title (A-Z)" Tag="title_asc"/>
                         <ComboBoxItem Content="Title (Z-A)" Tag="title_desc"/>
-                        <ComboBoxItem Content="Recently Added" Tag="created_desc" IsSelected="True"/>
+                        <ComboBoxItem Content="Recently Added" Tag="created_desc"/>
                     </ComboBox>
 
                     <ComboBox Grid.Column="2" Header="Page size" Width="100" Margin="16,0,0,0"

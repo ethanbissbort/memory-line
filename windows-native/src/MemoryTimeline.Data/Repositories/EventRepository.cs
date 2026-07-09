@@ -6,19 +6,23 @@ namespace MemoryTimeline.Data.Repositories;
 
 /// <summary>
 /// Repository implementation for Event entity.
+/// Creates a short-lived <see cref="AppDbContext"/> per operation via
+/// <see cref="IDbContextFactory{TContext}"/> so operations are thread-safe
+/// and never share change-tracker state.
 /// </summary>
 public class EventRepository : IEventRepository
 {
-    private readonly AppDbContext _context;
+    private readonly IDbContextFactory<AppDbContext> _contextFactory;
 
-    public EventRepository(AppDbContext context)
+    public EventRepository(IDbContextFactory<AppDbContext> contextFactory)
     {
-        _context = context;
+        _contextFactory = contextFactory;
     }
 
     public async Task<IEnumerable<Event>> GetAllAsync()
     {
-        return await _context.Events
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.Events
             .Include(e => e.Era)
             .AsNoTracking() // Read-only optimization
             .OrderByDescending(e => e.StartDate)
@@ -27,14 +31,16 @@ public class EventRepository : IEventRepository
 
     public async Task<Event?> GetByIdAsync(string id)
     {
-        return await _context.Events
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.Events
             .Include(e => e.Era)
             .FirstOrDefaultAsync(e => e.EventId == id);
     }
 
     public async Task<Event?> GetByIdWithIncludesAsync(string id)
     {
-        return await _context.Events
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.Events
             .Include(e => e.Era)
             .Include(e => e.EventTags)
                 .ThenInclude(et => et.Tag)
@@ -48,7 +54,8 @@ public class EventRepository : IEventRepository
 
     public async Task<IEnumerable<Event>> FindAsync(Expression<Func<Event, bool>> predicate)
     {
-        return await _context.Events
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.Events
             .Include(e => e.Era)
             .AsNoTracking() // Read-only optimization
             .Where(predicate)
@@ -58,51 +65,62 @@ public class EventRepository : IEventRepository
 
     public async Task<Event> AddAsync(Event entity)
     {
-        await _context.Events.AddAsync(entity);
-        await _context.SaveChangesAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        await context.Events.AddAsync(entity);
+        await context.SaveChangesAsync();
         return entity;
     }
 
     public async Task AddRangeAsync(IEnumerable<Event> entities)
     {
-        await _context.Events.AddRangeAsync(entities);
-        await _context.SaveChangesAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        await context.Events.AddRangeAsync(entities);
+        await context.SaveChangesAsync();
     }
 
     public async Task UpdateAsync(Event entity)
     {
-        _context.Events.Update(entity);
-        await _context.SaveChangesAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        // Entity is detached (loaded by a different, already-disposed context):
+        // Update attaches it and marks it Modified.
+        context.Events.Update(entity);
+        await context.SaveChangesAsync();
     }
 
     public async Task DeleteAsync(Event entity)
     {
-        _context.Events.Remove(entity);
-        await _context.SaveChangesAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        // Remove attaches the detached entity and marks it Deleted.
+        context.Events.Remove(entity);
+        await context.SaveChangesAsync();
     }
 
     public async Task DeleteRangeAsync(IEnumerable<Event> entities)
     {
-        _context.Events.RemoveRange(entities);
-        await _context.SaveChangesAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        context.Events.RemoveRange(entities);
+        await context.SaveChangesAsync();
     }
 
     public async Task<bool> ExistsAsync(Expression<Func<Event, bool>> predicate)
     {
-        return await _context.Events.AnyAsync(predicate);
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.Events.AnyAsync(predicate);
     }
 
     public async Task<int> CountAsync(Expression<Func<Event, bool>>? predicate = null)
     {
+        await using var context = await _contextFactory.CreateDbContextAsync();
         if (predicate == null)
-            return await _context.Events.CountAsync();
+            return await context.Events.CountAsync();
 
-        return await _context.Events.CountAsync(predicate);
+        return await context.Events.CountAsync(predicate);
     }
 
     public async Task<IEnumerable<Event>> GetByDateRangeAsync(DateTime startDate, DateTime endDate)
     {
-        return await _context.Events
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.Events
             .Include(e => e.Era)
             .AsNoTracking() // Read-only optimization
             .Where(e => e.StartDate >= startDate && e.StartDate <= endDate)
@@ -112,7 +130,8 @@ public class EventRepository : IEventRepository
 
     public async Task<IEnumerable<Event>> GetByCategoryAsync(string category)
     {
-        return await _context.Events
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.Events
             .Include(e => e.Era)
             .AsNoTracking() // Read-only optimization
             .Where(e => e.Category == category)
@@ -122,7 +141,8 @@ public class EventRepository : IEventRepository
 
     public async Task<IEnumerable<Event>> GetByEraAsync(string eraId)
     {
-        return await _context.Events
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.Events
             .Include(e => e.Era)
             .AsNoTracking() // Read-only optimization
             .Where(e => e.EraId == eraId)
@@ -135,7 +155,8 @@ public class EventRepository : IEventRepository
         // Note: Full-text search using FTS5 would require raw SQL
         // For now, using basic LIKE search
         var term = $"%{searchTerm}%";
-        return await _context.Events
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.Events
             .Include(e => e.Era)
             .AsNoTracking() // Read-only optimization
             .Where(e => EF.Functions.Like(e.Title, term) ||
@@ -152,7 +173,8 @@ public class EventRepository : IEventRepository
         DateTime? endDate = null,
         string? category = null)
     {
-        var query = _context.Events
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        var query = context.Events
             .Include(e => e.Era)
             .AsNoTracking() // Read-only optimization
             .AsQueryable();

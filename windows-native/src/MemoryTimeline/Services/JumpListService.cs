@@ -27,6 +27,12 @@ public class JumpListService : IJumpListService
     {
         try
         {
+            if (!JumpList.IsSupported())
+            {
+                _logger.LogInformation("Jump List is not supported on this system; skipping update");
+                return;
+            }
+
             _logger.LogInformation("Updating Jump List with recent events");
 
             var jumpList = await JumpList.LoadCurrentAsync();
@@ -76,6 +82,12 @@ public class JumpListService : IJumpListService
     {
         try
         {
+            if (!JumpList.IsSupported())
+            {
+                _logger.LogInformation("Jump List is not supported on this system; skipping quick actions");
+                return;
+            }
+
             _logger.LogInformation("Adding quick actions to Jump List");
 
             var jumpList = await JumpList.LoadCurrentAsync();
@@ -126,6 +138,12 @@ public class JumpListService : IJumpListService
     {
         try
         {
+            if (!JumpList.IsSupported())
+            {
+                _logger.LogInformation("Jump List is not supported on this system; skipping clear");
+                return;
+            }
+
             _logger.LogInformation("Clearing Jump List");
 
             var jumpList = await JumpList.LoadCurrentAsync();
@@ -147,6 +165,12 @@ public class JumpListService : IJumpListService
     {
         try
         {
+            if (!JumpList.IsSupported())
+            {
+                _logger.LogInformation("Jump List is not supported on this system; skipping add event");
+                return;
+            }
+
             _logger.LogInformation("Adding event to Jump List: {EventId}", evt.EventId);
 
             var jumpList = await JumpList.LoadCurrentAsync();

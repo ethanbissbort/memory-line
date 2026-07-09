@@ -1,4 +1,4 @@
-using Microsoft.Toolkit.Uwp.Notifications;
+using MemoryTimeline.Core.Services;
 using Microsoft.Windows.AppNotifications;
 using Microsoft.Windows.AppNotifications.Builder;
 using System;
@@ -9,10 +9,13 @@ namespace MemoryTimeline.Services;
 
 /// <summary>
 /// Windows notification service implementation using Windows App SDK.
+/// Implements the Core <see cref="INotificationService"/> contract so that
+/// Core consumers (e.g. QueueService) and the app share a single abstraction.
 /// </summary>
-public class NotificationService : INotificationService
+public class NotificationService : INotificationService, IDisposable
 {
     private readonly Dictionary<string, Action> _actionCallbacks = new();
+    private readonly object _callbackLock = new();
     private bool _isInitialized;
 
     public NotificationService()
@@ -24,11 +27,39 @@ public class NotificationService : INotificationService
     {
         if (_isInitialized) return;
 
-        // Register for notification events
-        AppNotificationManager.Default.NotificationInvoked += OnNotificationInvoked;
-        AppNotificationManager.Default.Register();
+        // Registering the notification manager can throw in unpackaged / unsupported
+        // contexts. Failing here would crash resolution of this singleton, so degrade
+        // gracefully: notifications simply become no-ops if registration fails.
+        try
+        {
+            AppNotificationManager.Default.NotificationInvoked += OnNotificationInvoked;
+            AppNotificationManager.Default.Register();
+            _isInitialized = true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"NotificationService initialization failed: {ex.Message}");
+            _isInitialized = false;
+        }
+    }
 
-        _isInitialized = true;
+    private void ShowNotification(AppNotification notification)
+    {
+        if (!_isInitialized)
+        {
+            return;
+        }
+
+        try
+        {
+            AppNotificationManager.Default.Show(notification);
+        }
+        catch (Exception ex)
+        {
+            // Showing a toast can fail (e.g. unpackaged without proper registration).
+            // Notifications are non-critical, so swallow and continue.
+            System.Diagnostics.Debug.WriteLine($"Failed to show notification: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -42,8 +73,7 @@ public class NotificationService : INotificationService
                 .AddText(title)
                 .AddText(message);
 
-            var notification = builder.BuildNotification();
-            AppNotificationManager.Default.Show(notification);
+            ShowNotification(builder.BuildNotification());
         });
     }
 
@@ -55,7 +85,10 @@ public class NotificationService : INotificationService
         await Task.Run(() =>
         {
             var actionId = Guid.NewGuid().ToString();
-            _actionCallbacks[actionId] = actionCallback;
+            lock (_callbackLock)
+            {
+                _actionCallbacks[actionId] = actionCallback;
+            }
 
             var builder = new AppNotificationBuilder()
                 .AddText(title)
@@ -63,8 +96,7 @@ public class NotificationService : INotificationService
                 .AddButton(new AppNotificationButton(actionText)
                     .AddArgument("action", actionId));
 
-            var notification = builder.BuildNotification();
-            AppNotificationManager.Default.Show(notification);
+            ShowNotification(builder.BuildNotification());
         });
     }
 
@@ -79,8 +111,7 @@ public class NotificationService : INotificationService
                 .AddText(title)
                 .AddText(message);
 
-            var notification = builder.BuildNotification();
-            AppNotificationManager.Default.Show(notification);
+            ShowNotification(builder.BuildNotification());
         });
     }
 
@@ -95,8 +126,7 @@ public class NotificationService : INotificationService
                 .AddText(title)
                 .AddText(message);
 
-            var notification = builder.BuildNotification();
-            AppNotificationManager.Default.Show(notification);
+            ShowNotification(builder.BuildNotification());
         });
     }
 
@@ -113,14 +143,19 @@ public class NotificationService : INotificationService
 
     private void OnNotificationInvoked(AppNotificationManager sender, AppNotificationActivatedEventArgs args)
     {
-        // Handle notification actions
+        // Handle notification actions. This fires on a background thread.
         if (args.Arguments.TryGetValue("action", out var actionId))
         {
-            if (_actionCallbacks.TryGetValue(actionId, out var callback))
+            Action? callback = null;
+            lock (_callbackLock)
             {
-                callback?.Invoke();
-                _actionCallbacks.Remove(actionId);
+                if (_actionCallbacks.TryGetValue(actionId, out callback))
+                {
+                    _actionCallbacks.Remove(actionId);
+                }
             }
+
+            callback?.Invoke();
         }
     }
 
@@ -128,8 +163,20 @@ public class NotificationService : INotificationService
     {
         if (_isInitialized)
         {
-            AppNotificationManager.Default.Unregister();
-            _actionCallbacks.Clear();
+            try
+            {
+                AppNotificationManager.Default.NotificationInvoked -= OnNotificationInvoked;
+                AppNotificationManager.Default.Unregister();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"NotificationService disposal failed: {ex.Message}");
+            }
+
+            lock (_callbackLock)
+            {
+                _actionCallbacks.Clear();
+            }
             _isInitialized = false;
         }
     }

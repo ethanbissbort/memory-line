@@ -11,6 +11,14 @@ namespace MemoryTimeline;
 /// </summary>
 public static class Program
 {
+    /// <summary>
+    /// The Jump List / command-line action token this process was launched with
+    /// (e.g. "action:new-event"), or null when no action argument was supplied.
+    /// Set once during startup, before the App is constructed; App.OnLaunched
+    /// reads it to decide the initial navigation target.
+    /// </summary>
+    public static string? LaunchAction { get; private set; }
+
     private static readonly string LogPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "MemoryTimeline",
@@ -34,6 +42,8 @@ public static class Program
         Log($"Args: {string.Join(", ", args)}");
         Log($"Current directory: {Environment.CurrentDirectory}");
         Log($"Process path: {Environment.ProcessPath}");
+
+        CaptureLaunchAction(args);
 
         try
         {
@@ -80,6 +90,30 @@ public static class Program
         }
     }
 
+    /// <summary>
+    /// Scans startup arguments for a Jump List style action token ("action:...")
+    /// and stores it in <see cref="LaunchAction"/>. Safe to call multiple times;
+    /// the first token found wins.
+    /// </summary>
+    private static void CaptureLaunchAction(IEnumerable<string>? args)
+    {
+        if (LaunchAction != null || args == null)
+        {
+            return;
+        }
+
+        foreach (var arg in args)
+        {
+            if (!string.IsNullOrWhiteSpace(arg) &&
+                arg.StartsWith("action:", StringComparison.OrdinalIgnoreCase))
+            {
+                LaunchAction = arg;
+                Log($"Captured launch action: {arg}");
+                return;
+            }
+        }
+    }
+
     private static bool DecideRedirection()
     {
         try
@@ -88,6 +122,17 @@ public static class Program
             bool isRedirect = false;
             AppActivationArguments args = AppInstance.GetCurrent().GetActivatedEventArgs();
             Log($"Activation kind: {args.Kind}");
+
+            // Jump List activations arrive as Launch activations; their arguments
+            // travel in the activation payload. Capture any "action:" token so
+            // App.OnLaunched can navigate accordingly (no-op if already captured
+            // from the raw command line in Main).
+            if (args.Kind == ExtendedActivationKind.Launch &&
+                args.Data is Windows.ApplicationModel.Activation.ILaunchActivatedEventArgs launchData &&
+                !string.IsNullOrWhiteSpace(launchData.Arguments))
+            {
+                CaptureLaunchAction(launchData.Arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+            }
 
             ExtendedActivationKind kind = args.Kind;
             AppInstance keyInstance = AppInstance.FindOrRegisterForKey("MemoryTimelineMainInstance");

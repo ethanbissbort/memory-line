@@ -1,9 +1,7 @@
 using FluentAssertions;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MemoryTimeline.Core.DTOs;
 using MemoryTimeline.Core.Services;
-using MemoryTimeline.Data;
 using MemoryTimeline.Data.Models;
 using MemoryTimeline.Data.Repositories;
 using Moq;
@@ -11,30 +9,38 @@ using Xunit;
 
 namespace MemoryTimeline.Tests.UnitTests;
 
-public class QueueServiceTests : IDisposable
+public class QueueServiceTests
 {
-    private readonly AppDbContext _context;
     private readonly Mock<IRecordingQueueRepository> _repositoryMock;
     private readonly Mock<IEventExtractionService> _extractionServiceMock;
+    private readonly Mock<INotificationService> _notificationServiceMock;
     private readonly Mock<ILogger<QueueService>> _loggerMock;
     private readonly QueueService _queueService;
 
     public QueueServiceTests()
     {
-        // Create in-memory database
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseInMemoryDatabase(databaseName: $"QueueTestDb_{Guid.NewGuid()}")
-            .Options;
-
-        _context = new AppDbContext(options);
         _repositoryMock = new Mock<IRecordingQueueRepository>();
         _extractionServiceMock = new Mock<IEventExtractionService>();
+        _notificationServiceMock = new Mock<INotificationService>();
         _loggerMock = new Mock<ILogger<QueueService>>();
 
+        // QueueService now REQUIRES an INotificationService (throws ArgumentNullException otherwise).
         _queueService = new QueueService(
             _repositoryMock.Object,
             _extractionServiceMock.Object,
-            _loggerMock.Object);
+            _loggerMock.Object,
+            _notificationServiceMock.Object);
+    }
+
+    [Fact]
+    public void Constructor_NullNotificationService_ThrowsArgumentNullException()
+    {
+        // INotificationService is a required dependency (no null default).
+        Assert.Throws<ArgumentNullException>(() => new QueueService(
+            _repositoryMock.Object,
+            _extractionServiceMock.Object,
+            _loggerMock.Object,
+            null!));
     }
 
     [Fact]
@@ -219,7 +225,7 @@ public class QueueServiceTests : IDisposable
     }
 
     [Fact]
-    public void QueueItemStatusChanged_WhenStatusUpdated_RaisesEvent()
+    public async Task QueueItemStatusChanged_WhenStatusUpdated_RaisesEvent()
     {
         // Arrange
         var eventRaised = false;
@@ -243,18 +249,15 @@ public class QueueServiceTests : IDisposable
         _repositoryMock.Setup(r => r.GetByIdAsync(queueId))
             .ReturnsAsync(queueItem);
 
+        _repositoryMock.Setup(r => r.UpdateAsync(It.IsAny<RecordingQueue>()))
+            .Returns(Task.CompletedTask);
+
         // Act
-        _queueService.UpdateQueueItemStatusAsync(queueId, QueueStatus.Processing).Wait();
+        await _queueService.UpdateQueueItemStatusAsync(queueId, QueueStatus.Processing);
 
         // Assert
         eventRaised.Should().BeTrue();
         capturedQueueId.Should().Be(queueId);
         capturedNewStatus.Should().Be(QueueStatus.Processing);
-    }
-
-    public void Dispose()
-    {
-        _context.Database.EnsureDeleted();
-        _context.Dispose();
     }
 }

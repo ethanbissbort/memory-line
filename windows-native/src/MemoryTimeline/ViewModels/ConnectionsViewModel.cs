@@ -14,6 +14,7 @@ public partial class ConnectionsViewModel : ObservableObject
 {
     private readonly IRagService _ragService;
     private readonly IEventService _eventService;
+    private readonly IEmbeddingService _embeddingService;
     private readonly INavigationService _navigationService;
     private readonly ILogger<ConnectionsViewModel> _logger;
 
@@ -31,6 +32,28 @@ public partial class ConnectionsViewModel : ObservableObject
 
     [ObservableProperty]
     private string? _errorMessage;
+
+    [ObservableProperty]
+    private string? _statusMessage;
+
+    /// <summary>
+    /// True when an embedding API key is configured (embedding service usable).
+    /// </summary>
+    [ObservableProperty]
+    private bool _isEmbeddingServiceAvailable = true;
+
+    /// <summary>
+    /// True when the CTA "add an embedding API key in Settings" should be shown.
+    /// </summary>
+    [ObservableProperty]
+    private bool _showEmbeddingCta;
+
+    /// <summary>
+    /// True when the embedding service is available but the selected event has
+    /// no embedding yet — prompts the user to run "Generate Embeddings" first.
+    /// </summary>
+    [ObservableProperty]
+    private bool _selectedEventNeedsEmbedding;
 
     [ObservableProperty]
     private ObservableCollection<SimilarEventDto> _similarEvents = new();
@@ -53,13 +76,26 @@ public partial class ConnectionsViewModel : ObservableObject
     public ConnectionsViewModel(
         IRagService ragService,
         IEventService eventService,
+        IEmbeddingService embeddingService,
         INavigationService navigationService,
         ILogger<ConnectionsViewModel> logger)
     {
         _ragService = ragService;
         _eventService = eventService;
+        _embeddingService = embeddingService;
         _navigationService = navigationService;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Initializes page-level state: checks whether the embedding service is
+    /// configured and shows the Settings call-to-action when it is not.
+    /// Called from ConnectionsPage.OnNavigatedTo on every navigation.
+    /// </summary>
+    public async Task InitializeAsync()
+    {
+        IsEmbeddingServiceAvailable = await CheckEmbeddingAvailabilityAsync();
+        ShowEmbeddingCta = !IsEmbeddingServiceAvailable;
     }
 
     /// <summary>
@@ -86,6 +122,12 @@ public partial class ConnectionsViewModel : ObservableObject
 
             SelectedEventTitle = eventDetails.Title;
             HasSelectedEvent = true;
+
+            // Embedding availability drives the CTA / "generate first" hint
+            IsEmbeddingServiceAvailable = await CheckEmbeddingAvailabilityAsync();
+            ShowEmbeddingCta = !IsEmbeddingServiceAvailable;
+            SelectedEventNeedsEmbedding = IsEmbeddingServiceAvailable
+                && !await _eventService.HasEmbeddingAsync(eventId);
 
             // Load similar events
             await LoadSimilarEventsAsync(eventId);
@@ -137,6 +179,7 @@ public partial class ConnectionsViewModel : ObservableObject
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error loading similar events");
+            AppendError($"Error loading similar events: {ex.Message}");
         }
     }
 
@@ -174,6 +217,7 @@ public partial class ConnectionsViewModel : ObservableObject
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error loading cross-references");
+            AppendError($"Error loading cross-references: {ex.Message}");
         }
     }
 
@@ -202,7 +246,45 @@ public partial class ConnectionsViewModel : ObservableObject
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error loading tag suggestions");
+            AppendError($"Error loading tag suggestions: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Appends a message to <see cref="ErrorMessage"/> so multiple sub-load
+    /// failures are all surfaced in the error InfoBar instead of being swallowed.
+    /// </summary>
+    private void AppendError(string message)
+    {
+        ErrorMessage = string.IsNullOrEmpty(ErrorMessage)
+            ? message
+            : $"{ErrorMessage}\n{message}";
+    }
+
+    /// <summary>
+    /// Safely checks embedding-service availability (a broken settings read
+    /// should degrade to the CTA state, not crash the page).
+    /// </summary>
+    private async Task<bool> CheckEmbeddingAvailabilityAsync()
+    {
+        try
+        {
+            return await _embeddingService.IsAvailableAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error checking embedding service availability");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Navigates to the Settings page so the user can configure an embedding API key.
+    /// </summary>
+    [RelayCommand]
+    private void OpenSettings()
+    {
+        _navigationService.NavigateTo("Settings");
     }
 
     /// <summary>
@@ -224,7 +306,9 @@ public partial class ConnectionsViewModel : ObservableObject
     private void NavigateToEvent(string eventId)
     {
         _logger.LogInformation("Navigating to event {EventId}", eventId);
-        _navigationService.NavigateTo("TimelinePage", eventId);
+        // "Timeline" is the key registered in MainWindow.RegisterPages
+        // ("TimelinePage" was never registered, so this used to no-op).
+        _navigationService.NavigateTo("Timeline", eventId);
     }
 
     /// <summary>
@@ -237,8 +321,19 @@ public partial class ConnectionsViewModel : ObservableObject
         {
             IsLoading = true;
             ErrorMessage = null;
+            StatusMessage = null;
+
+            // Pre-flight: without a configured embedding API key every call would fail.
+            IsEmbeddingServiceAvailable = await CheckEmbeddingAvailabilityAsync();
+            ShowEmbeddingCta = !IsEmbeddingServiceAvailable;
+            if (!IsEmbeddingServiceAvailable)
+            {
+                ErrorMessage = "Add an OpenAI embedding API key in Settings to enable connections.";
+                return;
+            }
 
             _logger.LogInformation("Starting embedding generation workflow");
+            StatusMessage = "Finding events without embeddings...";
 
             // Get all events without embeddings
             var allEvents = await _eventService.GetAllEventsAsync();
@@ -256,36 +351,53 @@ public partial class ConnectionsViewModel : ObservableObject
             if (eventsNeedingEmbeddings.Count == 0)
             {
                 _logger.LogInformation("All events already have embeddings");
+                StatusMessage = "All events already have embeddings.";
                 return;
             }
 
-            _logger.LogInformation("Generating embeddings for {Count} events", eventsNeedingEmbeddings.Count);
+            var total = eventsNeedingEmbeddings.Count;
+            _logger.LogInformation("Generating embeddings for {Count} events", total);
 
-            // Generate embeddings in batches
+            // Generate embeddings one by one; the service throws on failure,
+            // so tally successes/failures instead of silently reporting success.
+            int succeeded = 0;
+            int failed = 0;
             int processed = 0;
+            string? firstError = null;
+
             foreach (var evt in eventsNeedingEmbeddings)
             {
+                processed++;
+                StatusMessage = $"Generating embeddings ({processed}/{total})...";
+
                 try
                 {
                     await _eventService.GenerateEmbeddingAsync(evt.EventId);
-                    processed++;
-
-                    if (processed % 10 == 0)
-                    {
-                        _logger.LogInformation("Processed {Processed} of {Total} events", processed, eventsNeedingEmbeddings.Count);
-                    }
+                    succeeded++;
                 }
                 catch (Exception ex)
                 {
+                    failed++;
+                    firstError ??= ex.Message;
                     _logger.LogError(ex, "Error generating embedding for event {EventId}", evt.EventId);
                 }
             }
 
-            _logger.LogInformation("Embedding generation complete: {Processed} of {Total} successful",
-                processed, eventsNeedingEmbeddings.Count);
+            _logger.LogInformation("Embedding generation complete: {Succeeded} succeeded, {Failed} failed of {Total}",
+                succeeded, failed, total);
 
-            // Refresh current view
+            // Refresh current view first (it resets ErrorMessage), then report the outcome.
             await RefreshAsync();
+
+            if (failed == 0)
+            {
+                StatusMessage = $"{succeeded} embedded.";
+            }
+            else
+            {
+                StatusMessage = $"{succeeded} embedded, {failed} failed.";
+                ErrorMessage = $"{succeeded} embedded, {failed} failed: {firstError}";
+            }
         }
         catch (Exception ex)
         {

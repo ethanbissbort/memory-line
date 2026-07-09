@@ -102,7 +102,7 @@ public partial class AudioRecordingDto : ObservableObject
 
     public bool HasError => !string.IsNullOrEmpty(ErrorMessage);
 
-    public bool CanPlay => Status == "completed" || Status == "failed";
+    public bool CanPlay => Status is "pending" or "completed" or "failed";
 
     public bool CanRetry => Status == "failed";
 

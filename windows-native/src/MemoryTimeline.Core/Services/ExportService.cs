@@ -14,17 +14,18 @@ namespace MemoryTimeline.Core.Services;
 
 /// <summary>
 /// Export service implementation for timeline data.
+/// Creates a short-lived DbContext per operation via IDbContextFactory.
 /// </summary>
 public class ExportService : IExportService
 {
-    private readonly AppDbContext _dbContext;
+    private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly ILogger<ExportService> _logger;
 
     public ExportService(
-        AppDbContext dbContext,
+        IDbContextFactory<AppDbContext> contextFactory,
         ILogger<ExportService> logger)
     {
-        _dbContext = dbContext;
+        _contextFactory = contextFactory;
         _logger = logger;
     }
 
@@ -53,7 +54,8 @@ public class ExportService : IExportService
                     e.EndDate,
                     e.Category,
                     e.Location,
-                    e.Tags,
+                    // Project names — serializing Tag entities would cycle via Tag.EventTags
+                    Tags = e.Tags?.Select(t => t.TagName).ToList(),
                     e.CreatedAt,
                     e.UpdatedAt
                 }).ToList()
@@ -201,19 +203,23 @@ public class ExportService : IExportService
         {
             _logger.LogInformation("Exporting full database to: {FilePath}", filePath);
 
+            await using var dbContext = await _contextFactory.CreateDbContextAsync();
+
             progress?.Report(10);
-            var events = await _dbContext.Events
-                .Include(e => e.Tags)
+            // Event.Tags is [NotMapped]; include the real junction + navigation
+            var events = await dbContext.Events
+                .Include(e => e.EventTags)
+                .ThenInclude(et => et.Tag)
                 .AsNoTracking()
                 .ToListAsync();
 
             progress?.Report(30);
-            var eras = await _dbContext.Eras
+            var eras = await dbContext.Eras
                 .AsNoTracking()
                 .ToListAsync();
 
             progress?.Report(50);
-            var tags = await _dbContext.Tags
+            var tags = await dbContext.Tags
                 .AsNoTracking()
                 .ToListAsync();
 
@@ -279,8 +285,12 @@ public class ExportService : IExportService
 
     private async Task<List<Event>> GetFilteredEventsAsync(DateTime? startDate, DateTime? endDate)
     {
-        var query = _dbContext.Events
-            .Include(e => e.Tags)
+        await using var dbContext = await _contextFactory.CreateDbContextAsync();
+
+        // Event.Tags is [NotMapped]; include the real junction + navigation
+        var query = dbContext.Events
+            .Include(e => e.EventTags)
+            .ThenInclude(et => et.Tag)
             .AsNoTracking()
             .AsQueryable();
 

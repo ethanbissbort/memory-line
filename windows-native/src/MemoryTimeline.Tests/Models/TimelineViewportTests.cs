@@ -448,7 +448,7 @@ public class TimelineViewportTests
     }
 
     [Fact]
-    public void IsEventVisible_EventEndsExactlyAtViewportStart_ReturnsFalse()
+    public void IsEventVisible_EventEndsExactlyAtViewportStart_ReturnsTrue()
     {
         // Arrange
         var viewport = new TimelineViewport
@@ -458,9 +458,11 @@ public class TimelineViewportTests
         };
 
         // Act & Assert
+        // IsEventVisible uses an inclusive comparison (eventEnd >= StartDate),
+        // so an event ending exactly at the viewport start is visible.
         viewport.IsEventVisible(
             new DateTime(2023, 12, 25),
-            new DateTime(2024, 1, 1)).Should().BeTrue(); // Actually should be true (>= comparison)
+            new DateTime(2024, 1, 1)).Should().BeTrue();
     }
 
     [Fact]

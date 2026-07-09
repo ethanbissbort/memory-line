@@ -15,8 +15,17 @@ public class AnthropicLlmService : ILlmService
 {
     private readonly ISettingsService _settingsService;
     private readonly ILogger<AnthropicLlmService> _logger;
+    private readonly SemaphoreSlim _clientLock = new(1, 1);
     private AnthropicClient? _client;
+    private string? _clientApiKey;
     private string? _model;
+
+    // Reuse serializer options; allocating JsonSerializerOptions per call is expensive
+    // (each instance builds and caches its own metadata).
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
 
     public string ProviderName => "Anthropic Claude";
     public string ModelName => _model ?? AnthropicModels.Claude35Sonnet;
@@ -98,9 +107,21 @@ public class AnthropicLlmService : ILlmService
                 };
             }
 
-            // Parse the JSON response
-            var extractedData = JsonSerializer.Deserialize<EventExtractionResponse>(jsonResponse,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            // Parse the JSON response (guard against malformed LLM output)
+            EventExtractionResponse? extractedData;
+            try
+            {
+                extractedData = JsonSerializer.Deserialize<EventExtractionResponse>(jsonResponse, JsonOptions);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogError(ex, "Malformed JSON in Claude extraction response");
+                return new EventExtractionResult
+                {
+                    Success = false,
+                    ErrorMessage = "Claude returned malformed JSON that could not be parsed"
+                };
+            }
 
             if (extractedData == null)
             {
@@ -152,31 +173,49 @@ public class AnthropicLlmService : ILlmService
     #region Private Methods
 
     /// <summary>
-    /// Initializes the Anthropic client with API key from settings.
-    /// Anthropic.SDK v5.8.0 supports passing API key via constructor or environment variable.
+    /// Ensures the Anthropic client matches the CURRENT settings.
+    /// The (apiKey, model) pair is re-read from settings on every call and the
+    /// client is rebuilt whenever either changes — so updating the API key or
+    /// model in Settings takes effect immediately instead of being cached for
+    /// the lifetime of the singleton.
     /// </summary>
     private async Task InitializeClientAsync()
     {
-        if (_client != null)
-            return;
-
         try
         {
-            var apiKey = await _settingsService.GetSettingAsync<string>("ApiKey", string.Empty);
-            _model = await _settingsService.GetLlmModelAsync();
+            var apiKey = await _settingsService.GetSettingAsync<string>(SettingKeys.AnthropicApiKey, string.Empty);
+            var model = await _settingsService.GetLlmModelAsync();
 
-            if (string.IsNullOrEmpty(apiKey))
+            await _clientLock.WaitAsync();
+            try
             {
-                _logger.LogWarning("No API key configured in settings");
-                return;
+                if (string.IsNullOrEmpty(apiKey))
+                {
+                    if (_client != null)
+                    {
+                        _logger.LogWarning("Anthropic API key removed from settings; discarding client");
+                    }
+                    _client = null;
+                    _clientApiKey = null;
+                    _model = model;
+                    return;
+                }
+
+                // Rebuild only when the key or model actually changed
+                if (_client == null || _clientApiKey != apiKey || _model != model)
+                {
+                    var authentication = new APIAuthentication(apiKey);
+                    _client = new AnthropicClient(authentication);
+                    _clientApiKey = apiKey;
+                    _model = model;
+
+                    _logger.LogInformation("Anthropic client (re)initialized with model: {Model}", _model ?? ModelName);
+                }
             }
-
-            // CORRECT API: AnthropicClient can be initialized with empty constructor
-            // (uses ANTHROPIC_API_KEY env var) or with APIAuthentication object
-            var authentication = new APIAuthentication(apiKey);
-            _client = new AnthropicClient(authentication);
-
-            _logger.LogInformation("Anthropic client initialized with model: {Model}", _model ?? ModelName);
+            finally
+            {
+                _clientLock.Release();
+            }
         }
         catch (Exception ex)
         {

@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using MemoryTimeline.Core.Services;
 using MemoryTimeline.Data;
 using MemoryTimeline.Data.Models;
+using MemoryTimeline.Tests;
 using Moq;
 using System.Text.Json;
 using Xunit;
@@ -12,21 +13,21 @@ namespace MemoryTimeline.Tests.UnitTests;
 
 public class ImportServiceTests : IDisposable
 {
-    private readonly AppDbContext _context;
+    private readonly TestDbContextFactory _contextFactory;
+    private readonly AppDbContext _context; // seeding context over the same in-memory store
     private readonly ImportService _importService;
     private readonly Mock<ILogger<ImportService>> _loggerMock;
     private readonly string _tempDirectory;
 
     public ImportServiceTests()
     {
-        // Create in-memory database
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseInMemoryDatabase(databaseName: $"ImportTestDb_{Guid.NewGuid()}")
-            .Options;
-
-        _context = new AppDbContext(options);
+        // Factory over a uniquely named in-memory database; ImportService creates
+        // its own short-lived contexts from it. Assertions use fresh contexts so
+        // stale tracked entities in the seeding context can't mask imported changes.
+        _contextFactory = TestDbContextFactory.CreateInMemory();
+        _context = _contextFactory.CreateDbContext();
         _loggerMock = new Mock<ILogger<ImportService>>();
-        _importService = new ImportService(_context, _loggerMock.Object);
+        _importService = new ImportService(_contextFactory, _loggerMock.Object);
 
         // Create temp directory for test files
         _tempDirectory = Path.Combine(Path.GetTempPath(), $"MemoryTimelineImportTests_{Guid.NewGuid()}");
@@ -83,7 +84,8 @@ public class ImportServiceTests : IDisposable
         result.EventsImported.Should().Be(2);
         result.EventsSkipped.Should().Be(0);
 
-        var events = await _context.Events.ToListAsync();
+        await using var verifyContext = _contextFactory.CreateDbContext();
+        var events = await verifyContext.Events.ToListAsync();
         events.Should().HaveCount(2);
         events.Should().Contain(e => e.Title == "Imported Event 1");
         events.Should().Contain(e => e.Title == "Imported Event 2");
@@ -138,7 +140,8 @@ public class ImportServiceTests : IDisposable
         result.EventsImported.Should().Be(0);
         result.EventsSkipped.Should().Be(1);
 
-        var events = await _context.Events.ToListAsync();
+        await using var verifyContext = _contextFactory.CreateDbContext();
+        var events = await verifyContext.Events.ToListAsync();
         events.Should().HaveCount(1); // Only the original
     }
 
@@ -189,7 +192,8 @@ public class ImportServiceTests : IDisposable
         result.Success.Should().BeTrue();
         result.EventsImported.Should().Be(1);
 
-        var updatedEvent = await _context.Events.FirstAsync();
+        await using var verifyContext = _contextFactory.CreateDbContext();
+        var updatedEvent = await verifyContext.Events.FirstAsync();
         updatedEvent.Description.Should().Be("Updated Description");
     }
 
@@ -238,7 +242,8 @@ public class ImportServiceTests : IDisposable
         result.Success.Should().BeTrue();
         result.EventsImported.Should().Be(1);
 
-        var events = await _context.Events.ToListAsync();
+        await using var verifyContext = _contextFactory.CreateDbContext();
+        var events = await verifyContext.Events.ToListAsync();
         events.Should().HaveCount(2);
     }
 
@@ -284,7 +289,8 @@ public class ImportServiceTests : IDisposable
         result.EventsImported.Should().Be(1);
         result.TagsImported.Should().Be(3);
 
-        var tags = await _context.Tags.ToListAsync();
+        await using var verifyContext = _contextFactory.CreateDbContext();
+        var tags = await verifyContext.Tags.ToListAsync();
         tags.Should().HaveCount(3);
     }
 
@@ -324,7 +330,8 @@ public class ImportServiceTests : IDisposable
         result.Success.Should().BeTrue();
         result.ErasImported.Should().Be(1);
 
-        var eras = await _context.Eras.ToListAsync();
+        await using var verifyContext = _contextFactory.CreateDbContext();
+        var eras = await verifyContext.Eras.ToListAsync();
         eras.Should().HaveCount(1);
         eras.First().Name.Should().Be("College Years");
     }
@@ -398,7 +405,10 @@ public class ImportServiceTests : IDisposable
         await File.WriteAllTextAsync(filePath, JsonSerializer.Serialize(importData));
 
         var progressReports = new List<(int percentage, string message)>();
-        var progress = new Progress<(int, string)>(p => progressReports.Add(p));
+        // Use a synchronous IProgress so reports are captured inline (deterministic).
+        // System.Progress<T> reports asynchronously and can run its callbacks after the
+        // assertions, making this test flaky.
+        var progress = new SynchronousProgress<(int, string)>(p => progressReports.Add(p));
 
         // Act
         await _importService.ImportFromJsonAsync(filePath, progress: progress);
@@ -417,5 +427,18 @@ public class ImportServiceTests : IDisposable
         {
             Directory.Delete(_tempDirectory, true);
         }
+    }
+
+    /// <summary>
+    /// An <see cref="IProgress{T}"/> that invokes its handler synchronously on the
+    /// calling thread, making progress-report assertions deterministic in tests.
+    /// </summary>
+    private sealed class SynchronousProgress<T> : IProgress<T>
+    {
+        private readonly Action<T> _handler;
+
+        public SynchronousProgress(Action<T> handler) => _handler = handler;
+
+        public void Report(T value) => _handler(value);
     }
 }

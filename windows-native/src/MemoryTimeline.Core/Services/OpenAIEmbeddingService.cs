@@ -12,8 +12,10 @@ public class OpenAIEmbeddingService : IEmbeddingService
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<OpenAIEmbeddingService> _logger;
-    private readonly string _apiKey;
-    private readonly string _model;
+    private readonly ISettingsService _settingsService;
+    private readonly SemaphoreSlim _initLock = new(1, 1);
+    private string _apiKey = string.Empty;
+    private string _model = DefaultModel;
 
     private const string OpenAIApiUrl = "https://api.openai.com/v1/embeddings";
     private const string DefaultModel = "text-embedding-3-small"; // 1536 dimensions
@@ -30,15 +32,59 @@ public class OpenAIEmbeddingService : IEmbeddingService
     {
         _httpClient = httpClient;
         _logger = logger;
+        _settingsService = settingsService;
+        // API key and model are loaded lazily on first use to avoid blocking
+        // (sync-over-async) during DI construction, which can deadlock on a
+        // captured synchronization context and stalls service resolution.
+    }
 
-        // Get API key from settings
-        _apiKey = settingsService.GetSettingAsync<string>("OpenAIApiKey", string.Empty).GetAwaiter().GetResult() ?? string.Empty;
-        _model = settingsService.GetSettingAsync<string>("OpenAIEmbeddingModel", DefaultModel).GetAwaiter().GetResult() ?? DefaultModel;
+    /// <summary>
+    /// Loads the API key and model from settings and configures the HttpClient.
+    /// Re-reads settings on every call (the settings service caches in memory,
+    /// so this is cheap) and reconfigures when the key or model changed — the
+    /// user can therefore fix the embedding key in Settings without restarting.
+    /// Keys are read via <see cref="SettingKeys"/> so the Settings UI writer and
+    /// this reader can never drift apart again.
+    /// </summary>
+    private async Task EnsureInitializedAsync()
+    {
+        var apiKey = await _settingsService.GetSettingAsync<string>(SettingKeys.EmbeddingApiKey, string.Empty).ConfigureAwait(false) ?? string.Empty;
+        var model = await _settingsService.GetSettingAsync<string>(SettingKeys.EmbeddingModel, DefaultModel).ConfigureAwait(false) ?? DefaultModel;
 
-        // Configure HttpClient
-        if (!string.IsNullOrWhiteSpace(_apiKey))
+        if (apiKey == _apiKey && model == _model)
+            return;
+
+        await _initLock.WaitAsync().ConfigureAwait(false);
+        try
         {
-            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
+            _apiKey = apiKey;
+            _model = string.IsNullOrWhiteSpace(model) ? DefaultModel : model;
+
+            _httpClient.DefaultRequestHeaders.Authorization = string.IsNullOrWhiteSpace(_apiKey)
+                ? null
+                : new AuthenticationHeaderValue("Bearer", _apiKey);
+        }
+        finally
+        {
+            _initLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Returns true when an embedding API key is configured. Lets the
+    /// Connections UI show a call-to-action instead of failing silently.
+    /// </summary>
+    public async Task<bool> IsAvailableAsync()
+    {
+        try
+        {
+            var apiKey = await _settingsService.GetSettingAsync<string>(SettingKeys.EmbeddingApiKey, string.Empty).ConfigureAwait(false);
+            return !string.IsNullOrWhiteSpace(apiKey);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error checking embedding service availability");
+            return false;
         }
     }
 
@@ -58,9 +104,11 @@ public class OpenAIEmbeddingService : IEmbeddingService
     {
         try
         {
+            await EnsureInitializedAsync();
+
             if (string.IsNullOrWhiteSpace(_apiKey))
             {
-                throw new InvalidOperationException("OpenAI API key not configured");
+                throw new ConfigurationException("Embedding API key not configured — add it in Settings");
             }
 
             var textList = texts.ToList();
@@ -102,6 +150,11 @@ public class OpenAIEmbeddingService : IEmbeddingService
     /// </summary>
     public double CalculateCosineSimilarity(float[] embedding1, float[] embedding2)
     {
+        if (embedding1 == null || embedding2 == null)
+        {
+            throw new ArgumentNullException(embedding1 == null ? nameof(embedding1) : nameof(embedding2));
+        }
+
         if (embedding1.Length != embedding2.Length)
         {
             throw new ArgumentException("Embeddings must have the same dimension");
@@ -137,8 +190,24 @@ public class OpenAIEmbeddingService : IEmbeddingService
     {
         var similarities = new List<SimilarityResult>();
 
+        if (queryEmbedding == null || queryEmbedding.Length == 0)
+        {
+            _logger.LogWarning("Query embedding is null or empty; returning no neighbors");
+            return similarities;
+        }
+
         foreach (var (id, embedding) in candidateEmbeddings)
         {
+            // Skip candidates with missing or dimension-mismatched embeddings rather than
+            // aborting the whole search (e.g. corrupt row or an embedding-model change).
+            if (embedding == null || embedding.Length != queryEmbedding.Length)
+            {
+                _logger.LogDebug(
+                    "Skipping candidate {Id}: embedding null or dimension mismatch (expected {Expected})",
+                    id, queryEmbedding.Length);
+                continue;
+            }
+
             var similarity = CalculateCosineSimilarity(queryEmbedding, embedding);
 
             if (similarity >= threshold)

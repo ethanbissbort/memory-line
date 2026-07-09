@@ -6,19 +6,23 @@ namespace MemoryTimeline.Data.Repositories;
 
 /// <summary>
 /// Repository implementation for Era entity.
+/// Creates a short-lived <see cref="AppDbContext"/> per operation via
+/// <see cref="IDbContextFactory{TContext}"/> so operations are thread-safe
+/// and never share change-tracker state.
 /// </summary>
 public class EraRepository : IEraRepository
 {
-    private readonly AppDbContext _context;
+    private readonly IDbContextFactory<AppDbContext> _contextFactory;
 
-    public EraRepository(AppDbContext context)
+    public EraRepository(IDbContextFactory<AppDbContext> contextFactory)
     {
-        _context = context;
+        _contextFactory = contextFactory;
     }
 
     public async Task<IEnumerable<Era>> GetAllAsync()
     {
-        return await _context.Eras
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.Eras
             .AsNoTracking()
             .Include(e => e.Category)
             .Include(e => e.EraTags)
@@ -28,7 +32,8 @@ public class EraRepository : IEraRepository
 
     public async Task<Era?> GetByIdAsync(string id)
     {
-        return await _context.Eras
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.Eras
             .Include(e => e.Category)
             .Include(e => e.EraTags)
             .FirstOrDefaultAsync(e => e.EraId == id);
@@ -36,7 +41,8 @@ public class EraRepository : IEraRepository
 
     public async Task<Era?> GetByNameAsync(string name)
     {
-        return await _context.Eras
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.Eras
             .AsNoTracking()
             .Include(e => e.Category)
             .Include(e => e.EraTags)
@@ -45,7 +51,8 @@ public class EraRepository : IEraRepository
 
     public async Task<IEnumerable<Era>> GetOrderedByDateAsync()
     {
-        return await _context.Eras
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.Eras
             .AsNoTracking()
             .Include(e => e.Category)
             .Include(e => e.EraTags)
@@ -55,7 +62,8 @@ public class EraRepository : IEraRepository
 
     public async Task<Era?> GetByDateAsync(DateTime date)
     {
-        return await _context.Eras
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.Eras
             .AsNoTracking()
             .Include(e => e.Category)
             .Include(e => e.EraTags)
@@ -65,7 +73,8 @@ public class EraRepository : IEraRepository
 
     public async Task<IEnumerable<Era>> FindAsync(Expression<Func<Era, bool>> predicate)
     {
-        return await _context.Eras
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.Eras
             .AsNoTracking()
             .Include(e => e.Category)
             .Include(e => e.EraTags)
@@ -76,51 +85,61 @@ public class EraRepository : IEraRepository
 
     public async Task<Era> AddAsync(Era entity)
     {
-        await _context.Eras.AddAsync(entity);
-        await _context.SaveChangesAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        await context.Eras.AddAsync(entity);
+        await context.SaveChangesAsync();
         return entity;
     }
 
     public async Task AddRangeAsync(IEnumerable<Era> entities)
     {
-        await _context.Eras.AddRangeAsync(entities);
-        await _context.SaveChangesAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        await context.Eras.AddRangeAsync(entities);
+        await context.SaveChangesAsync();
     }
 
     public async Task UpdateAsync(Era entity)
     {
-        _context.Eras.Update(entity);
-        await _context.SaveChangesAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        // Entity is detached; Update attaches it and marks it Modified.
+        context.Eras.Update(entity);
+        await context.SaveChangesAsync();
     }
 
     public async Task DeleteAsync(Era entity)
     {
-        _context.Eras.Remove(entity);
-        await _context.SaveChangesAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        // Remove attaches the detached entity and marks it Deleted.
+        context.Eras.Remove(entity);
+        await context.SaveChangesAsync();
     }
 
     public async Task DeleteRangeAsync(IEnumerable<Era> entities)
     {
-        _context.Eras.RemoveRange(entities);
-        await _context.SaveChangesAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        context.Eras.RemoveRange(entities);
+        await context.SaveChangesAsync();
     }
 
     public async Task<bool> ExistsAsync(Expression<Func<Era, bool>> predicate)
     {
-        return await _context.Eras.AnyAsync(predicate);
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.Eras.AnyAsync(predicate);
     }
 
     public async Task<int> CountAsync(Expression<Func<Era, bool>>? predicate = null)
     {
+        await using var context = await _contextFactory.CreateDbContextAsync();
         if (predicate == null)
-            return await _context.Eras.CountAsync();
+            return await context.Eras.CountAsync();
 
-        return await _context.Eras.CountAsync(predicate);
+        return await context.Eras.CountAsync(predicate);
     }
 
     public async Task<IEnumerable<Era>> GetByCategoryIdAsync(string categoryId)
     {
-        return await _context.Eras
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.Eras
             .AsNoTracking()
             .Include(e => e.Category)
             .Include(e => e.EraTags)
@@ -131,7 +150,8 @@ public class EraRepository : IEraRepository
 
     public async Task<IEnumerable<Era>> GetByDateRangeAsync(DateTime startDate, DateTime endDate)
     {
-        return await _context.Eras
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.Eras
             .AsNoTracking()
             .Include(e => e.Category)
             .Include(e => e.EraTags)
@@ -142,7 +162,8 @@ public class EraRepository : IEraRepository
 
     public async Task<IEnumerable<IGrouping<EraCategory?, Era>>> GetGroupedByCategoryAsync()
     {
-        var eras = await _context.Eras
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        var eras = await context.Eras
             .AsNoTracking()
             .Include(e => e.Category)
             .Include(e => e.EraTags)

@@ -1,8 +1,8 @@
 using FluentAssertions;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MemoryTimeline.Core.Services;
 using MemoryTimeline.Data;
+using MemoryTimeline.Tests;
 using Moq;
 using Xunit;
 
@@ -10,19 +10,15 @@ namespace MemoryTimeline.Tests.Services;
 
 public class SettingsServiceTests : IDisposable
 {
-    private readonly AppDbContext _context;
+    private readonly TestDbContextFactory _contextFactory;
     private readonly ISettingsService _settingsService;
     private readonly Mock<ILogger<SettingsService>> _loggerMock;
 
     public SettingsServiceTests()
     {
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseInMemoryDatabase(databaseName: $"TestDb_{Guid.NewGuid()}")
-            .Options;
-
-        _context = new AppDbContext(options);
+        _contextFactory = TestDbContextFactory.CreateInMemory();
         _loggerMock = new Mock<ILogger<SettingsService>>();
-        _settingsService = new SettingsService(_context, _loggerMock.Object);
+        _settingsService = new SettingsService(_contextFactory, _loggerMock.Object);
     }
 
     [Fact]
@@ -142,13 +138,15 @@ public class SettingsServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task GetThemeAsync_DefaultTheme_ReturnsLight()
+    public async Task GetThemeAsync_DefaultTheme_ReturnsDark()
     {
+        // The default theme is now "dark" (SettingsService.GetThemeAsync falls back
+        // to "dark" when no theme setting has been stored).
         // Act
         var theme = await _settingsService.GetThemeAsync();
 
         // Assert
-        theme.Should().Be("light");
+        theme.Should().Be("dark");
     }
 
     [Fact]
@@ -164,7 +162,7 @@ public class SettingsServiceTests : IDisposable
 
     public void Dispose()
     {
-        _context.Database.EnsureDeleted();
-        _context.Dispose();
+        using var context = _contextFactory.CreateDbContext();
+        context.Database.EnsureDeleted();
     }
 }

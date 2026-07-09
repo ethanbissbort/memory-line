@@ -1,5 +1,7 @@
+using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using MemoryTimeline.Data;
 using MemoryTimeline.Data.Models;
 using MemoryTimeline.Data.Repositories;
 
@@ -64,17 +66,17 @@ public class EventService : IEventService
 {
     private readonly IEventRepository _eventRepository;
     private readonly IEmbeddingService? _embeddingService;
-    private readonly Data.AppDbContext _dbContext;
+    private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly ILogger<EventService> _logger;
 
     public EventService(
         IEventRepository eventRepository,
-        Data.AppDbContext dbContext,
+        IDbContextFactory<AppDbContext> contextFactory,
         ILogger<EventService> logger,
         IEmbeddingService? embeddingService = null)
     {
         _eventRepository = eventRepository;
-        _dbContext = dbContext;
+        _contextFactory = contextFactory;
         _logger = logger;
         _embeddingService = embeddingService;
     }
@@ -85,6 +87,7 @@ public class EventService : IEventService
     {
         try
         {
+            eventData.Category = NormalizeCategory(eventData.Category);
             ValidateEvent(eventData);
 
             eventData.EventId = Guid.NewGuid().ToString();
@@ -94,8 +97,20 @@ public class EventService : IEventService
             var createdEvent = await _eventRepository.AddAsync(eventData);
             _logger.LogInformation("Event created: {EventId} - {Title}", createdEvent.EventId, createdEvent.Title);
 
-            // Generate embedding asynchronously (fire and forget)
-            _ = Task.Run(async () => await GenerateEmbeddingForEventAsync(createdEvent));
+            // Notify subscribers (e.g. TimelineViewModel) that a new event exists.
+            // A subscriber failure must not turn a successful create into an error.
+            try
+            {
+                WeakReferenceMessenger.Default.Send(new EventCreatedMessage(createdEvent.EventId, createdEvent.StartDate));
+            }
+            catch (Exception messengerEx)
+            {
+                _logger.LogWarning(messengerEx, "Error publishing EventCreatedMessage for event {EventId}", createdEvent.EventId);
+            }
+
+            // Generate embedding asynchronously (fire and forget).
+            // The background task creates its own DbContext from the factory.
+            _ = Task.Run(async () => await GenerateEmbeddingForEventInBackgroundAsync(createdEvent));
 
             return createdEvent;
         }
@@ -149,6 +164,7 @@ public class EventService : IEventService
     {
         try
         {
+            eventData.Category = NormalizeCategory(eventData.Category);
             ValidateEvent(eventData);
 
             var existingEvent = await _eventRepository.GetByIdAsync(eventData.EventId);
@@ -569,13 +585,36 @@ public class EventService : IEventService
         }
 
         if (!string.IsNullOrEmpty(eventData.Category) &&
-            !EventCategory.AllCategories.Contains(eventData.Category))
+            !EventCategory.AllCategories.Contains(eventData.Category, StringComparer.OrdinalIgnoreCase))
         {
-            throw new ArgumentException($"Invalid category: {eventData.Category}", nameof(eventData.Category));
+            throw new ArgumentException(
+                $"Invalid category: '{eventData.Category}'. Valid categories are: {string.Join(", ", EventCategory.AllCategories)}",
+                nameof(eventData.Category));
         }
     }
 
-    private async Task GenerateEmbeddingForEventAsync(Event eventData)
+    /// <summary>
+    /// Maps a category to its canonical (lowercase) form from <see cref="EventCategory.AllCategories"/>,
+    /// matching case-insensitively (e.g. "Other" -> "other"). Unknown values are returned
+    /// unchanged so <see cref="ValidateEvent"/> can reject them with a clear message.
+    /// </summary>
+    private static string? NormalizeCategory(string? category)
+    {
+        if (string.IsNullOrEmpty(category))
+        {
+            return category;
+        }
+
+        return EventCategory.AllCategories.FirstOrDefault(
+            c => string.Equals(c, category, StringComparison.OrdinalIgnoreCase)) ?? category;
+    }
+
+    /// <summary>
+    /// Fire-and-forget wrapper around <see cref="GenerateEmbeddingForEventAsync"/>:
+    /// never throws (embedding generation is non-critical for event creation),
+    /// but logs failures at Warning so they are visible.
+    /// </summary>
+    private async Task GenerateEmbeddingForEventInBackgroundAsync(Event eventData)
     {
         if (_embeddingService == null)
         {
@@ -585,36 +624,52 @@ public class EventService : IEventService
 
         try
         {
-            _logger.LogInformation("Generating embedding for event {EventId}", eventData.EventId);
-
-            // Create text representation of event
-            var text = string.IsNullOrWhiteSpace(eventData.Description)
-                ? eventData.Title
-                : $"{eventData.Title}. {eventData.Description}";
-
-            // Generate embedding
-            var embedding = await _embeddingService.GenerateEmbeddingAsync(text);
-
-            // Save embedding to database
-            var eventEmbedding = new EventEmbedding
-            {
-                EventEmbeddingId = Guid.NewGuid().ToString(),
-                EventId = eventData.EventId,
-                Embedding = System.Text.Json.JsonSerializer.Serialize(embedding),
-                Model = _embeddingService.ModelName,
-                CreatedAt = DateTime.UtcNow
-            };
-
-            _dbContext.EventEmbeddings.Add(eventEmbedding);
-            await _dbContext.SaveChangesAsync();
-
-            _logger.LogInformation("Embedding generated and saved for event {EventId}", eventData.EventId);
+            await GenerateEmbeddingForEventAsync(eventData);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error generating embedding for event {EventId}", eventData.EventId);
-            // Don't throw - embedding generation is non-critical
+            _logger.LogWarning(ex, "Background embedding generation failed for event {EventId}", eventData.EventId);
         }
+    }
+
+    /// <summary>
+    /// Generates and persists an embedding for the given event using its own
+    /// short-lived DbContext from the factory. Throws on failure.
+    /// </summary>
+    private async Task GenerateEmbeddingForEventAsync(Event eventData)
+    {
+        if (_embeddingService == null)
+        {
+            throw new InvalidOperationException("Embedding service is not configured");
+        }
+
+        _logger.LogInformation("Generating embedding for event {EventId}", eventData.EventId);
+
+        // Create text representation of event
+        var text = string.IsNullOrWhiteSpace(eventData.Description)
+            ? eventData.Title
+            : $"{eventData.Title}. {eventData.Description}";
+
+        // Generate embedding
+        var embedding = await _embeddingService.GenerateEmbeddingAsync(text);
+
+        // Save embedding to database using a dedicated context (safe from any thread)
+        var eventEmbedding = new EventEmbedding
+        {
+            EmbeddingId = Guid.NewGuid().ToString(),
+            EventId = eventData.EventId,
+            EmbeddingVector = System.Text.Json.JsonSerializer.Serialize(embedding),
+            EmbeddingProvider = "openai",
+            EmbeddingModel = _embeddingService.ModelName,
+            EmbeddingDimension = embedding.Length,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        context.EventEmbeddings.Add(eventEmbedding);
+        await context.SaveChangesAsync();
+
+        _logger.LogInformation("Embedding generated and saved for event {EventId}", eventData.EventId);
     }
 
     // Embeddings
@@ -623,9 +678,10 @@ public class EventService : IEventService
     {
         try
         {
-            var embedding = await _dbContext.EventEmbeddings
-                .FirstOrDefaultAsync(ee => ee.EventId == eventId);
-            return embedding != null;
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            return await context.EventEmbeddings
+                .AsNoTracking()
+                .AnyAsync(ee => ee.EventId == eventId);
         }
         catch (Exception ex)
         {
@@ -634,6 +690,10 @@ public class EventService : IEventService
         }
     }
 
+    /// <summary>
+    /// Backfill entry point: generates and persists an embedding for an existing event.
+    /// Throws on failure so callers (e.g. the Connections backfill UI) can report errors.
+    /// </summary>
     public async Task GenerateEmbeddingAsync(string eventId)
     {
         try

@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MemoryTimeline.Core.Models;
 using MemoryTimeline.Data;
@@ -55,10 +56,11 @@ public interface IAudioImportService
 
 /// <summary>
 /// Audio import service implementation.
+/// Creates a short-lived DbContext per operation via IDbContextFactory.
 /// </summary>
 public class AudioImportService : IAudioImportService
 {
-    private readonly AppDbContext _dbContext;
+    private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly IQueueService _queueService;
     private readonly ISpeechToTextService? _sttService;
     private readonly IEventExtractionService? _extractionService;
@@ -67,13 +69,13 @@ public class AudioImportService : IAudioImportService
     public event EventHandler<AudioImportProgress>? ImportProgressChanged;
 
     public AudioImportService(
-        AppDbContext dbContext,
+        IDbContextFactory<AppDbContext> contextFactory,
         IQueueService queueService,
         ILogger<AudioImportService> logger,
         ISpeechToTextService? sttService = null,
         IEventExtractionService? extractionService = null)
     {
-        _dbContext = dbContext;
+        _contextFactory = contextFactory;
         _queueService = queueService;
         _sttService = sttService;
         _extractionService = extractionService;
@@ -332,32 +334,52 @@ public class AudioImportService : IAudioImportService
 
     private async Task<bool> CheckForDuplicateAsync(AudioImportItem item)
     {
-        // Check by file path containing filename and size in queue
+        // Check by file path containing filename and size in queue.
+        // Use the async EF query directly rather than blocking a thread-pool thread via Task.Run.
         var fileName = item.FileName;
-        var existingInQueue = await Task.Run(() =>
-            _dbContext.RecordingQueues.Any(q =>
-                q.AudioFilePath.Contains(fileName) &&
-                q.FileSizeBytes == item.FileSize));
+
+        await using var dbContext = await _contextFactory.CreateDbContextAsync();
+
+        var existingInQueue = await dbContext.RecordingQueues.AnyAsync(q =>
+            q.AudioFilePath.Contains(fileName) &&
+            q.FileSizeBytes == item.FileSize);
 
         return existingInQueue;
     }
 
     private async Task<string> CopyToAppDataAsync(string sourcePath, CancellationToken cancellationToken)
     {
-        var appDataFolder = ApplicationData.Current.LocalFolder;
-        var recordingsFolder = await appDataFolder.CreateFolderAsync("recordings", CreationCollisionOption.OpenIfExists);
+        // ApplicationData.Current requires MSIX package identity and throws in
+        // the unpackaged configuration (WindowsPackageType=None). Use the plain
+        // LocalApplicationData folder instead, mirroring AppDbContext.
+        var recordingsFolder = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "MemoryTimeline",
+            "AudioRecordings");
+
+        Directory.CreateDirectory(recordingsFolder);
 
         var fileName = Path.GetFileName(sourcePath);
         var uniqueName = $"{DateTime.Now:yyyyMMdd_HHmmss}_{fileName}";
+        var destinationPath = Path.Combine(recordingsFolder, uniqueName);
 
-        var destinationFile = await recordingsFolder.CreateFileAsync(uniqueName, CreationCollisionOption.GenerateUniqueName);
+        // Guarantee a unique destination even for multiple imports in the same second
+        var attempt = 1;
+        while (File.Exists(destinationPath))
+        {
+            destinationPath = Path.Combine(
+                recordingsFolder,
+                $"{DateTime.Now:yyyyMMdd_HHmmss}_{attempt++}_{fileName}");
+        }
 
-        using var sourceStream = File.OpenRead(sourcePath);
-        using var destStream = await destinationFile.OpenStreamForWriteAsync();
-        await sourceStream.CopyToAsync(destStream, cancellationToken);
+        await using (var sourceStream = File.OpenRead(sourcePath))
+        await using (var destStream = File.Create(destinationPath))
+        {
+            await sourceStream.CopyToAsync(destStream, cancellationToken);
+        }
 
-        _logger.LogInformation("Copied audio file to: {Path}", destinationFile.Path);
-        return destinationFile.Path;
+        _logger.LogInformation("Copied audio file to: {Path}", destinationPath);
+        return destinationPath;
     }
 
     private async Task<RecordingQueue> AddToQueueAsync(string filePath, AudioImportItem item)
@@ -372,8 +394,10 @@ public class AudioImportService : IAudioImportService
             CreatedAt = DateTime.UtcNow
         };
 
-        _dbContext.RecordingQueues.Add(queueItem);
-        await _dbContext.SaveChangesAsync();
+        await using var dbContext = await _contextFactory.CreateDbContextAsync();
+
+        dbContext.RecordingQueues.Add(queueItem);
+        await dbContext.SaveChangesAsync();
 
         _logger.LogInformation("Added to queue: {Id} - {FileName}", queueItem.QueueId, Path.GetFileName(queueItem.AudioFilePath));
         return queueItem;
@@ -390,9 +414,8 @@ public class AudioImportService : IAudioImportService
 
         var fileName = Path.GetFileName(queueItem.AudioFilePath);
 
-        // Update status to processing
-        queueItem.Status = QueueStatus.Processing;
-        await _dbContext.SaveChangesAsync();
+        // Update status to processing (fresh context; the passed entity is detached)
+        await UpdateQueueStatusAsync(queueItem.QueueId, QueueStatus.Processing);
 
         try
         {
@@ -420,20 +443,42 @@ public class AudioImportService : IAudioImportService
                 _logger.LogInformation("Extracted {Count} events from: {FileName}", pendingEvents.Count, fileName);
             }
 
-            queueItem.Status = QueueStatus.Completed;
-            queueItem.ProcessedAt = DateTime.UtcNow;
+            await UpdateQueueStatusAsync(queueItem.QueueId, QueueStatus.Completed, processedAt: DateTime.UtcNow);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error processing queue item: {Id}", queueItem.QueueId);
-            queueItem.Status = QueueStatus.Failed;
-            queueItem.ErrorMessage = ex.Message;
+            await UpdateQueueStatusAsync(queueItem.QueueId, QueueStatus.Failed, errorMessage: ex.Message);
             throw;
         }
-        finally
+    }
+
+    /// <summary>
+    /// Persists a queue item status change by loading the TRACKED row in a
+    /// fresh context (the entities handed around this service are detached).
+    /// </summary>
+    private async Task UpdateQueueStatusAsync(string queueId, string status, string? errorMessage = null, DateTime? processedAt = null)
+    {
+        await using var dbContext = await _contextFactory.CreateDbContextAsync();
+
+        var tracked = await dbContext.RecordingQueues.FirstOrDefaultAsync(q => q.QueueId == queueId);
+        if (tracked == null)
         {
-            await _dbContext.SaveChangesAsync();
+            _logger.LogWarning("Queue item {QueueId} not found while updating status to {Status}", queueId, status);
+            return;
         }
+
+        tracked.Status = status;
+        if (errorMessage != null)
+        {
+            tracked.ErrorMessage = errorMessage;
+        }
+        if (processedAt.HasValue)
+        {
+            tracked.ProcessedAt = processedAt;
+        }
+
+        await dbContext.SaveChangesAsync();
     }
 
     private void ReportProgress(IProgress<AudioImportProgress>? progress, AudioImportProgress report)

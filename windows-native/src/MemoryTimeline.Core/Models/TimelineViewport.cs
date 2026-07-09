@@ -98,8 +98,31 @@ public class TimelineViewport
     /// </summary>
     public DateTime PixelToDate(double pixel)
     {
+        // Guard against divide-by-zero / non-finite scale which would otherwise
+        // produce Infinity/NaN and overflow DateTime.AddDays.
+        if (PixelsPerDay <= 0 || double.IsNaN(PixelsPerDay))
+            return StartDate;
+
         var days = pixel / PixelsPerDay;
-        return StartDate.AddDays(days);
+        return AddDaysClamped(StartDate, days);
+    }
+
+    /// <summary>
+    /// Adds days to a date, clamping to the valid DateTime range and ignoring
+    /// non-finite values so callers never throw on overflow.
+    /// </summary>
+    private static DateTime AddDaysClamped(DateTime origin, double days)
+    {
+        if (double.IsNaN(days))
+            return origin;
+
+        var maxDays = (DateTime.MaxValue - origin).TotalDays;
+        var minDays = (DateTime.MinValue - origin).TotalDays;
+
+        if (days >= maxDays) return DateTime.MaxValue;
+        if (days <= minDays) return DateTime.MinValue;
+
+        return origin.AddDays(days);
     }
 
     /// <summary>

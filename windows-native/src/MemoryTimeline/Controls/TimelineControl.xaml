@@ -269,6 +269,7 @@
                 <!-- Quick date navigation -->
                 <TextBox x:Name="QuickDateBox"
                         PlaceholderText="mmddyy or yyyy"
+                        AutomationProperties.Name="Quick date navigation"
                         Width="110"
                         VerticalAlignment="Center"
                         KeyDown="QuickDateBox_KeyDown"/>
@@ -276,6 +277,8 @@
                 <Button Content="&#xE71E;"
                        FontFamily="Segoe MDL2 Assets"
                        FontSize="16"
+                       AutomationProperties.Name="Zoom out"
+                       ToolTipService.ToolTip="Zoom out"
                        Command="{x:Bind ViewModel.ZoomOutCommand}"
                        IsEnabled="{x:Bind ViewModel.CanZoomOut, Mode=OneWay}"
                        Style="{StaticResource AccentButtonStyle}"
@@ -294,6 +297,8 @@
                 <Button Content="&#xE71D;"
                        FontFamily="Segoe MDL2 Assets"
                        FontSize="16"
+                       AutomationProperties.Name="Zoom in"
+                       ToolTipService.ToolTip="Zoom in"
                        Command="{x:Bind ViewModel.ZoomInCommand}"
                        IsEnabled="{x:Bind ViewModel.CanZoomIn, Mode=OneWay}"
                        Style="{StaticResource AccentButtonStyle}"
@@ -318,6 +323,8 @@
                                    FontFamily="Segoe MDL2 Assets"
                                    HorizontalAlignment="Right"
                                    Background="Transparent"
+                                   AutomationProperties.Name="Close event details"
+                                   ToolTipService.ToolTip="Close"
                                    Command="{x:Bind ViewModel.SelectEventCommand}"/>
                         </Grid>
 
@@ -355,10 +362,30 @@
                                 </Button.KeyboardAccelerators>
                             </Button>
                         </StackPanel>
+
+                        <Button Content="View connections"
+                               Click="ViewConnections_Click"
+                               HorizontalAlignment="Stretch"
+                               ToolTipService.ToolTip="Explore events related to this one"/>
                     </StackPanel>
                 </ScrollViewer>
             </Grid>
         </Grid>
+
+        <!-- Visible error surface for timeline operations (load/refresh/create).
+             Replaces the old silent StatusText-only error channel. -->
+        <InfoBar x:Name="TimelineErrorBar"
+                Grid.Row="1"
+                Severity="Error"
+                Title="Timeline error"
+                Message="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
+                IsOpen="{x:Bind ViewModel.ErrorMessage, Mode=OneWay, Converter={StaticResource NullToFalseConverter}}"
+                IsClosable="True"
+                Closed="TimelineErrorBar_Closed"
+                VerticalAlignment="Bottom"
+                HorizontalAlignment="Stretch"
+                Margin="12,0,12,8"
+                Canvas.ZIndex="300"/>
 
         <!-- Proportional scrollbar (Premiere-style) -->
         <controls:ProportionalScrollBar x:Name="TimelineScrollBar"
@@ -420,6 +447,14 @@
                       DefaultButton="Primary"
                       PrimaryButtonClick="EventDialog_PrimaryButtonClick">
             <StackPanel Spacing="16" MinWidth="400">
+                <!-- In-dialog error surface: keeps the dialog open and tells the
+                     user why the save failed (validation or service error). -->
+                <InfoBar x:Name="EventDialogErrorBar"
+                        Severity="Error"
+                        IsOpen="False"
+                        IsClosable="True"
+                        Title="Could not save event"/>
+
                 <TextBox x:Name="EventTitleBox"
                         Header="Title"
                         PlaceholderText="Enter event title"/>

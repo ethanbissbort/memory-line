@@ -24,6 +24,19 @@
                       Style="{StaticResource BodyTextBlockStyle}"
                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
+            <!-- Embedding API key CTA (shown when no embedding key is configured) -->
+            <InfoBar IsOpen="{x:Bind ViewModel.ShowEmbeddingCta, Mode=OneWay}"
+                    Severity="Warning"
+                    IsClosable="False"
+                    Title="Embeddings not configured"
+                    Message="Add an OpenAI embedding API key in Settings to enable connections."
+                    Margin="0,16,0,0">
+                <InfoBar.ActionButton>
+                    <Button Content="Open Settings"
+                           Command="{x:Bind ViewModel.OpenSettingsCommand}"/>
+                </InfoBar.ActionButton>
+            </InfoBar>
+
             <!-- Selected Event Info -->
             <Grid Margin="0,16,0,0"
                   Visibility="{x:Bind ViewModel.HasSelectedEvent, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
@@ -53,6 +66,21 @@
                     </AppBarButton.Icon>
                 </AppBarButton>
             </CommandBar>
+
+            <!-- Hint: event has no embedding yet -->
+            <InfoBar IsOpen="{x:Bind ViewModel.SelectedEventNeedsEmbedding, Mode=OneWay}"
+                    Severity="Informational"
+                    IsClosable="False"
+                    Title="Generate embeddings first"
+                    Message="This event has no embedding yet. Use the Generate Embeddings button above to enable similar events and connections."
+                    Margin="0,8,0,0"/>
+
+            <!-- Status (e.g. embedding backfill progress) -->
+            <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                      Style="{StaticResource CaptionTextBlockStyle}"
+                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                      Visibility="{x:Bind ViewModel.StatusMessage, Converter={StaticResource NullToVisibilityConverter}, Mode=OneWay}"
+                      Margin="0,8,0,0"/>
         </StackPanel>
 
         <!-- Content -->
@@ -149,6 +177,11 @@
                                                       Style="{StaticResource CaptionTextBlockStyle}"
                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                                       HorizontalAlignment="Right"/>
+                                            <Button Content="View on timeline"
+                                                   Margin="0,8,0,0"
+                                                   HorizontalAlignment="Right"
+                                                   Tag="{x:Bind EventId}"
+                                                   Click="SimilarEvent_ViewOnTimeline_Click"/>
                                         </StackPanel>
                                     </Grid>
                                 </DataTemplate>

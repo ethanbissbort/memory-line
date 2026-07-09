@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using MemoryTimeline.Data.Models;
+using MemoryTimeline.Data.Repositories;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 
@@ -7,26 +8,30 @@ namespace MemoryTimeline.Core.Services;
 
 /// <summary>
 /// RAG (Retrieval-Augmented Generation) service implementation.
+/// Creates a short-lived DbContext per operation via IDbContextFactory.
+/// Cross-reference detection is heuristic (temporal proximity + shared
+/// category, confidences derived from embedding similarity) and results are
+/// persisted via <see cref="ICrossReferenceRepository"/>.
 /// </summary>
 public class RagService : IRagService
 {
     private readonly IEmbeddingService _embeddingService;
-    private readonly ILlmService _llmService;
     private readonly IEventService _eventService;
-    private readonly Data.AppDbContext _dbContext;
+    private readonly IDbContextFactory<Data.AppDbContext> _contextFactory;
+    private readonly ICrossReferenceRepository _crossReferenceRepository;
     private readonly ILogger<RagService> _logger;
 
     public RagService(
         IEmbeddingService embeddingService,
-        ILlmService llmService,
         IEventService eventService,
-        Data.AppDbContext dbContext,
+        IDbContextFactory<Data.AppDbContext> contextFactory,
+        ICrossReferenceRepository crossReferenceRepository,
         ILogger<RagService> logger)
     {
         _embeddingService = embeddingService;
-        _llmService = llmService;
         _eventService = eventService;
-        _dbContext = dbContext;
+        _contextFactory = contextFactory;
+        _crossReferenceRepository = crossReferenceRepository;
         _logger = logger;
     }
 
@@ -39,29 +44,42 @@ public class RagService : IRagService
         {
             _logger.LogInformation("Finding similar events for {EventId}", eventId);
 
-            // Get the source event and its embedding
-            var sourceEventEmbedding = await _dbContext.EventEmbeddings
+            await using var dbContext = await _contextFactory.CreateDbContextAsync();
+
+            // Get the source event and its embedding.
+            // NOTE: queries must use the mapped EmbeddingVector column, never the
+            // [NotMapped] Embedding alias (untranslatable -> runtime throw).
+            var sourceEventEmbedding = await dbContext.EventEmbeddings
+                .AsNoTracking()
                 .FirstOrDefaultAsync(ee => ee.EventId == eventId);
 
-            if (sourceEventEmbedding == null || sourceEventEmbedding.Embedding == null)
+            if (sourceEventEmbedding == null || string.IsNullOrWhiteSpace(sourceEventEmbedding.EmbeddingVector))
             {
                 _logger.LogWarning("No embedding found for event {EventId}", eventId);
                 return new List<SimilarEvent>();
             }
 
-            var queryEmbedding = JsonSerializer.Deserialize<float[]>(sourceEventEmbedding.Embedding);
+            var queryEmbedding = TryDeserializeEmbedding(sourceEventEmbedding.EmbeddingVector);
             if (queryEmbedding == null)
             {
-                throw new Exception("Failed to deserialize embedding");
+                // Malformed source embedding: return empty results instead of
+                // throwing so one corrupt row can't break the Connections page.
+                _logger.LogWarning(
+                    "Stored embedding for event {EventId} is malformed; returning no similar events. " +
+                    "Regenerate embeddings to fix.", eventId);
+                return new List<SimilarEvent>();
             }
 
             // Get all other event embeddings
-            var allEmbeddings = await _dbContext.EventEmbeddings
-                .Where(ee => ee.EventId != eventId && ee.Embedding != null)
+            var allEmbeddings = await dbContext.EventEmbeddings
+                .AsNoTracking()
+                .Where(ee => ee.EventId != eventId && ee.EmbeddingVector != null && ee.EmbeddingVector != "")
                 .ToListAsync();
 
             var candidateEmbeddings = allEmbeddings
-                .Select(ee => (ee.EventId, JsonSerializer.Deserialize<float[]>(ee.Embedding!)!))
+                .Select(ee => (ee.EventId, Embedding: TryDeserializeEmbedding(ee.EmbeddingVector)))
+                .Where(x => x.Embedding != null)
+                .Select(x => (x.EventId, x.Embedding!))
                 .ToList();
 
             // Find K nearest neighbors
@@ -100,7 +118,12 @@ public class RagService : IRagService
     }
 
     /// <summary>
-    /// Detects cross-references using LLM analysis.
+    /// Detects cross-references between events.
+    /// Detection is HEURISTIC (temporal proximity and shared category, with
+    /// confidences derived from embedding similarity where available) — no LLM
+    /// call is made. New detections are persisted via the cross-reference
+    /// repository (deduplicated per event pair), and previously stored
+    /// references for the event are merged into the returned results.
     /// </summary>
     public async Task<List<CrossReferenceResult>> DetectCrossReferencesAsync(string eventId, IEnumerable<string>? candidateEventIds = null)
     {
@@ -114,11 +137,13 @@ public class RagService : IRagService
                 throw new Exception($"Event {eventId} not found");
             }
 
-            // Get candidate events (either specified or find similar)
-            List<Event> candidates;
+            // Get candidate events (either specified, or embedding-similar events).
+            // similarityByEventId feeds the heuristic confidence scores.
+            var candidates = new List<Event>();
+            var similarityByEventId = new Dictionary<string, double>();
+
             if (candidateEventIds != null && candidateEventIds.Any())
             {
-                candidates = new List<Event>();
                 foreach (var id in candidateEventIds)
                 {
                     var evt = await _eventService.GetEventWithDetailsAsync(id);
@@ -127,28 +152,77 @@ public class RagService : IRagService
             }
             else
             {
-                // Find similar events as candidates
                 var similarEvents = await FindSimilarEventsAsync(eventId, topK: 20, threshold: 0.6);
-                candidates = new List<Event>();
                 foreach (var similar in similarEvents)
                 {
                     var evt = await _eventService.GetEventWithDetailsAsync(similar.EventId);
-                    if (evt != null) candidates.Add(evt);
+                    if (evt != null)
+                    {
+                        candidates.Add(evt);
+                        similarityByEventId[similar.EventId] = similar.Similarity;
+                    }
                 }
             }
 
-            if (candidates.Count == 0)
+            // Start from what is already stored so previous detections are not lost
+            var results = new List<CrossReferenceResult>();
+            var knownPairs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var storedReferences = await _crossReferenceRepository.GetReferencesForEventAsync(eventId);
+            foreach (var stored in storedReferences)
             {
-                return new List<CrossReferenceResult>();
+                results.Add(ToResult(stored, eventId));
+                knownPairs.Add(PairKey(stored.EventId1, stored.EventId2));
             }
 
-            // Use LLM to analyze relationships
-            var crossReferences = await AnalyzeRelationshipsWithLLMAsync(sourceEvent, candidates);
+            // Heuristic detection over the candidates, persisting new pairs
+            foreach (var candidate in candidates)
+            {
+                if (candidate.EventId == eventId)
+                    continue;
 
-            _logger.LogInformation("Detected {Count} cross-references for event {EventId}",
-                crossReferences.Count, eventId);
+                if (knownPairs.Contains(PairKey(eventId, candidate.EventId)))
+                    continue;
 
-            return crossReferences;
+                double? similarity = similarityByEventId.TryGetValue(candidate.EventId, out var s) ? s : null;
+                var relationship = DetermineRelationshipHeuristically(sourceEvent, candidate, similarity);
+                if (relationship == null)
+                    continue;
+
+                knownPairs.Add(PairKey(eventId, candidate.EventId));
+                results.Add(relationship);
+
+                // Persist (dedupe against concurrent writers via GetReferenceAsync).
+                // Persistence failure must not break detection results.
+                try
+                {
+                    var existing = await _crossReferenceRepository.GetReferenceAsync(eventId, candidate.EventId);
+                    if (existing == null)
+                    {
+                        await _crossReferenceRepository.AddAsync(new CrossReference
+                        {
+                            ReferenceId = Guid.NewGuid().ToString(),
+                            EventId1 = relationship.SourceEventId,
+                            EventId2 = relationship.TargetEventId,
+                            RelationshipType = ToStorageType(relationship.RelationshipType),
+                            ConfidenceScore = relationship.Confidence,
+                            AnalysisDetails = relationship.Reasoning,
+                            CreatedAt = DateTime.UtcNow
+                        });
+                    }
+                }
+                catch (Exception persistEx)
+                {
+                    _logger.LogWarning(persistEx,
+                        "Failed to persist cross-reference {Source} -> {Target}",
+                        relationship.SourceEventId, relationship.TargetEventId);
+                }
+            }
+
+            _logger.LogInformation("Detected {Count} cross-references for event {EventId} ({Stored} previously stored)",
+                results.Count, eventId, storedReferences.Count());
+
+            return results;
         }
         catch (Exception ex)
         {
@@ -274,13 +348,19 @@ public class RagService : IRagService
             var text = string.IsNullOrWhiteSpace(description) ? title : $"{title}. {description}";
             var queryEmbedding = await _embeddingService.GenerateEmbeddingAsync(text);
 
-            // Get all event embeddings
-            var allEmbeddings = await _dbContext.EventEmbeddings
-                .Where(ee => ee.Embedding != null)
+            // Get all event embeddings (mapped EmbeddingVector column — the
+            // [NotMapped] Embedding alias is untranslatable in EF queries)
+            await using var dbContext = await _contextFactory.CreateDbContextAsync();
+
+            var allEmbeddings = await dbContext.EventEmbeddings
+                .AsNoTracking()
+                .Where(ee => ee.EmbeddingVector != null && ee.EmbeddingVector != "")
                 .ToListAsync();
 
             var candidateEmbeddings = allEmbeddings
-                .Select(ee => (ee.EventId, JsonSerializer.Deserialize<float[]>(ee.Embedding!)!))
+                .Select(ee => (ee.EventId, Embedding: TryDeserializeEmbedding(ee.EmbeddingVector)))
+                .Where(x => x.Embedding != null)
+                .Select(x => (x.EventId, x.Embedding!))
                 .ToList();
 
             // Find similar events
@@ -335,82 +415,131 @@ public class RagService : IRagService
 
     #region Private Methods
 
-    private async Task<List<CrossReferenceResult>> AnalyzeRelationshipsWithLLMAsync(Event sourceEvent, List<Event> candidates)
+    /// <summary>
+    /// Safely deserializes a stored embedding, returning null (and logging) on malformed data
+    /// instead of throwing so a single corrupt row cannot abort an entire similarity search.
+    /// </summary>
+    private float[]? TryDeserializeEmbedding(string? json)
     {
-        // Build prompt for LLM analysis
-        var prompt = BuildCrossReferencePrompt(sourceEvent, candidates);
+        if (string.IsNullOrWhiteSpace(json))
+            return null;
 
-        // Call LLM
-        var extraction = await _llmService.ExtractEventsAsync(prompt, null);
-
-        // Parse results (simplified - in production, use structured output)
-        var crossReferences = new List<CrossReferenceResult>();
-
-        // TODO: Implement proper LLM-based relationship detection
-        // For now, use simple heuristics
-
-        foreach (var candidate in candidates)
+        try
         {
-            var relationship = DetermineRelationship(sourceEvent, candidate);
-            if (relationship != null)
-            {
-                crossReferences.Add(relationship);
-            }
+            return JsonSerializer.Deserialize<float[]>(json);
         }
-
-        return crossReferences;
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex, "Failed to deserialize stored embedding; skipping");
+            return null;
+        }
     }
 
-    private string BuildCrossReferencePrompt(Event sourceEvent, List<Event> candidates)
+    /// <summary>
+    /// Heuristic relationship detection with honest labelling: confidences are
+    /// derived from embedding similarity and temporal proximity — never
+    /// hard-coded — and the reasoning states that the result is a heuristic.
+    /// </summary>
+    private CrossReferenceResult? DetermineRelationshipHeuristically(Event source, Event target, double? similarity)
     {
-        var sb = new System.Text.StringBuilder();
-
-        sb.AppendLine("Analyze the relationships between these events:");
-        sb.AppendLine();
-        sb.AppendLine($"Source Event: {sourceEvent.Title}");
-        sb.AppendLine($"Description: {sourceEvent.Description}");
-        sb.AppendLine($"Date: {sourceEvent.StartDate:yyyy-MM-dd}");
-        sb.AppendLine();
-        sb.AppendLine("Candidate Events:");
-
-        foreach (var candidate in candidates)
-        {
-            sb.AppendLine($"- {candidate.Title} ({candidate.StartDate:yyyy-MM-dd})");
-        }
-
-        return sb.ToString();
-    }
-
-    private CrossReferenceResult? DetermineRelationship(Event source, Event target)
-    {
-        // Simple heuristic-based relationship detection
         var daysDifference = Math.Abs((target.StartDate - source.StartDate).TotalDays);
 
         if (daysDifference <= 7)
         {
+            // Proximity score: 1.0 (same day) down to ~0.0 (7 days apart)
+            var proximity = 1.0 - (daysDifference / 7.0);
+
+            // Blend with embedding similarity when we have one; otherwise the
+            // proximity alone (discounted — we know less about the pair).
+            var confidence = similarity.HasValue
+                ? Math.Clamp(0.5 * similarity.Value + 0.5 * proximity, 0.0, 1.0)
+                : Math.Clamp(0.6 * proximity, 0.0, 1.0);
+
             return new CrossReferenceResult
             {
                 SourceEventId = source.EventId,
                 TargetEventId = target.EventId,
                 RelationshipType = CrossReferenceType.Temporal,
-                Confidence = 0.8,
-                Reasoning = $"Events occurred within {daysDifference} days of each other"
+                Confidence = Math.Round(confidence, 3),
+                Reasoning = similarity.HasValue
+                    ? $"Heuristic: events occurred within {daysDifference:0.#} days of each other (embedding similarity {similarity.Value:0.00})"
+                    : $"Heuristic: events occurred within {daysDifference:0.#} days of each other"
             };
         }
 
-        if (source.Category == target.Category)
+        if (!string.IsNullOrWhiteSpace(source.Category) &&
+            string.Equals(source.Category, target.Category, StringComparison.OrdinalIgnoreCase))
         {
+            // Thematic closeness is best measured by embedding similarity; the
+            // shared category alone is a weak signal, reflected in the score.
+            var confidence = similarity.HasValue
+                ? Math.Clamp(similarity.Value, 0.0, 1.0)
+                : 0.4;
+
             return new CrossReferenceResult
             {
                 SourceEventId = source.EventId,
                 TargetEventId = target.EventId,
                 RelationshipType = CrossReferenceType.Thematic,
-                Confidence = 0.7,
-                Reasoning = $"Both events are in the {source.Category} category"
+                Confidence = Math.Round(confidence, 3),
+                Reasoning = similarity.HasValue
+                    ? $"Heuristic: both events share the '{source.Category}' category (embedding similarity {similarity.Value:0.00})"
+                    : $"Heuristic: both events share the '{source.Category}' category (no embedding similarity available)"
             };
         }
 
         return null;
+    }
+
+    /// <summary>Canonical unordered key for an event pair.</summary>
+    private static string PairKey(string eventId1, string eventId2)
+    {
+        return string.CompareOrdinal(eventId1, eventId2) <= 0
+            ? $"{eventId1}|{eventId2}"
+            : $"{eventId2}|{eventId1}";
+    }
+
+    /// <summary>Converts a stored cross-reference row into a result, oriented from the requested event.</summary>
+    private static CrossReferenceResult ToResult(CrossReference stored, string sourceEventId)
+    {
+        var isForward = string.Equals(stored.EventId1, sourceEventId, StringComparison.OrdinalIgnoreCase);
+
+        return new CrossReferenceResult
+        {
+            SourceEventId = isForward ? stored.EventId1 : stored.EventId2,
+            TargetEventId = isForward ? stored.EventId2 : stored.EventId1,
+            RelationshipType = FromStorageType(stored.RelationshipType),
+            Confidence = stored.ConfidenceScore ?? 0.0,
+            Reasoning = stored.AnalysisDetails
+        };
+    }
+
+    /// <summary>Maps the service-level relationship enum to the stored string value.</summary>
+    private static string ToStorageType(CrossReferenceType type)
+    {
+        return type switch
+        {
+            CrossReferenceType.Causal => RelationshipType.Causal.ToStringValue(),
+            CrossReferenceType.Thematic => RelationshipType.Thematic.ToStringValue(),
+            CrossReferenceType.Temporal => RelationshipType.Temporal.ToStringValue(),
+            CrossReferenceType.Participatory => RelationshipType.Person.ToStringValue(),
+            CrossReferenceType.Locational => RelationshipType.Location.ToStringValue(),
+            CrossReferenceType.Consequential => RelationshipType.Causal.ToStringValue(),
+            _ => RelationshipType.Other.ToStringValue()
+        };
+    }
+
+    /// <summary>Maps a stored relationship string back to the service-level enum.</summary>
+    private static CrossReferenceType FromStorageType(string? storedType)
+    {
+        return RelationshipTypeExtensions.FromString(storedType ?? string.Empty) switch
+        {
+            RelationshipType.Causal => CrossReferenceType.Causal,
+            RelationshipType.Temporal => CrossReferenceType.Temporal,
+            RelationshipType.Person => CrossReferenceType.Participatory,
+            RelationshipType.Location => CrossReferenceType.Locational,
+            _ => CrossReferenceType.Thematic
+        };
     }
 
     private List<CategoryPattern> DetectCategoryPatterns(List<Event> events)

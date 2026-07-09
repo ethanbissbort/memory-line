@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using MemoryTimeline.Core.Models;
 using MemoryTimeline.Data.Models;
 using MemoryTimeline.ViewModels;
 using MemoryTimeline.Services;
@@ -14,6 +15,12 @@ public sealed partial class SearchPage : Page
     private readonly INavigationService _navigationService;
     private Event? _contextMenuEvent;
 
+    /// <summary>
+    /// Set after the initial load completes so SelectionChanged handlers fired
+    /// by XAML default selections during page construction don't trigger searches.
+    /// </summary>
+    private bool _initialized;
+
     public SearchPage()
     {
         InitializeComponent();
@@ -24,11 +31,45 @@ public sealed partial class SearchPage : Page
     private async void Page_Loaded(object sender, RoutedEventArgs e)
     {
         await ViewModel.InitializeAsync();
+        _initialized = true;
+    }
+
+    private void SearchBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+    {
+        // Only user keystrokes should trigger (debounced) autocomplete loads,
+        // not programmatic Text changes or suggestion selection.
+        if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
+        {
+            ViewModel.OnSearchTermUserInput();
+        }
+    }
+
+    private void SearchBox_SuggestionChosen(AutoSuggestBox sender, AutoSuggestBoxSuggestionChosenEventArgs args)
+    {
+        if (args.SelectedItem is AutocompleteSuggestion suggestion)
+        {
+            // Reflect the chosen suggestion in the search term; the search itself
+            // runs in QuerySubmitted, which fires with ChosenSuggestion set when
+            // the user commits the selection (avoids double-searching).
+            ViewModel.SearchTerm = suggestion.Text;
+        }
     }
 
     private async void SearchBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
     {
-        await ViewModel.SearchAsync();
+        if (args.ChosenSuggestion is AutocompleteSuggestion suggestion)
+        {
+            await ViewModel.ApplySuggestionAsync(suggestion);
+        }
+        else
+        {
+            await ViewModel.SearchAsync();
+        }
+    }
+
+    private void SearchErrorInfoBar_CloseButtonClick(InfoBar sender, object args)
+    {
+        ViewModel.ErrorMessage = string.Empty;
     }
 
     private async void Category_Checked(object sender, RoutedEventArgs e)
@@ -73,7 +114,7 @@ public sealed partial class SearchPage : Page
 
     private async void SortBy_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (ViewModel == null) return;
+        if (ViewModel == null || !_initialized) return;
         if (sender is ComboBox comboBox && comboBox.SelectedItem is ComboBoxItem item && item.Tag is string sortBy)
         {
             await ViewModel.ChangeSortAsync(sortBy);
@@ -82,6 +123,7 @@ public sealed partial class SearchPage : Page
 
     private async void PageSize_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (!_initialized) return;
         if (sender is ComboBox comboBox && comboBox.SelectedItem is ComboBoxItem item && item.Tag is string sizeStr)
         {
             if (int.TryParse(sizeStr, out var size))
@@ -93,6 +135,7 @@ public sealed partial class SearchPage : Page
 
     private async void PageNumber_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
     {
+        if (!_initialized) return;
         if (!double.IsNaN(args.NewValue))
         {
             await ViewModel.GoToPageAsync((int)args.NewValue);

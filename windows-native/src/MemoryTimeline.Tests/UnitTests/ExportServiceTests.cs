@@ -1,9 +1,9 @@
 using FluentAssertions;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MemoryTimeline.Core.Services;
 using MemoryTimeline.Data;
 using MemoryTimeline.Data.Models;
+using MemoryTimeline.Tests;
 using Moq;
 using System.Text.Json;
 using Xunit;
@@ -12,21 +12,20 @@ namespace MemoryTimeline.Tests.UnitTests;
 
 public class ExportServiceTests : IDisposable
 {
-    private readonly AppDbContext _context;
+    private readonly TestDbContextFactory _contextFactory;
+    private readonly AppDbContext _context; // seeding context over the same in-memory store
     private readonly ExportService _exportService;
     private readonly Mock<ILogger<ExportService>> _loggerMock;
     private readonly string _tempDirectory;
 
     public ExportServiceTests()
     {
-        // Create in-memory database
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseInMemoryDatabase(databaseName: $"ExportTestDb_{Guid.NewGuid()}")
-            .Options;
-
-        _context = new AppDbContext(options);
+        // Factory over a uniquely named in-memory database; ExportService creates
+        // its own short-lived contexts from it.
+        _contextFactory = TestDbContextFactory.CreateInMemory();
+        _context = _contextFactory.CreateDbContext();
         _loggerMock = new Mock<ILogger<ExportService>>();
-        _exportService = new ExportService(_context, _loggerMock.Object);
+        _exportService = new ExportService(_contextFactory, _loggerMock.Object);
 
         // Create temp directory for test files
         _tempDirectory = Path.Combine(Path.GetTempPath(), $"MemoryTimelineTests_{Guid.NewGuid()}");
@@ -204,7 +203,10 @@ public class ExportServiceTests : IDisposable
         // Arrange
         var filePath = Path.Combine(_tempDirectory, "progress_export.json");
         var progressReports = new List<int>();
-        var progress = new Progress<int>(p => progressReports.Add(p));
+        // Use a synchronous IProgress so reports are captured inline (deterministic).
+        // System.Progress<T> posts callbacks to a captured SynchronizationContext /
+        // the thread pool, which can run AFTER the assertions and make this test flaky.
+        var progress = new SynchronousProgress<int>(p => progressReports.Add(p));
 
         // Act
         await _exportService.ExportToJsonAsync(filePath, progress: progress);
@@ -248,5 +250,18 @@ public class ExportServiceTests : IDisposable
         {
             Directory.Delete(_tempDirectory, true);
         }
+    }
+
+    /// <summary>
+    /// An <see cref="IProgress{T}"/> that invokes its handler synchronously on the
+    /// calling thread, making progress-report assertions deterministic in tests.
+    /// </summary>
+    private sealed class SynchronousProgress<T> : IProgress<T>
+    {
+        private readonly Action<T> _handler;
+
+        public SynchronousProgress(Action<T> handler) => _handler = handler;
+
+        public void Report(T value) => _handler(value);
     }
 }

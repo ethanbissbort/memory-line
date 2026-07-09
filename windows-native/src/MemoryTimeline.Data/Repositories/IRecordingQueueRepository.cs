@@ -15,80 +15,98 @@ public interface IRecordingQueueRepository : IRepository<RecordingQueue>
 
 /// <summary>
 /// Repository implementation for RecordingQueue entity.
+/// Creates a short-lived <see cref="AppDbContext"/> per operation via
+/// <see cref="IDbContextFactory{TContext}"/> so operations are thread-safe
+/// and never share change-tracker state.
 /// </summary>
 public class RecordingQueueRepository : IRecordingQueueRepository
 {
-    private readonly AppDbContext _context;
+    private readonly IDbContextFactory<AppDbContext> _contextFactory;
 
-    public RecordingQueueRepository(AppDbContext context)
+    public RecordingQueueRepository(IDbContextFactory<AppDbContext> contextFactory)
     {
-        _context = context;
+        _contextFactory = contextFactory;
     }
 
     public async Task<RecordingQueue> AddAsync(RecordingQueue entity)
     {
-        _context.RecordingQueues.Add(entity);
-        await _context.SaveChangesAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        context.RecordingQueues.Add(entity);
+        await context.SaveChangesAsync();
         return entity;
     }
 
     public async Task UpdateAsync(RecordingQueue entity)
     {
-        _context.RecordingQueues.Update(entity);
-        await _context.SaveChangesAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        // Entity is detached; Update attaches it and marks it Modified.
+        context.RecordingQueues.Update(entity);
+        await context.SaveChangesAsync();
     }
 
     public async Task DeleteAsync(RecordingQueue entity)
     {
-        _context.RecordingQueues.Remove(entity);
-        await _context.SaveChangesAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        // Remove attaches the detached entity and marks it Deleted.
+        context.RecordingQueues.Remove(entity);
+        await context.SaveChangesAsync();
     }
 
     public async Task AddRangeAsync(IEnumerable<RecordingQueue> entities)
     {
-        _context.RecordingQueues.AddRange(entities);
-        await _context.SaveChangesAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        context.RecordingQueues.AddRange(entities);
+        await context.SaveChangesAsync();
     }
 
     public async Task DeleteRangeAsync(IEnumerable<RecordingQueue> entities)
     {
-        _context.RecordingQueues.RemoveRange(entities);
-        await _context.SaveChangesAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        context.RecordingQueues.RemoveRange(entities);
+        await context.SaveChangesAsync();
     }
 
     public async Task<bool> ExistsAsync(System.Linq.Expressions.Expression<Func<RecordingQueue, bool>> predicate)
     {
-        return await _context.RecordingQueues.AnyAsync(predicate);
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.RecordingQueues.AnyAsync(predicate);
     }
 
     public async Task<int> CountAsync(System.Linq.Expressions.Expression<Func<RecordingQueue, bool>>? predicate = null)
     {
+        await using var context = await _contextFactory.CreateDbContextAsync();
         return predicate == null
-            ? await _context.RecordingQueues.CountAsync()
-            : await _context.RecordingQueues.CountAsync(predicate);
+            ? await context.RecordingQueues.CountAsync()
+            : await context.RecordingQueues.CountAsync(predicate);
     }
 
     public async Task<IEnumerable<RecordingQueue>> FindAsync(System.Linq.Expressions.Expression<Func<RecordingQueue, bool>> predicate)
     {
-        return await _context.RecordingQueues.Where(predicate).ToListAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.RecordingQueues.AsNoTracking().Where(predicate).ToListAsync();
     }
 
     public async Task<RecordingQueue?> GetByIdAsync(string id)
     {
-        return await _context.RecordingQueues
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.RecordingQueues
             .FirstOrDefaultAsync(q => q.QueueId == id);
     }
 
     public async Task<IEnumerable<RecordingQueue>> GetAllAsync()
     {
-        return await _context.RecordingQueues
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.RecordingQueues
+            .AsNoTracking()
             .OrderByDescending(q => q.CreatedAt)
             .ToListAsync();
     }
 
     public async Task<IEnumerable<RecordingQueue>> GetByStatusAsync(string status)
     {
-        return await _context.RecordingQueues
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.RecordingQueues
+            .AsNoTracking()
             .Where(q => q.Status == status)
             .OrderBy(q => q.CreatedAt)
             .ToListAsync();
@@ -96,14 +114,16 @@ public class RecordingQueueRepository : IRecordingQueueRepository
 
     public async Task<RecordingQueue?> GetByIdWithPendingEventsAsync(string queueId)
     {
-        return await _context.RecordingQueues
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.RecordingQueues
             .Include(q => q.PendingEvents)
             .FirstOrDefaultAsync(q => q.QueueId == queueId);
     }
 
     public async Task<int> GetCountByStatusAsync(string status)
     {
-        return await _context.RecordingQueues
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.RecordingQueues
             .CountAsync(q => q.Status == status);
     }
 }

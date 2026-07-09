@@ -51,7 +51,20 @@ public class TimelineCoordinateConverter
     /// </summary>
     public DateTime ScreenToDate(double screenX)
     {
-        return ScrollOffset.AddDays(screenX / PixelsPerDay);
+        // Guard against divide-by-zero / non-finite scale which would overflow AddDays.
+        if (PixelsPerDay <= 0 || double.IsNaN(PixelsPerDay))
+            return ScrollOffset;
+
+        var days = screenX / PixelsPerDay;
+        if (double.IsNaN(days))
+            return ScrollOffset;
+
+        var maxDays = (DateTime.MaxValue - ScrollOffset).TotalDays;
+        var minDays = (DateTime.MinValue - ScrollOffset).TotalDays;
+        if (days >= maxDays) return DateTime.MaxValue;
+        if (days <= minDays) return DateTime.MinValue;
+
+        return ScrollOffset.AddDays(days);
     }
 
     /// <summary>
@@ -62,7 +75,7 @@ public class TimelineCoordinateConverter
     /// <summary>
     /// Gets the rightmost visible date.
     /// </summary>
-    public DateTime VisibleEndDate => ScrollOffset.AddDays(ViewportWidth / PixelsPerDay);
+    public DateTime VisibleEndDate => ScreenToDate(ViewportWidth);
 
     /// <summary>
     /// Gets the duration of the visible time span.
@@ -72,7 +85,7 @@ public class TimelineCoordinateConverter
     /// <summary>
     /// Gets the visible duration in days.
     /// </summary>
-    public double VisibleDays => ViewportWidth / PixelsPerDay;
+    public double VisibleDays => (PixelsPerDay <= 0 || double.IsNaN(PixelsPerDay)) ? 0 : ViewportWidth / PixelsPerDay;
 
     /// <summary>
     /// Checks if a date is within the visible viewport.
@@ -374,9 +387,14 @@ public static class ZoomHelper
     public static void ZoomCenteredOn(TimelineViewport viewport, DateTime anchorDate, ZoomLevel newZoomLevel)
     {
         // Calculate where anchor currently sits as fraction of viewport (0 = left edge, 1 = right edge)
-        var anchorFraction = (anchorDate - viewport.StartDate).TotalDays / viewport.VisibleDays;
+        var visibleDays = viewport.VisibleDays;
+        var anchorFraction = visibleDays > 0
+            ? (anchorDate - viewport.StartDate).TotalDays / visibleDays
+            : 0.5;
 
-        // Clamp to valid range
+        // Clamp to valid range (also normalizes any NaN/Infinity to the center)
+        if (double.IsNaN(anchorFraction) || double.IsInfinity(anchorFraction))
+            anchorFraction = 0.5;
         anchorFraction = Math.Max(0, Math.Min(1, anchorFraction));
 
         // Get new pixels per day

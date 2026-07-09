@@ -86,10 +86,14 @@
             <!-- Actions -->
             <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8">
                 <!-- Zoom controls -->
-                <Button Click="ZoomOut_Click" Padding="8">
+                <Button Click="ZoomOut_Click" Padding="8"
+                        AutomationProperties.Name="Zoom out"
+                        ToolTipService.ToolTip="Zoom out">
                     <FontIcon Glyph="&#xE71F;" FontSize="14"/>
                 </Button>
-                <Button Click="ZoomIn_Click" Padding="8">
+                <Button Click="ZoomIn_Click" Padding="8"
+                        AutomationProperties.Name="Zoom in"
+                        ToolTipService.ToolTip="Zoom in">
                     <FontIcon Glyph="&#xE8A3;" FontSize="14"/>
                 </Button>
 
@@ -286,7 +290,7 @@
                                                                 <!-- Selection highlight -->
                                                                 <Border CornerRadius="3"
                                                                         BorderThickness="2"
-                                                                        BorderBrush="{ThemeResource SystemAccentColor}"
+                                                                        BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
                                                                         Visibility="{x:Bind IsSelected, Mode=OneWay}"/>
 
                                                                 <!-- Ongoing indicator (arrow) -->

@@ -5,6 +5,7 @@ using MemoryTimeline.Core.Services;
 using MemoryTimeline.Data;
 using MemoryTimeline.Data.Models;
 using MemoryTimeline.Data.Repositories;
+using MemoryTimeline.Tests;
 using Moq;
 using Xunit;
 
@@ -12,22 +13,19 @@ namespace MemoryTimeline.Tests.Services;
 
 public class EventServiceTests : IDisposable
 {
-    private readonly AppDbContext _context;
+    private readonly TestDbContextFactory _contextFactory;
     private readonly IEventRepository _repository;
     private readonly IEventService _eventService;
     private readonly Mock<ILogger<EventService>> _loggerMock;
 
     public EventServiceTests()
     {
-        // Create in-memory database
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseInMemoryDatabase(databaseName: $"TestDb_{Guid.NewGuid()}")
-            .Options;
-
-        _context = new AppDbContext(options);
-        _repository = new EventRepository(_context);
+        // Create factory over a uniquely named in-memory database; every context
+        // created from it shares the same store.
+        _contextFactory = TestDbContextFactory.CreateInMemory();
+        _repository = new EventRepository(_contextFactory);
         _loggerMock = new Mock<ILogger<EventService>>();
-        _eventService = new EventService(_repository, _context, _loggerMock.Object);
+        _eventService = new EventService(_repository, _contextFactory, _loggerMock.Object);
     }
 
     [Fact]
@@ -194,9 +192,86 @@ public class EventServiceTests : IDisposable
         results.All(e => e.Title.Contains("Important")).Should().BeTrue();
     }
 
+    [Fact]
+    public async Task CreateEventAsync_EndDateBeforeStartDate_ThrowsArgumentException()
+    {
+        // Arrange
+        var newEvent = new Event
+        {
+            Title = "Bad Range",
+            StartDate = new DateTime(2024, 6, 15),
+            EndDate = new DateTime(2024, 6, 10) // Before start date
+        };
+
+        // Act & Assert
+        await Assert.ThrowsAsync<ArgumentException>(() => _eventService.CreateEventAsync(newEvent));
+    }
+
+    [Fact]
+    public async Task CreateEventAsync_InvalidCategory_ThrowsArgumentException()
+    {
+        // Arrange
+        var newEvent = new Event
+        {
+            Title = "Bad Category",
+            StartDate = DateTime.UtcNow,
+            Category = "not-a-real-category"
+        };
+
+        // Act & Assert
+        await Assert.ThrowsAsync<ArgumentException>(() => _eventService.CreateEventAsync(newEvent));
+    }
+
+    [Fact]
+    public async Task CreateEventAsync_MixedCaseCategory_IsAcceptedAndNormalizedToLowercase()
+    {
+        // Category validation is now case-insensitive and categories are normalized
+        // to their canonical lowercase form on create.
+        var newEvent = new Event
+        {
+            Title = "Mixed Case Category",
+            StartDate = DateTime.UtcNow,
+            Category = "WoRk"
+        };
+
+        // Act
+        var result = await _eventService.CreateEventAsync(newEvent);
+
+        // Assert
+        result.Category.Should().Be(EventCategory.Work); // "work"
+
+        var fetched = await _eventService.GetEventByIdAsync(result.EventId);
+        fetched!.Category.Should().Be(EventCategory.Work);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task SearchEventsAsync_EmptyOrWhitespaceTerm_ReturnsEmpty(string term)
+    {
+        // Arrange
+        await _eventService.CreateEventAsync(new Event { Title = "Some Event", StartDate = DateTime.UtcNow });
+
+        // Act
+        var results = await _eventService.SearchEventsAsync(term);
+
+        // Assert
+        results.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task GetTotalEventCountAsync_NoEvents_ReturnsZero()
+    {
+        // Act
+        var count = await _eventService.GetTotalEventCountAsync();
+
+        // Assert
+        count.Should().Be(0);
+    }
+
     public void Dispose()
     {
-        _context.Database.EnsureDeleted();
-        _context.Dispose();
+        using var context = _contextFactory.CreateDbContext();
+        context.Database.EnsureDeleted();
     }
 }

@@ -7,12 +7,15 @@ namespace MemoryTimeline.Core.Services;
 
 /// <summary>
 /// Queue service implementation for managing recording queue and processing.
+/// Registered as a SINGLETON: the processing semaphore and status/progress events
+/// must be shared app-wide, so all injected dependencies must be singleton-safe
+/// (repositories create a DbContext per operation via IDbContextFactory).
 /// </summary>
 public class QueueService : IQueueService
 {
     private readonly IRecordingQueueRepository _queueRepository;
     private readonly IEventExtractionService _extractionService;
-    private readonly INotificationService? _notificationService;
+    private readonly INotificationService _notificationService;
     private readonly ILogger<QueueService> _logger;
     private readonly SemaphoreSlim _processingSemaphore = new(1, 1);
 
@@ -23,12 +26,12 @@ public class QueueService : IQueueService
         IRecordingQueueRepository queueRepository,
         IEventExtractionService extractionService,
         ILogger<QueueService> logger,
-        INotificationService? notificationService = null)
+        INotificationService notificationService)
     {
         _queueRepository = queueRepository;
         _extractionService = extractionService;
         _logger = logger;
-        _notificationService = notificationService;
+        _notificationService = notificationService ?? throw new ArgumentNullException(nameof(notificationService));
     }
 
     /// <summary>
@@ -178,12 +181,20 @@ public class QueueService : IQueueService
 
             var result = await ProcessQueueItemAsync(nextItem);
 
-            // Show notification for single item processing
-            if (_notificationService != null && result.success)
+            // Show notification for single item processing.
+            // Notification failure must never break processing.
+            if (result.success)
             {
-                await _notificationService.ShowSuccessAsync(
-                    "Processing Complete",
-                    $"Extracted {result.eventCount} event{(result.eventCount != 1 ? "s" : "")}");
+                try
+                {
+                    await _notificationService.ShowSuccessAsync(
+                        "Processing Complete",
+                        $"Extracted {result.eventCount} event{(result.eventCount != 1 ? "s" : "")}");
+                }
+                catch (Exception notifyEx)
+                {
+                    _logger.LogWarning(notifyEx, "Failed to show processing-complete notification");
+                }
             }
         }
         finally
@@ -225,10 +236,18 @@ public class QueueService : IQueueService
             _logger.LogInformation("Finished processing all pending items: {Success}/{Total} succeeded",
                 successCount, pendingCount);
 
-            // Show completion notification
-            if (_notificationService != null && successCount > 0)
+            // Show completion notification when the batch finishes.
+            // Notification failure must never break processing.
+            if (successCount > 0)
             {
-                await _notificationService.ShowProcessingCompleteAsync(successCount, totalEvents);
+                try
+                {
+                    await _notificationService.ShowProcessingCompleteAsync(successCount, totalEvents);
+                }
+                catch (Exception notifyEx)
+                {
+                    _logger.LogWarning(notifyEx, "Failed to show batch processing-complete notification");
+                }
             }
         }
         finally
@@ -328,6 +347,26 @@ public class QueueService : IQueueService
 
                 return (true, eventCount);
             }
+            catch (ConfigurationException configEx)
+            {
+                // Non-retryable: missing/invalid configuration (e.g. no API key).
+                // Retrying cannot succeed until the user changes settings.
+                _logger.LogError(configEx, "Configuration error processing queue item {QueueId}; not retrying",
+                    item.QueueId);
+
+                await UpdateQueueItemStatusAsync(item.QueueId, QueueStatus.Failed, configEx.Message);
+
+                try
+                {
+                    await _notificationService.ShowErrorAsync("Processing Failed", configEx.Message);
+                }
+                catch (Exception notifyEx)
+                {
+                    _logger.LogWarning(notifyEx, "Failed to show configuration-error notification");
+                }
+
+                return (false, 0);
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error processing queue item {QueueId}, attempt {Attempt}/{MaxRetries}",
@@ -347,12 +386,16 @@ public class QueueService : IQueueService
                     _logger.LogError("Failed to process queue item {QueueId} after {MaxRetries} attempts",
                         item.QueueId, maxRetries);
 
-                    // Show error notification
-                    if (_notificationService != null)
+                    // Show error notification; failure to notify must not throw
+                    try
                     {
                         await _notificationService.ShowErrorAsync(
                             "Processing Failed",
                             $"Failed to process recording after {maxRetries} attempts");
+                    }
+                    catch (Exception notifyEx)
+                    {
+                        _logger.LogWarning(notifyEx, "Failed to show processing-failed notification");
                     }
                 }
             }

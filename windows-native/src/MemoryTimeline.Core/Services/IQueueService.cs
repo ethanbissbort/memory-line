@@ -89,3 +89,19 @@ public class QueueProcessingProgressEventArgs : EventArgs
     public int ProgressPercentage { get; set; }
     public string StatusMessage { get; set; } = string.Empty;
 }
+
+/// <summary>
+/// Thrown when processing cannot proceed because of missing/invalid app configuration
+/// (e.g. no LLM API key). Treated as NON-RETRYABLE by the queue's retry loop:
+/// retrying cannot succeed until the user changes settings.
+/// </summary>
+public class ConfigurationException : Exception
+{
+    public ConfigurationException(string message) : base(message)
+    {
+    }
+
+    public ConfigurationException(string message, Exception innerException) : base(message, innerException)
+    {
+    }
+}

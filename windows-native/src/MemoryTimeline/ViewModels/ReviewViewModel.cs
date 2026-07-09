@@ -39,6 +39,12 @@ public partial class ReviewViewModel : ObservableObject
     [ObservableProperty]
     private bool _showApprovedEvents;
 
+    /// <summary>
+    /// True while the edit panel for <see cref="SelectedEvent"/> is open.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isEditing;
+
     // Computed properties
     public bool HasPendingEvents => PendingEvents.Any();
     public bool IsEmpty => !HasPendingEvents;
@@ -181,7 +187,8 @@ public partial class ReviewViewModel : ObservableObject
             var pendingEvent = SelectedEvent.ToPendingEvent();
             await _extractionService.UpdatePendingEventAsync(pendingEvent);
 
-            StatusMessage = "Changes saved";
+            IsEditing = false;
+            StatusMessage = $"Changes saved: {pendingEvent.Title}";
             _logger.LogInformation("Updated pending event: {EventId}", pendingEvent.PendingEventId);
         }
         catch (Exception ex)
@@ -286,12 +293,35 @@ public partial class ReviewViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Selects an event for editing.
+    /// Selects an event and opens the edit panel for it.
     /// </summary>
     private void SelectEventForEdit(PendingEventDto eventDto)
     {
         SelectedEvent = eventDto;
+        IsEditing = true;
         StatusMessage = $"Editing: {eventDto.Title}";
+    }
+
+    /// <summary>
+    /// Closes the edit panel without persisting changes. Note: edits already made
+    /// in the panel live on the DTO (TwoWay bindings) but are not saved to the
+    /// database until SaveChanges is invoked; a refresh restores stored values.
+    /// </summary>
+    [RelayCommand]
+    private void CancelEdit()
+    {
+        IsEditing = false;
+        StatusMessage = "Edit cancelled";
+    }
+
+    partial void OnSelectedEventChanged(PendingEventDto? value)
+    {
+        // The edited item disappeared (approved/rejected/refreshed) or selection
+        // was cleared: close the edit panel instead of editing a stale target.
+        if (value == null)
+        {
+            IsEditing = false;
+        }
     }
 
     /// <summary>

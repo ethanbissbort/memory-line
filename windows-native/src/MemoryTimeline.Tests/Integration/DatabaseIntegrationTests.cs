@@ -3,16 +3,20 @@ using Microsoft.EntityFrameworkCore;
 using MemoryTimeline.Data;
 using MemoryTimeline.Data.Models;
 using MemoryTimeline.Data.Repositories;
+using MemoryTimeline.Tests;
 using Xunit;
 
 namespace MemoryTimeline.Tests.Integration;
 
 /// <summary>
 /// Integration tests for database operations using EF Core with SQLite.
+/// Repositories now take an IDbContextFactory and open a fresh context per operation,
+/// so a FILE-based temp SQLite database is used (a shared ":memory:" DB would not
+/// survive across connections).
 /// </summary>
 public class DatabaseIntegrationTests : IDisposable
 {
-    private readonly AppDbContext _context;
+    private readonly TestDbContextFactory _contextFactory;
     private readonly EventRepository _eventRepository;
     private readonly string _databasePath;
 
@@ -21,21 +25,22 @@ public class DatabaseIntegrationTests : IDisposable
         // Create a real SQLite database for integration testing
         _databasePath = Path.Combine(Path.GetTempPath(), $"IntegrationTest_{Guid.NewGuid()}.db");
 
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlite($"Data Source={_databasePath}")
-            .Options;
+        _contextFactory = TestDbContextFactory.CreateSqliteFile(_databasePath);
 
-        _context = new AppDbContext(options);
-        _context.Database.EnsureCreated();
+        using (var context = _contextFactory.CreateDbContext())
+        {
+            context.Database.EnsureCreated();
+        }
 
-        _eventRepository = new EventRepository(_context);
+        _eventRepository = new EventRepository(_contextFactory);
     }
 
     [Fact]
     public async Task DatabaseConnection_CanConnectAndExecuteQueries()
     {
         // Act
-        var canConnect = await _context.Database.CanConnectAsync();
+        await using var context = _contextFactory.CreateDbContext();
+        var canConnect = await context.Database.CanConnectAsync();
 
         // Assert
         canConnect.Should().BeTrue();
@@ -83,7 +88,7 @@ public class DatabaseIntegrationTests : IDisposable
     [Fact]
     public async Task EventWithRelationships_SavesAndLoadsCorrectly()
     {
-        // Arrange
+        // Arrange - seed related entities with a dedicated context
         var era = new Era
         {
             EraId = Guid.NewGuid().ToString(),
@@ -93,13 +98,16 @@ public class DatabaseIntegrationTests : IDisposable
             Color = "#FF0000",
             CreatedAt = DateTime.UtcNow
         };
-        _context.Eras.Add(era);
 
         var tag1 = new Tag { TagId = Guid.NewGuid().ToString(), Name = "tag1", CreatedAt = DateTime.UtcNow };
         var tag2 = new Tag { TagId = Guid.NewGuid().ToString(), Name = "tag2", CreatedAt = DateTime.UtcNow };
-        _context.Tags.AddRange(tag1, tag2);
 
-        await _context.SaveChangesAsync();
+        await using (var context = _contextFactory.CreateDbContext())
+        {
+            context.Eras.Add(era);
+            context.Tags.AddRange(tag1, tag2);
+            await context.SaveChangesAsync();
+        }
 
         var eventWithRelationships = new Event
         {
@@ -110,9 +118,10 @@ public class DatabaseIntegrationTests : IDisposable
             CreatedAt = DateTime.UtcNow
         };
 
-        // Add tags via EventTags (Tags property is read-only)
-        eventWithRelationships.EventTags.Add(new EventTag { EventId = eventWithRelationships.EventId, TagId = tag1.TagId, Tag = tag1 });
-        eventWithRelationships.EventTags.Add(new EventTag { EventId = eventWithRelationships.EventId, TagId = tag2.TagId, Tag = tag2 });
+        // Add tags via EventTags (Tags property is read-only); reference TagId only so the
+        // repository's fresh context does not try to re-insert the already saved Tag rows.
+        eventWithRelationships.EventTags.Add(new EventTag { EventId = eventWithRelationships.EventId, TagId = tag1.TagId });
+        eventWithRelationships.EventTags.Add(new EventTag { EventId = eventWithRelationships.EventId, TagId = tag2.TagId });
 
         // Act
         await _eventRepository.AddAsync(eventWithRelationships);
@@ -239,13 +248,17 @@ public class DatabaseIntegrationTests : IDisposable
     [Fact]
     public async Task Transaction_RollbackOnError_MaintainsConsistency()
     {
-        // Arrange
+        // Repositories now open a fresh context (and connection) per call, so they no
+        // longer participate in an ambient transaction started on another context.
+        // The transaction semantics are therefore exercised directly on a single
+        // context created from the same factory.
         var initialCount = await _eventRepository.CountAsync();
 
         // Act & Assert
         await Assert.ThrowsAsync<DbUpdateException>(async () =>
         {
-            using var transaction = await _context.Database.BeginTransactionAsync();
+            await using var context = _contextFactory.CreateDbContext();
+            await using var transaction = await context.Database.BeginTransactionAsync();
 
             try
             {
@@ -257,17 +270,25 @@ public class DatabaseIntegrationTests : IDisposable
                     StartDate = DateTime.UtcNow,
                     CreatedAt = DateTime.UtcNow
                 };
-                await _eventRepository.AddAsync(event1);
+                context.Events.Add(event1);
+                await context.SaveChangesAsync();
+
+                // Detach the tracked instance so the duplicate insert is rejected by the
+                // database's PRIMARY KEY constraint (DbUpdateException) rather than by the
+                // change tracker's identity resolution (which would throw
+                // InvalidOperationException before ever reaching the database).
+                context.ChangeTracker.Clear();
 
                 // Try to add invalid event (duplicate ID)
                 var event2 = new Event
                 {
-                    EventId = event1.EventId, // Same ID - should fail
+                    EventId = event1.EventId, // Same ID - should fail at the DB level
                     Title = "Invalid Event",
                     StartDate = DateTime.UtcNow,
                     CreatedAt = DateTime.UtcNow
                 };
-                await _eventRepository.AddAsync(event2);
+                context.Events.Add(event2);
+                await context.SaveChangesAsync();
 
                 await transaction.CommitAsync();
             }
@@ -287,6 +308,11 @@ public class DatabaseIntegrationTests : IDisposable
     public async Task ConcurrentWrites_HandleCorrectly()
     {
         // Arrange & Act
+        // The factory-based repository opens its own short-lived DbContext / connection
+        // per operation, so a single repository instance is safe to use from parallel
+        // tasks. Microsoft.Data.Sqlite serializes writers (retrying on SQLITE_BUSY up
+        // to the command timeout), so the writes still succeed even though they are
+        // issued concurrently.
         var tasks = Enumerable.Range(1, 10).Select(async i =>
         {
             var evt = new Event
@@ -311,8 +337,10 @@ public class DatabaseIntegrationTests : IDisposable
 
     public void Dispose()
     {
-        _context.Database.EnsureDeleted();
-        _context.Dispose();
+        using (var context = _contextFactory.CreateDbContext())
+        {
+            context.Database.EnsureDeleted();
+        }
 
         if (File.Exists(_databasePath))
         {
