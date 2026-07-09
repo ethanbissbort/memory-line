@@ -1,3 +1,4 @@
+using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.Logging;
 using MemoryTimeline.Data.Models;
 using MemoryTimeline.Data.Repositories;
@@ -249,7 +250,7 @@ public class EventExtractionService : IEventExtractionService
             // Notify the UI (singleton TimelineViewModel refreshes without renavigation)
             try
             {
-                CommunityToolkit.Mvvm.Messaging.WeakReferenceMessenger.Default.Send(
+                WeakReferenceMessenger.Default.Send(
                     new EventCreatedMessage(realEvent.EventId, realEvent.StartDate));
             }
             catch (Exception msgEx)
