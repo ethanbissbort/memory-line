@@ -1,6 +1,31 @@
 # Memory Timeline - PowerShell Scripts
 
-This directory contains PowerShell scripts for setting up, verifying, and managing the Memory Timeline Windows native application.
+This directory contains PowerShell scripts for setting up, verifying, and managing the Memory Timeline Windows native application (.NET 8 / WinUI 3). This is the **primary, actively developed** version of Memory Timeline.
+
+## Build Reality (Important)
+
+Before using the commands in this document, note the following about the current build:
+
+- **Build with Visual Studio 2022 or `msbuild`, not `dotnet build`.** The WinUI 3 app uses the Windows App SDK PRI generation task, which fails under `dotnet build`. Use `msbuild` (from a Developer Command Prompt / Developer PowerShell) or build/run from Visual Studio.
+- **The solution is x64-only.** `MemoryTimeline.sln` defines only `Debug|x64` and `Release|x64`. Always pass the platform explicitly, e.g. `-p:Platform=x64` (msbuild) or select `x64` in Visual Studio. There is no `Any CPU` or `Win32/ARM64` solution configuration.
+- **.NET SDK is pinned by `../src/global.json`** to version `8.0.100` with `rollForward: "major"`. This means a .NET 8 SDK (8.0.100+) or a newer major SDK such as .NET 9 will both satisfy the pin. `dotnet restore` still works normally for package restore.
+
+Example command-line build/restore/test (from a Developer PowerShell in `windows-native/src`):
+
+```powershell
+# Restore packages (dotnet is fine for restore)
+dotnet restore MemoryTimeline.sln
+
+# Build the WinUI 3 app with msbuild (NOT dotnet build)
+msbuild MemoryTimeline.sln -p:Configuration=Debug -p:Platform=x64 -restore
+
+# Run unit tests
+dotnet test MemoryTimeline.Tests\MemoryTimeline.Tests.csproj
+```
+
+> Note: `Setup-Dependencies.ps1` prints a "Next steps" hint suggesting `dotnet build` and `dotnet run --project MemoryTimeline`. That hint is **stale/inaccurate** for the WinUI 3 app — prefer Visual Studio or `msbuild` with `-p:Platform=x64` as shown above.
+
+See [`../TESTING.md`](../TESTING.md) for the full, primary test suite instructions.
 
 ## Scripts
 
@@ -167,10 +192,11 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# Build and test
+# Build and test (x64-only; use msbuild for the WinUI 3 app, not dotnet build)
 cd src
-dotnet build --configuration Release
-dotnet test --configuration Release
+dotnet restore MemoryTimeline.sln
+msbuild MemoryTimeline.sln -p:Configuration=Release -p:Platform=x64 -restore
+dotnet test MemoryTimeline.Tests\MemoryTimeline.Tests.csproj --configuration Release
 ```
 
 ## Manual Installation
@@ -249,4 +275,4 @@ For Memory Timeline issues:
 
 ---
 
-**Last Updated**: 2025-11-24
+**Last Updated**: 2026-07-10 (build commands corrected: msbuild/x64, global.json rollForward)

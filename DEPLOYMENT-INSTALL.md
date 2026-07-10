@@ -1,7 +1,20 @@
 # Memory Timeline - Deployment & Installation Guide
 
+> ## ⚠️ LEGACY — Electron app deployment guide (updated 2026-07-10)
+>
+> **This guide covers the legacy Electron desktop app, which is now in maintenance mode.** The **primary, actively developed** Memory Timeline product is the **Windows Native app** (.NET 8 / WinUI 3) under [`windows-native/`](windows-native/).
+>
+> **If you want to build, install, or deploy the current product, use the Windows Native docs instead:**
+> - [`windows-native/README.md`](windows-native/README.md) — overview and setup
+> - [`windows-native/DEPLOYMENT.md`](windows-native/DEPLOYMENT.md) — deployment and packaging
+>
+> The Electron instructions below remain **valid for the legacy app** and are preserved unchanged.
+
+---
+
 > **Version:** 1.0.0
 > **Last Updated:** 2025-11-21
+> **Applies to:** Legacy Electron app
 > **Target Platforms:** Windows 11, macOS 10.15+, Linux (Ubuntu 20.04+)
 
 ## Table of Contents

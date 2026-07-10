@@ -1,5 +1,13 @@
 # Memory Timeline - Test Suite
 
+> ## ⚠️ LEGACY — Electron implementation (status as of 2026-07-10)
+>
+> This test suite covers the **legacy Electron/Node.js** version of Memory Timeline (Jest + better-sqlite3).
+> The **primary, actively developed product is now the Windows Native app (.NET 8 / WinUI 3)** under [`windows-native/`](../windows-native/).
+> For the primary test suite, see [`windows-native/TESTING.md`](../windows-native/TESTING.md).
+>
+> The content below remains valid for the Electron app.
+
 Comprehensive testing infrastructure for the Memory Timeline application.
 
 ## Overview

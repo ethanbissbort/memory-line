@@ -1,6 +1,35 @@
 # Migration to Native Windows 11 Application
 
-> **Migration Roadmap & Checklist**
+> ## ⚠️ STATUS BANNER — This migration is effectively realized (updated 2026-07-10)
+>
+> **The Windows Native application described by this roadmap now exists and is the PRIMARY, actively developed product.** It lives under [`windows-native/`](windows-native/) and is built with **.NET 8 / WinUI 3**. The original Electron app is now **legacy / maintenance-only**.
+>
+> **Current sources of truth (read these instead of this file):**
+> - [`/README.md`](README.md) — top-level project overview
+> - [`windows-native/README.md`](windows-native/README.md) — the current app's overview and setup
+> - [`windows-native/DEVELOPMENT-STATUS.md`](windows-native/DEVELOPMENT-STATUS.md) — live status (Phases 0-6 complete; Phase 7 testing/deployment in progress; builds green in CI, end-to-end runtime validation ongoing)
+>
+> **This document is retained as historical planning context.** Its phase checklists, targets, and timelines reflect the *plan*, not necessarily today's implementation. Where the plan and the shipped code diverge on material points, see the corrections below.
+
+---
+
+## Current state corrections (2026-07-10)
+
+The historical body below predates the actual implementation and is **materially out of date** on several architecture points. The most important corrections:
+
+| Topic | What this plan says | What the shipped app actually does |
+|-------|---------------------|------------------------------------|
+| **Speech-to-text (STT)** | Windows Speech Recognition (`System.Speech` / on-device Windows STT) | **Local Whisper** via `WhisperSpeechToTextService`. (A `WindowsSpeechRecognitionService` still exists but is not the primary path.) |
+| **Data access** | Shared `AddDbContext` / single injected `AppDbContext` | **`IDbContextFactory<AppDbContext>` with a short-lived context created per operation** — adopted specifically to fix an app-wide shared-context concurrency bug. |
+| **Database schema / startup** | EF Core **migrations** manage the schema | EF migrations were **deleted**; startup runs a hand-rolled **`SchemaUpgrader`** (`windows-native/src/MemoryTimeline.Data/SchemaUpgrader.cs`) invoked from `App.xaml.cs`. |
+| **API key / secret storage** | Windows **Credential Manager** | Keys are stored in the **`app_settings` table** (`AppSetting` model) today. **DPAPI encryption is a follow-up, not yet in place** — do not assume secrets are encrypted at rest. |
+| **Build** | `dotnet build` cross-platform | The WinUI app requires **Visual Studio / `msbuild`** (not plain `dotnet build`), is **x64-only**, and pins the SDK via **`windows-native/src/global.json`** (`8.0.100`, `rollForward: major`). |
+
+Treat the tables, checklists, and "Deployment & Distribution" guidance further down as *aspirational planning artifacts*. For build/run/deploy instructions that match the current code, use [`windows-native/README.md`](windows-native/README.md) and [`windows-native/DEPLOYMENT.md`](windows-native/DEPLOYMENT.md).
+
+---
+
+> **Migration Roadmap & Checklist** *(historical — see banner above)*
 >
 > **Version:** 1.0.0
 > **Target Platform:** Windows 11 (22H2+)
