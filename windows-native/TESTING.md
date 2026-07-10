@@ -1,22 +1,30 @@
 # Memory Timeline - Testing Guide
 
-This document provides comprehensive information about the testing strategy and how to run tests for the Memory Timeline Windows native application.
+This document describes the testing strategy and how to run tests for the Memory Timeline Windows native application.
+
+> **How to run these tests (read first).** The test project references the WinUI 3 app, and that app cannot be built with the `dotnet` CLI (its WinUI PRI/XAML resource tooling is a .NET Framework MSBuild task that fails under the `dotnet` build engine). So **`dotnet test` does not work** — it would rebuild the WinUI app and fail. Instead you **build the solution once with Visual Studio `msbuild.exe`** and then run the already-built test assembly with **`dotnet vstest`**. See [Running Tests](#running-tests). This is also what CI does.
 
 ## Test Structure
 
-The test suite is organized into three main categories:
-
 ```
 MemoryTimeline.Tests/
-├── Services/              # Legacy basic tests
-├── UnitTests/            # Comprehensive unit tests
-│   ├── QueueServiceTests.cs
+├── TestDbContextFactory.cs     # Test IDbContextFactory<AppDbContext> (shared by most tests)
+├── Services/                   # Service-level unit tests (in-memory DB)
+│   ├── EventServiceTests.cs
+│   ├── TimelineServiceTests.cs
+│   └── SettingsServiceTests.cs
+├── UnitTests/                  # Additional unit tests
+│   ├── QueueServiceTests.cs    # Pure mock-based (no DbContext)
 │   ├── ExportServiceTests.cs
 │   ├── ImportServiceTests.cs
 │   └── RagServiceTests.cs
-├── Integration/          # Integration tests with real database
+├── Models/                     # Pure model/logic tests (no DB)
+│   ├── EventLayoutEngineTests.cs
+│   ├── TimelineViewportTests.cs
+│   └── TimelineScaleTests.cs
+├── Integration/                # Integration tests against a real SQLite file DB
 │   └── DatabaseIntegrationTests.cs
-└── Performance/          # Performance and load tests
+└── Performance/                # Performance / load tests (SQLite file DB)
     └── PerformanceTests.cs
 ```
 
@@ -24,87 +32,85 @@ MemoryTimeline.Tests/
 
 - **xUnit**: Test framework
 - **Moq**: Mocking framework for dependencies
-- **FluentAssertions**: Fluent assertion library for readable test assertions
-- **EF Core InMemory**: In-memory database for unit tests
-- **SQLite**: Real database for integration tests
+- **FluentAssertions**: Fluent assertion library for readable assertions
+- **EF Core InMemory**: In-memory database for service/unit tests
+- **SQLite (file-based)**: Real database for integration and performance tests
 - **Coverlet**: Code coverage tool
+
+### DbContext factory pattern (important for test authors)
+
+Data access in the app now goes through **`IDbContextFactory<AppDbContext>`**: services and repositories open a short-lived `AppDbContext` per operation instead of holding a long-lived shared context. The tests mirror this via `TestDbContextFactory`, which wraps a single `DbContextOptions` so every `CreateDbContext()` returns a **new** context over the **same** database. Two provider caveats it encodes:
+
+- **EF Core InMemory** — all contexts built from the same options instance share the same in-memory store, so a factory over a uniquely named InMemory DB works. Use `TestDbContextFactory.CreateInMemory()`.
+- **SQLite `:memory:`** — does **not** work with the factory, because every new connection gets a fresh, empty database. Tests that need SQLite must use a **file-based temp database** (`TestDbContextFactory.CreateSqliteFile(path)`), which is why the integration and performance tests create a temp `.db` file rather than an in-memory SQLite connection.
+
+Integration/performance tests build their schema with `Database.EnsureCreated()` (there are no EF migrations in the repo — the app uses a hand-rolled `SchemaUpgrader` at runtime instead).
 
 ## Running Tests
 
-### All Tests
+> **Do not use `dotnet test`** (it rebuilds the WinUI app with the `dotnet` engine and fails). Build once with VS `msbuild.exe`, then run the built assembly with `dotnet vstest`.
+
+### Build once, then run
 ```powershell
 cd windows-native/src
-dotnet test
+
+# 1. Build the solution (Release | x64) with Visual Studio MSBuild.
+#    'msbuild' here is the VS msbuild.exe (e.g. Developer PowerShell for VS 2022),
+#    NOT 'dotnet build'.
+msbuild MemoryTimeline.sln /t:Restore,Build /p:Configuration=Release /p:Platform=x64 /m
+
+# 2. Run the already-built test assembly (no rebuild).
+$dll = "MemoryTimeline.Tests/bin/x64/Release/net8.0-windows10.0.22621.0/MemoryTimeline.Tests.dll"
+dotnet vstest $dll --logger:"trx;LogFileName=test.trx" --ResultsDirectory:TestResults
 ```
 
-### By Category
-
-**Unit Tests Only**
+### By Category / Class / Method
+`dotnet vstest` filters with `--TestCaseFilter`:
 ```powershell
-dotnet test --filter "FullyQualifiedName~UnitTests"
+dotnet vstest $dll --TestCaseFilter:"FullyQualifiedName~UnitTests"
+dotnet vstest $dll --TestCaseFilter:"FullyQualifiedName~Integration"
+dotnet vstest $dll --TestCaseFilter:"FullyQualifiedName~Performance"
+dotnet vstest $dll --TestCaseFilter:"FullyQualifiedName~QueueServiceTests"
+dotnet vstest $dll --TestCaseFilter:"FullyQualifiedName=MemoryTimeline.Tests.UnitTests.QueueServiceTests.AddToQueueAsync_ValidRecording_AddsToQueue"
 ```
 
-**Integration Tests Only**
-```powershell
-dotnet test --filter "FullyQualifiedName~Integration"
-```
-
-**Performance Tests Only**
-```powershell
-dotnet test --filter "FullyQualifiedName~Performance"
-```
-
-### Specific Test Class
-```powershell
-dotnet test --filter "FullyQualifiedName~QueueServiceTests"
-```
-
-### Specific Test Method
-```powershell
-dotnet test --filter "FullyQualifiedName~QueueServiceTests.AddToQueueAsync_ValidRecording_AddsToQueue"
-```
-
-### With Detailed Output
-```powershell
-dotnet test --logger "console;verbosity=detailed"
-```
+> **Environment note.** Running a self-contained WinUI 3 test assembly under headless VSTest is finicky; in CI this step is treated as best-effort (it does not gate the build). If the app assembly fails to build for any reason, the test project — which references it — will also fail to build, so a green **compile** is the primary signal.
 
 ## Code Coverage
 
-### Generate Coverage Report
+Coverage can be collected while running the built assembly, e.g.:
 ```powershell
-# Run tests with coverage collection
-dotnet test --collect:"XPlat Code Coverage"
-
-# Install report generator (one-time)
+dotnet vstest $dll --collect:"Code Coverage" --ResultsDirectory:TestResults
+```
+(or wire up `coverlet.collector` via a runsettings file). Then generate an HTML report:
+```powershell
 dotnet tool install --global dotnet-reportgenerator-globaltool
-
-# Generate HTML report
-reportgenerator `
-    -reports:**/coverage.cobertura.xml `
-    -targetdir:./coverage-report `
-    -reporttypes:Html
-
-# Open report
-start ./coverage-report/index.html
+reportgenerator -reports:**/*.cobertura.xml -targetdir:./coverage-report -reporttypes:Html
 ```
 
-### Coverage Targets
-- **Overall**: > 80%
-- **Critical Paths**: > 90%
+### Coverage Goals (aspirational, not measured)
+- **Overall**: aim for > 80%
+- **Critical paths**: aim for > 90%
   - Event CRUD operations
-  - Audio recording and processing
-  - LLM integration and event extraction
+  - Audio recording / queue processing
   - RAG and similarity search
-  - Export/Import operations
+  - Export / Import operations
+
+These are targets, not verified figures.
 
 ## Test Categories Explained
 
-### 1. Unit Tests
+### 1. Unit / Service Tests
 
-Unit tests verify individual components in isolation using mocked dependencies.
+These verify individual components using mocked dependencies and, where a database is involved, an EF Core InMemory store created through `TestDbContextFactory.CreateInMemory()`.
 
-**QueueServiceTests** (221 lines, 8 tests)
+**Service tests** (`Services/`) cover the factory-backed services directly:
+- **EventServiceTests** — CRUD, validation (empty title, end-before-start, invalid/normalized category), date-range and search queries, counts.
+- **TimelineServiceTests** — viewport creation, zoom in/out, panning, event/era loading, earliest/latest dates, track layout.
+- **SettingsServiceTests** — typed get/set, existence/delete, defaults (default theme is `dark`).
+
+**QueueServiceTests** (mock-only; no DbContext)
+- ✅ Requires an `INotificationService` (constructor throws `ArgumentNullException` if null)
 - ✅ Adding recordings to queue
 - ✅ Retrieving queue items
 - ✅ Updating queue item status
@@ -114,7 +120,7 @@ Unit tests verify individual components in isolation using mocked dependencies.
 - ✅ Clearing completed items
 - ✅ Event raising on status change
 
-**ExportServiceTests** (254 lines, 8 tests)
+**ExportServiceTests** (in-memory DB via `TestDbContextFactory`)
 - ✅ JSON export with full event data
 - ✅ JSON export with date filtering
 - ✅ CSV export
@@ -123,7 +129,7 @@ Unit tests verify individual components in isolation using mocked dependencies.
 - ✅ Progress reporting
 - ✅ Special character escaping in CSV
 
-**ImportServiceTests** (343 lines, 11 tests)
+**ImportServiceTests** (in-memory DB via `TestDbContextFactory`)
 - ✅ Valid JSON import
 - ✅ Duplicate detection with skip resolution
 - ✅ Overwrite conflict resolution
@@ -134,12 +140,12 @@ Unit tests verify individual components in isolation using mocked dependencies.
 - ✅ Invalid file handling
 - ✅ Progress reporting
 
-**RagServiceTests** (296 lines, 10 tests)
+**RagServiceTests** (in-memory DB; mocked `IEmbeddingService`, `IEventService`, `ICrossReferenceRepository`)
 - ✅ Finding similar events
 - ✅ Similarity threshold filtering
 - ✅ Tag suggestions based on similar events
-- ✅ Pattern detection with date ranges
-- ✅ Cross-reference detection
+- ✅ Pattern detection with/without date ranges
+- ✅ Cross-reference detection (heuristic — temporal proximity / shared category; no LLM) persisted via `ICrossReferenceRepository`
 - ✅ Non-existent event handling
 - ✅ Embedding similarity calculation
 
@@ -147,7 +153,7 @@ Unit tests verify individual components in isolation using mocked dependencies.
 
 Integration tests verify components working together with real database operations.
 
-**DatabaseIntegrationTests** (284 lines, 11 tests)
+**DatabaseIntegrationTests** (real SQLite **file** DB via `TestDbContextFactory.CreateSqliteFile`)
 - ✅ Database connection
 - ✅ Full CRUD operations
 - ✅ Relationships (events with eras and tags)
@@ -162,7 +168,7 @@ Integration tests verify components working together with real database operatio
 
 Performance tests ensure the application meets scalability requirements.
 
-**PerformanceTests** (365 lines, 10 tests)
+**PerformanceTests** (real SQLite **file** DB via `TestDbContextFactory.CreateSqliteFile`)
 
 **Load Tests:**
 - ✅ Create 5000 events (< 10 seconds)
@@ -184,18 +190,20 @@ Performance tests ensure the application meets scalability requirements.
 
 ## Performance Benchmarks
 
-### Target Metrics (5000+ Events)
+The values below are the **assertion thresholds** encoded in `PerformanceTests` (i.e. the upper bounds each test asserts against on a SQLite file DB). They are budgets the tests enforce, **not** measured/verified results — actual timings vary by machine and are written to test output via `ITestOutputHelper`.
 
-| Operation | Target | Current |
-|-----------|--------|---------|
-| Create 5000 events | < 10s | ✅ Pass |
-| Query all events | < 2s | ✅ Pass |
-| Paginated query (50 items) | < 500ms | ✅ Pass |
-| Date range query | < 1s | ✅ Pass |
-| Full-text search | < 1.5s | ✅ Pass |
-| Category filter | < 1s | ✅ Pass |
-| Memory usage | < 100 MB | ✅ Pass |
-| Concurrent reads (20) | < 5s | ✅ Pass |
+| Operation | Asserted upper bound |
+|-----------|----------------------|
+| Create 5000 events | < 10s |
+| Query all 5000 events | < 2s |
+| Paginated query (page 1, size 50) | < 500ms |
+| Date range query (5000 events) | < 1s |
+| Search (5000 events) | < 1.5s |
+| Category filter (5000 events) | < 1s |
+| Update 100 events | < 5s |
+| Memory for 5000 events (AsNoTracking) | < 100 MB |
+| 20 concurrent reads | < 5s |
+| Delete 500 events | < 3s |
 
 ### Database Optimizations
 - `AsNoTracking()` on all read-only queries
@@ -227,16 +235,16 @@ GenerateMockEmbedding(int seed)
 
 ## Continuous Integration
 
-### GitHub Actions
-Tests run automatically on:
-- Every push to main branch
-- Every pull request
-- Release creation
+### GitHub Actions — `.github/workflows/windows-native-build.yml`
+The real workflow runs on **`windows-latest`** and:
+- Installs the **.NET 8 SDK** plus **Visual Studio MSBuild** (`microsoft/setup-msbuild`).
+- Builds the whole solution **`Release | x64`** with **`msbuild MemoryTimeline.sln /t:Restore,Build`** (not `dotnet build`).
+- Runs tests with **`dotnet vstest`** against the built `MemoryTimeline.Tests.dll` (not `dotnet test`).
 
-### Test Results
-- Failures block PR merges
-- Code coverage reports uploaded to Codecov
-- Performance benchmarks tracked over time
+### Behavior
+- **Compilation is the gate.** A build failure fails the workflow.
+- The headless VSTest run of the self-contained WinUI test assembly is **best-effort** (`continue-on-error: true`); its `.trx`/logs are uploaded as artifacts for visibility but do not by themselves fail the run.
+- There is currently **no** Codecov upload or long-term benchmark tracking configured.
 
 ## Writing New Tests
 
@@ -441,28 +449,27 @@ public class MyTests : IDisposable
 
 ### Coverage Not Generating
 ```powershell
-# Ensure coverlet.collector is installed
-dotnet add package coverlet.collector
+# Collect coverage against the already-built test assembly (do NOT use `dotnet test`)
+dotnet vstest $dll --collect:"Code Coverage" --ResultsDirectory:TestResults
 
-# Use correct coverage collection
-dotnet test --collect:"XPlat Code Coverage"
-
-# Check for .coverage files in TestResults/
+# Check for coverage files in TestResults/
+dir -Recurse -Filter "*.coverage"
 dir -Recurse -Filter "*.cobertura.xml"
 ```
 
 ## Test Statistics
 
-Current test suite (as of Phase 7):
-- **Total Tests**: ~50+
-- **Unit Tests**: ~30
-- **Integration Tests**: ~11
-- **Performance Tests**: ~10
-- **Total LOC**: ~1,500
-- **Coverage**: Target > 80%
-- **Execution Time**: < 2 minutes for full suite
+Approximate current suite (as of Phase 7):
+- **Service tests** (`Services/`): EventService, TimelineService, SettingsService
+- **Unit tests** (`UnitTests/`): Queue, Export, Import, Rag
+- **Model tests** (`Models/`): layout engine, viewport, scale
+- **Integration tests** (`Integration/`): ~9 database tests on a real SQLite file DB
+- **Performance tests** (`Performance/`): ~10 load/scalability tests
+- **Coverage**: target > 80% (aspirational, not measured)
+
+### Migration status of the test project
+All service-backed test classes have been **migrated to the `IDbContextFactory<AppDbContext>` pattern** and construct services with their **current** signatures — for example `new EventService(_repository, _contextFactory, logger)`, `new ExportService(_contextFactory, logger)`, `new ImportService(_contextFactory, logger)`, and `new RagService(embeddingService, eventService, _contextFactory, crossReferenceRepository, logger)` (RagService no longer takes an `ILlmService` or a raw `AppDbContext`). No test file uses the older `(_repository, _context, …)` / `(_context, …)` constructor signatures. As of this writing the **only** build blocker for the solution is the WinUI app's XAML/PRI resource-generation step failing under the `dotnet` build engine — the `MemoryTimeline.Tests` project fails to build **only as a downstream consequence** of the app project failing, not because of stale test code. Building with Visual Studio `msbuild.exe` (as CI does) is the supported path.
 
 ---
 
-**Last Updated**: 2024-11-21
-**Version**: 1.0.0
+**Last Updated**: 2026-07-10

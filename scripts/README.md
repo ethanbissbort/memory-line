@@ -1,5 +1,15 @@
 # Setup Scripts
 
+> ## ⚠️ LEGACY — Electron implementation (status as of 2026-07-10)
+>
+> This directory belongs to the **legacy Electron/Node.js** version of Memory Timeline.
+> The **primary, actively developed product is now the Windows Native app (.NET 8 / WinUI 3)** under [`windows-native/`](../windows-native/).
+>
+> - New setup/build docs: [`windows-native/scripts/README.md`](../windows-native/scripts/README.md)
+> - Primary test suite: [`windows-native/TESTING.md`](../windows-native/TESTING.md)
+>
+> The content below remains valid for the Electron app but is no longer the main focus of development.
+
 This directory contains automated dependency verification and installation scripts for the Memory Timeline Application.
 
 > **IMPORTANT NOTE:** This directory contains setup scripts for the **legacy Electron/Node.js version** of Memory Timeline.

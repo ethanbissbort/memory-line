@@ -1,8 +1,8 @@
 # Memory Timeline - Windows Native Development History
 
 **Document Type:** Consolidated Development History
-**Last Updated:** 2026-01-17
-**Overall Progress:** 86% Complete (6 of 7 phases done)
+**Last Updated:** 2026-07-10
+**Overall Progress:** Phases 0-6 complete; Phase 7 (Testing & Deployment) in progress
 
 ---
 
@@ -21,7 +21,7 @@ This document consolidates all phase completion reports and verification summari
 | **Phase 4: LLM Integration** | ✅ Complete | 2025-11-23 | Claude API, Event extraction, ReviewPage, PendingEvent workflow |
 | **Phase 5: RAG & Embeddings** | ✅ Complete | 2025-11-24 | Embedding service, ConnectionsPage UI, embedding workflow |
 | **Phase 6: Polish & Integration** | ✅ Complete | 2025-11-25 | Export/Import, Windows notifications, JumpList, Timeline |
-| **Phase 7: Testing & Deployment** | ⬜ Pending | TBD | Testing, MSIX packaging, Microsoft Store |
+| **Phase 7: Testing & Deployment** | 🔄 In Progress | 2026-07 → | Post-audit hardening (CI build green); runtime validation, MSIX, Store pending |
 
 ---
 
@@ -511,6 +511,67 @@ Current limitations pending Phase 7:
 - Screenshots and descriptions
 - Privacy policy
 - Age ratings
+
+---
+
+## Post-Phase-6 Hardening — Feature Audit & Fix Pass (2026-07)
+
+After the Phase 6 "feature-complete" milestone, and before formal Phase 7 testing,
+three live user-reported bugs triggered a multi-agent feature audit and fix pass.
+This section records what happened; the detailed findings live in
+[`FEATURE-AUDIT.md`](FEATURE-AUDIT.md) and the deferred work in
+[`HARDENING-FOLLOWUPS.md`](HARDENING-FOLLOWUPS.md).
+
+### 1. Reported bugs that triggered the pass
+- **Save did nothing** — pressing Save on the Add Event dialog produced no event.
+- **Search error** — searching for the just-added event showed a generic "search error".
+- **Refresh showed nothing** — the timeline Refresh button did not surface the new event.
+
+### 2. Root causes found (five specialized agents, end-to-end traces)
+- **Category-casing save bug + swallowed errors** — the Add Event dialog fell back to
+  `"Other"` (capital O) while validation checked case-sensitively against lowercase
+  categories, throwing before any DB write; the exception was reduced to a status-text
+  log line while the dialog had already closed. This produced "Save does nothing" and,
+  because no row was inserted, "Refresh shows nothing".
+- **App-wide shared `AppDbContext` (concurrency)** — every page resolved its ViewModel
+  from the root provider, so one Scoped, never-disposed context served the whole app.
+  Overlapping operations (a fire-and-forget embedding `Task.Run` racing un-debounced
+  per-keystroke search queries) threw "a second operation was started on this context",
+  surfaced as the "search error".
+- **Mic-based STT that ignored the recorded file** — the speech-to-text path loaded the
+  recorded WAV into an unused variable and then transcribed the live microphone, so the
+  core audio ingestion loop never processed the actual recording.
+
+### 3. Fixes shipped
+- Category-casing fallback normalized; `ValidateEvent` made case-insensitive; Add Event
+  dialog now takes a deferral and surfaces errors in-dialog instead of silently closing.
+- Data access converted to **per-operation contexts** via `IDbContextFactory<AppDbContext>`;
+  the shared-context embedding `Task.Run` removed/rescoped; search input debounced and
+  cancellable; `Tag.Name` → `TagName` in queries.
+- Startup switched to `SchemaUpgrader.EnsureSchemaAsync` (EnsureCreated + idempotent drift
+  repair); stale EF migrations deleted (a real migration baseline is a follow-up).
+- STT replaced with **local Whisper** (Whisper.net, ggml base model, offline after first
+  model download), transcribing the recorded file instead of the live mic.
+- Atomic approve (event + tags/people/locations in one transaction) with timeline
+  auto-refresh; settings key writer/reader unified under a `SettingKeys` constants class;
+  embeddings settings-key + provider/dimension wiring; RAG mapped-column queries +
+  persistence + `IsAvailable`; export `Include` fix; unified `INotificationService`;
+  navigation param overload; dead `AnthropicClaudeService` / `IAudioService` deleted.
+
+### 4. CI Windows-build workflow added
+- `.github/workflows/windows-native-build.yml` builds `Release|x64` on `windows-latest`
+  and runs the test suite. Build realities pinned down in the process: the solution is
+  **x64-only** (no AnyCPU); WinUI 3 PRI generation needs Visual Studio `msbuild.exe`
+  (`dotnet build` fails MSB4062); `global.json` pins the **.NET 8 SDK** with
+  `rollForward: "major"`. The solution builds green in CI.
+
+### 5. Outcome
+The three reported bugs were resolved at the code level and the shared-context foundation
+defect beneath them removed. The solution builds green in CI, but **end-to-end runtime
+validation is ongoing** — this work is part of Phase 7 and the app is **not yet production
+ready**. Deferred items (runtime validation, DPAPI key encryption, regenerated EF migration
+baseline, Whisper model/language options, analytics export, MSIX + Store, updating tests to
+the context factory) are tracked in [`HARDENING-FOLLOWUPS.md`](HARDENING-FOLLOWUPS.md).
 
 ---
 

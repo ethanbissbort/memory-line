@@ -1,31 +1,40 @@
 # Memory Timeline - Deployment Guide
 
-This guide covers the complete deployment process for the Memory Timeline Windows native application.
+This guide covers building, testing, and deploying the Memory Timeline Windows native application (WinUI 3 / Windows App SDK, .NET 8).
+
+> **Important build note.** The WinUI 3 app is currently an **unpackaged** desktop app (`WindowsPackageType=None`, self-contained Windows App SDK). It builds for a specific CPU platform (**x64**, x86, or ARM64 — there is **no `AnyCPU`**) and, because of the WinUI PRI/XAML resource-generation tooling, must be built with **Visual Studio or `msbuild.exe`**, not `dotnet build`. See [Building the Application](#building-the-application) for details.
+>
+> MSIX packaging and Microsoft Store publishing (the later sections of this guide) are **Phase 7 work in progress** and are documented here as the intended path, not as a shipped, verified pipeline.
 
 ## Table of Contents
 1. [Prerequisites](#prerequisites)
 2. [Building the Application](#building-the-application)
-3. [Running Tests](#running-tests)
-4. [MSIX Packaging](#msix-packaging)
-5. [Code Signing](#code-signing)
-6. [Microsoft Store Deployment](#microsoft-store-deployment)
-7. [Side-loading](#side-loading)
-8. [CI/CD Pipeline](#cicd-pipeline)
+3. [Data & Runtime Layout](#data--runtime-layout)
+4. [Running Tests](#running-tests)
+5. [MSIX Packaging (Phase 7 — in progress)](#msix-packaging-phase-7--in-progress)
+6. [Code Signing](#code-signing)
+7. [Microsoft Store Deployment (Phase 7 — in progress)](#microsoft-store-deployment-phase-7--in-progress)
+8. [Side-loading](#side-loading)
+9. [CI/CD Pipeline](#cicd-pipeline)
 
 ---
 
 ## Prerequisites
 
 ### Development Environment
-- **Windows 11 22H2** or later (required for Windows App SDK 1.5+)
+- **Windows 11 22H2** or later (required for Windows App SDK 1.5+). The WinUI target cannot be built on Linux/macOS.
 - **Visual Studio 2022** (17.8 or later) with workloads:
   - .NET Desktop Development
   - Universal Windows Platform development
   - Windows App SDK C# Templates
-- **.NET 8 SDK** (8.0 or later)
-- **Windows App SDK** 1.5 or later
+- **.NET SDK** — the repo pins the SDK via `windows-native/src/global.json`:
+  ```json
+  { "sdk": { "version": "8.0.100", "rollForward": "major" } }
+  ```
+  This means: use the **.NET 8 SDK** if it is installed, otherwise **roll forward to the next available major** (e.g. .NET 9). It will **not** select the .NET 10 SDK, whose newer WinUI XAML/PRI tooling breaks this project's resource generation. If you only have a newer SDK installed, install a **.NET 8 or .NET 9 SDK** rather than relying on whatever is latest.
+- **Windows App SDK** 1.5.x (restored as the `Microsoft.WindowsAppSDK` NuGet package)
 
-### For Deployment
+### For Packaging / Store Deployment (Phase 7 — in progress)
 - **Windows SDK** (10.0.22621.0 or later)
 - **MSIX Packaging Tool** (from Microsoft Store)
 - **Code Signing Certificate** (EV certificate for Microsoft Store)
@@ -35,78 +44,92 @@ This guide covers the complete deployment process for the Memory Timeline Window
 
 ## Building the Application
 
-### Debug Build
+### Why `dotnet build` does not work for the app
+
+The WinUI 3 app project (`MemoryTimeline`) runs WinUI's PRI/XAML resource generation as part of the build (the `MrtCore.PriGen` / XAML compiler tooling). That tooling is a **.NET Framework** MSBuild task and **does not load under the `dotnet` CLI (.NET Core) MSBuild engine** — a `dotnet build`/`dotnet run` of the app fails during resource/XAML generation (e.g. `MSB4062` / `MSB3073` XAML-compiler errors), even when the C# itself is fine. The build must therefore be driven by **Visual Studio** or the full **Visual Studio `msbuild.exe`**.
+
+Two more consequences:
+- The solution defines **`x86`, `x64`, and `ARM64`** platforms — there is **no `AnyCPU`**. Every build must specify a platform (`x64` is the default target).
+- The `MemoryTimeline.Tests` project references the WinUI app, so the whole solution is built for a concrete platform (x64) on a Windows machine.
+
+### Build (Release, x64) — recommended
+
 ```powershell
-# Navigate to solution directory
 cd windows-native/src
 
-# Restore dependencies
-dotnet restore
-
-# Build in Debug mode
-dotnet build --configuration Debug
+# Restore + build the whole solution with Visual Studio MSBuild.
+# 'msbuild' here is the VS msbuild.exe (e.g. from a Developer PowerShell for VS 2022),
+# NOT 'dotnet build'.
+msbuild MemoryTimeline.sln /t:Restore,Build /p:Configuration=Release /p:Platform=x64 /m
 ```
 
-### Release Build
+### Debug build
+
 ```powershell
-# Build in Release mode with optimizations
-dotnet build --configuration Release
-
-# Or using MSBuild
-msbuild MemoryTimeline.sln /p:Configuration=Release /p:Platform=x64
+msbuild MemoryTimeline.sln /t:Restore,Build /p:Configuration=Debug /p:Platform=x64 /m
 ```
+
+You can also simply open `windows-native/src/MemoryTimeline.sln` in Visual Studio 2022, select the **Release / x64** (or **Debug / x64**) configuration, and Build.
 
 ### Build Output
-The compiled application will be in:
+The compiled application is placed under the platform-specific output folder, for example:
 ```
-windows-native/src/MemoryTimeline/bin/Release/net8.0-windows10.0.22621.0/
+windows-native/src/MemoryTimeline/bin/x64/Release/net8.0-windows10.0.22621.0/
 ```
+Because the app is unpackaged and self-contained, this folder contains `MemoryTimeline.exe` plus the Windows App SDK runtime and can be launched directly.
+
+---
+
+## Data & Runtime Layout
+
+The app is **unpackaged**, so it does not use MSIX app-data virtualization. All runtime data lives under `%LOCALAPPDATA%\MemoryTimeline\`:
+
+| Path | Contents |
+|------|----------|
+| `%LOCALAPPDATA%\MemoryTimeline\memory-timeline.db` | SQLite database (WAL mode; expect `-wal` / `-shm` sidecar files) |
+| `%LOCALAPPDATA%\MemoryTimeline\AudioRecordings\` | Recorded / imported audio files |
+| `%LOCALAPPDATA%\MemoryTimeline\Models\ggml-base.bin` | Local Whisper (Whisper.net) speech-to-text model, downloaded on first use |
+| `%LOCALAPPDATA%\MemoryTimeline\error.log` | Startup / unhandled-exception log |
+
+**Schema / migrations:** the EF Core migrations were removed in favour of a hand-rolled `SchemaUpgrader` that creates/updates the schema at startup. There is currently **no migrations baseline**, so `dotnet ef migrations add` / `dotnet ef database update` are **not applicable** to this project right now (regenerating a real migration baseline is a follow-up task).
+
+**External services:** speech-to-text is **local** (Whisper.net, offline after the one-time model download). LLM event extraction uses the Anthropic API and embeddings use the OpenAI API, so those features require API keys and network access.
 
 ---
 
 ## Running Tests
 
-### All Tests
+> **Do not use `dotnet test`.** `dotnet test` rebuilds the solution — including the WinUI app — with the `dotnet` MSBuild engine, which hits the same WinUI PRI/XAML failure described above. Instead, build the solution once with `msbuild.exe` (see [Building the Application](#building-the-application)) and run the **already-built** test assembly with `dotnet vstest`. This is exactly what CI does.
+
+### Build once, then run the built test assembly
 ```powershell
 cd windows-native/src
-dotnet test --configuration Release
+
+# 1. Build the solution (Release | x64) with VS MSBuild
+msbuild MemoryTimeline.sln /t:Restore,Build /p:Configuration=Release /p:Platform=x64 /m
+
+# 2. Run the compiled test DLL with vstest (no rebuild)
+dotnet vstest MemoryTimeline.Tests/bin/x64/Release/net8.0-windows10.0.22621.0/MemoryTimeline.Tests.dll `
+  --logger:"trx;LogFileName=test.trx" --ResultsDirectory:TestResults
 ```
 
-### Unit Tests Only
+### Filtering
+`dotnet vstest` supports test filtering via `--TestCaseFilter`, e.g.:
 ```powershell
-dotnet test --filter "FullyQualifiedName~UnitTests"
+dotnet vstest <path-to>\MemoryTimeline.Tests.dll --TestCaseFilter:"FullyQualifiedName~UnitTests"
+dotnet vstest <path-to>\MemoryTimeline.Tests.dll --TestCaseFilter:"FullyQualifiedName~Integration"
 ```
 
-### Integration Tests
-```powershell
-dotnet test --filter "FullyQualifiedName~Integration"
-```
+See [`TESTING.md`](./TESTING.md) for the test-suite layout, the EF Core InMemory / SQLite provider caveats, and known follow-up work.
 
-### Performance Tests
-```powershell
-dotnet test --filter "FullyQualifiedName~Performance" --logger "console;verbosity=detailed"
-```
-
-### Code Coverage
-```powershell
-# Install coverage tool
-dotnet tool install --global dotnet-coverage
-
-# Run tests with coverage
-dotnet test --collect:"XPlat Code Coverage"
-
-# Generate HTML report
-dotnet tool install --global dotnet-reportgenerator-globaltool
-reportgenerator -reports:**/coverage.cobertura.xml -targetdir:./coverage-report -reporttypes:Html
-```
-
-### Coverage Requirements
-- Target: **> 80% code coverage**
-- Critical paths (event CRUD, audio processing, LLM integration) should have **> 90% coverage**
+### Coverage goals
+- Aspirational target: **> 80%** overall, **> 90%** on critical paths (event CRUD, audio/queue processing, RAG). These are goals, not measured/verified figures.
 
 ---
 
-## MSIX Packaging
+## MSIX Packaging (Phase 7 — in progress)
+
+> The app currently ships **unpackaged** (`WindowsPackageType=None`). The MSIX packaging, code-signing, and Store steps below describe the **intended** path and are not yet a verified, shipped pipeline. Packaging the app will also require reconciling the unpackaged/self-contained settings with an MSIX packaging project.
 
 ### Manual Packaging with Visual Studio
 
@@ -188,7 +211,9 @@ signtool verify /pa MemoryTimeline.msix
 
 ---
 
-## Microsoft Store Deployment
+## Microsoft Store Deployment (Phase 7 — in progress)
+
+> Store submission has not been performed yet. The steps below are the planned process once MSIX packaging and signing are in place.
 
 ### 1. Partner Center Setup
 
@@ -376,134 +401,46 @@ else {
 
 ## CI/CD Pipeline
 
-### GitHub Actions Example
+### Current workflow: `.github/workflows/windows-native-build.yml`
 
-Create `.github/workflows/build-and-deploy.yml`:
+The repository has a **real** GitHub Actions workflow that compiles and tests the native Windows implementation. Its key design decisions mirror the constraints described above:
 
-```yaml
-name: Build and Deploy
+- Runs on **`windows-latest`** (the WinUI target cannot build on Linux).
+- Installs the **.NET 8 SDK** (`actions/setup-dotnet`) and **Visual Studio MSBuild** (`microsoft/setup-msbuild`).
+- Builds the **whole solution for `Release | x64`** via `msbuild MemoryTimeline.sln /t:Restore,Build` — **not** `dotnet build`, to avoid the WinUI PRI/XAML task failure.
+- Runs tests with **`dotnet vstest`** against the already-built `MemoryTimeline.Tests.dll` — **not** `dotnet test`, which would rebuild the WinUI app and hit the same failure.
+- Compilation is the gate; the headless VSTest run of the self-contained WinUI test assembly is best-effort (`continue-on-error`) and its results/logs are uploaded as artifacts.
 
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-  release:
-    types: [ published ]
-
-jobs:
-  build-and-test:
-    runs-on: windows-latest
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
-
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v3
-      with:
-        dotnet-version: '8.0.x'
-
-    - name: Restore dependencies
-      run: dotnet restore windows-native/src/MemoryTimeline.sln
-
-    - name: Build
-      run: dotnet build windows-native/src/MemoryTimeline.sln --configuration Release --no-restore
-
-    - name: Run Tests
-      run: dotnet test windows-native/src/MemoryTimeline.sln --configuration Release --no-build --verbosity normal --collect:"XPlat Code Coverage"
-
-    - name: Upload Coverage
-      uses: codecov/codecov-action@v3
-      with:
-        files: '**/coverage.cobertura.xml'
-
-    - name: Create MSIX Package
-      run: |
-        # Package creation commands here
-        makeappx pack /d windows-native/src/MemoryTimeline/bin/Release/net8.0-windows/ /p MemoryTimeline.msix
-
-    - name: Sign Package
-      if: github.event_name == 'release'
-      run: |
-        # Signing commands here
-        # Note: Certificate should be stored in GitHub Secrets
-        signtool sign /fd SHA256 /sha1 ${{ secrets.CERT_THUMBPRINT }} /t http://timestamp.digicert.com MemoryTimeline.msix
-
-    - name: Upload Artifact
-      uses: actions/upload-artifact@v3
-      with:
-        name: msix-package
-        path: MemoryTimeline.msix
-
-  deploy-to-store:
-    needs: build-and-test
-    if: github.event_name == 'release'
-    runs-on: windows-latest
-
-    steps:
-    - name: Download Artifact
-      uses: actions/download-artifact@v3
-      with:
-        name: msix-package
-
-    - name: Upload to Microsoft Store
-      uses: isaacrlevin/windows-store-action@v1
-      with:
-        tenant-id: ${{ secrets.TENANT_ID }}
-        client-id: ${{ secrets.CLIENT_ID }}
-        client-secret: ${{ secrets.CLIENT_SECRET }}
-        app-id: ${{ secrets.STORE_APP_ID }}
-        package-path: MemoryTimeline.msix
-```
-
-### Azure DevOps Pipeline Example
-
-Create `azure-pipelines.yml`:
+Core of the build and test steps:
 
 ```yaml
-trigger:
-- main
+- name: Setup .NET 8
+  uses: actions/setup-dotnet@v4
+  with:
+    dotnet-version: '8.0.x'
 
-pool:
-  vmImage: 'windows-latest'
+- name: Setup MSBuild (Visual Studio)
+  uses: microsoft/setup-msbuild@v2
 
-variables:
-  solution: 'windows-native/src/MemoryTimeline.sln'
-  buildConfiguration: 'Release'
-  buildPlatform: 'x64'
+- name: Build (Release | x64) via VS MSBuild
+  shell: pwsh
+  run: |
+    msbuild MemoryTimeline.sln /t:Restore,Build `
+      /p:Configuration=Release /p:Platform=x64 /m /v:minimal
 
-steps:
-- task: NuGetToolInstaller@1
-
-- task: NuGetCommand@2
-  inputs:
-    restoreSolution: '$(solution)'
-
-- task: VSBuild@1
-  inputs:
-    solution: '$(solution)'
-    platform: '$(buildPlatform)'
-    configuration: '$(buildConfiguration)'
-
-- task: VSTest@2
-  inputs:
-    platform: '$(buildPlatform)'
-    configuration: '$(buildConfiguration)'
-    codeCoverageEnabled: true
-
-- task: PowerShell@2
-  displayName: 'Create MSIX Package'
-  inputs:
-    targetType: 'inline'
-    script: |
-      makeappx pack /d $(Build.SourcesDirectory)/windows-native/src/MemoryTimeline/bin/Release/net8.0-windows/ /p $(Build.ArtifactStagingDirectory)/MemoryTimeline.msix
-
-- task: PublishBuildArtifacts@1
-  inputs:
-    PathtoPublish: '$(Build.ArtifactStagingDirectory)'
-    ArtifactName: 'drop'
+- name: Test (Release | x64)
+  shell: pwsh
+  run: |
+    $dll = Get-ChildItem -Recurse -Path MemoryTimeline.Tests/bin/x64/Release `
+             -Filter MemoryTimeline.Tests.dll | Select-Object -First 1
+    dotnet vstest $dll.FullName --logger:"trx;LogFileName=test.trx" `
+      --ResultsDirectory:TestResults
 ```
+
+(The working directory is `windows-native/src`.)
+
+### Not yet automated
+Packaging, signing, and Store publishing are **not** part of the current workflow — they are Phase 7 work in progress (see the MSIX and Microsoft Store sections above).
 
 ---
 
@@ -513,7 +450,7 @@ steps:
 - Monitor Partner Center for crash reports
 - Review user feedback and ratings
 - Track download statistics
-- Monitor API usage and costs (Anthropic, OpenAI)
+- Monitor API usage and costs for the cloud features (Anthropic LLM extraction, OpenAI embeddings). Note: speech-to-text runs locally via Whisper.net and incurs no per-use API cost.
 
 ### Updates
 1. Increment version in `Package.appxmanifest`
@@ -580,5 +517,4 @@ For deployment issues:
 
 ---
 
-**Last Updated**: 2025-11-24
-**Version**: 1.0.0
+**Last Updated**: 2026-07-10
