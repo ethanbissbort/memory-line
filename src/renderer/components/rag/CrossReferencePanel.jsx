@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { format, parseISO, isValid } from 'date-fns';
+import { useTimelineStore } from '../../store/timelineStore';
 
 // Safely format a date string, returning '' for missing/invalid values
 const safeFormat = (dateStr, fmt) => {
@@ -13,7 +14,11 @@ const safeFormat = (dateStr, fmt) => {
     return isValid(d) ? format(d, fmt) : '';
 };
 
-function CrossReferencePanel({ eventId }) {
+function CrossReferencePanel({ eventId, onEventSelected }) {
+    // The externally supplied eventId (last viewed event) seeds the panel,
+    // but the user can also pick an event from the built-in picker.
+    const [activeEventId, setActiveEventId] = useState(eventId || null);
+    const [recentEvents, setRecentEvents] = useState([]);
     const [crossRefs, setCrossRefs] = useState([]);
     const [similarEvents, setSimilarEvents] = useState([]);
     const [suggestedTags, setSuggestedTags] = useState([]);
@@ -21,17 +26,59 @@ function CrossReferencePanel({ eventId }) {
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [activeTab, setActiveTab] = useState('connections'); // connections, similar, tags
 
+    const storeEvents = useTimelineStore(state => state.events);
+
+    // Follow external selection changes (e.g. an event opened elsewhere)
     useEffect(() => {
         if (eventId) {
-            loadCrossReferences();
-            loadSimilarEvents();
-            loadSuggestedTags();
+            setActiveEventId(eventId);
         }
     }, [eventId]);
 
-    const loadCrossReferences = async () => {
+    useEffect(() => {
+        if (activeEventId) {
+            loadCrossReferences(activeEventId);
+            loadSimilarEvents(activeEventId);
+            loadSuggestedTags(activeEventId);
+        } else {
+            loadRecentEvents();
+        }
+    }, [activeEventId]);
+
+    const loadRecentEvents = async () => {
+        // Prefer events already in the timeline store; fall back to a broad
+        // fetch when the store is empty (e.g. Insights opened first).
+        let events = storeEvents;
+        if (!events || events.length === 0) {
+            try {
+                const result = await window.electronAPI.events.getRange(
+                    '1900-01-01',
+                    '2100-12-31',
+                    100
+                );
+                if (result.success) {
+                    events = result.data;
+                }
+            } catch (error) {
+                console.error('Error loading recent events:', error);
+            }
+        }
+        const sorted = [...(events || [])].sort((a, b) =>
+            (b.start_date || '').localeCompare(a.start_date || '')
+        );
+        setRecentEvents(sorted.slice(0, 15));
+    };
+
+    const handlePickEvent = (pickedId) => {
+        setActiveEventId(pickedId);
+        if (onEventSelected) {
+            onEventSelected(pickedId);
+        }
+    };
+
+    const loadCrossReferences = async (id = activeEventId) => {
         try {
-            const result = await window.electronAPI.rag.getCrossReferences(eventId);
+            const result = await window.electronAPI.rag.getCrossReferences(id);
             if (result.success) {
                 setCrossRefs(result.data);
             }
@@ -40,9 +87,9 @@ function CrossReferencePanel({ eventId }) {
         }
     };
 
-    const loadSimilarEvents = async () => {
+    const loadSimilarEvents = async (id = activeEventId) => {
         try {
-            const result = await window.electronAPI.embedding.findSimilar(eventId, 0.7, 10);
+            const result = await window.electronAPI.embedding.findSimilar(id, 0.7, 10);
             if (result.success) {
                 setSimilarEvents(result.similar_events || []);
             }
@@ -51,9 +98,9 @@ function CrossReferencePanel({ eventId }) {
         }
     };
 
-    const loadSuggestedTags = async () => {
+    const loadSuggestedTags = async (id = activeEventId) => {
         try {
-            const result = await window.electronAPI.rag.suggestTags(eventId, 5);
+            const result = await window.electronAPI.rag.suggestTags(id, 5);
             if (result.success) {
                 setSuggestedTags(result.suggestions || []);
             }
@@ -69,7 +116,7 @@ function CrossReferencePanel({ eventId }) {
 
         setIsAnalyzing(true);
         try {
-            const result = await window.electronAPI.rag.analyzeEvent(eventId, 0.75);
+            const result = await window.electronAPI.rag.analyzeEvent(activeEventId, 0.75);
             if (result.success) {
                 alert(`Analysis complete!\n\nFound ${result.cross_references.length} cross-references.`);
                 await loadCrossReferences();
@@ -108,11 +155,37 @@ function CrossReferencePanel({ eventId }) {
         return colors[type] || '#95a5a6';
     };
 
-    if (!eventId) {
+    if (!activeEventId) {
         return (
             <div className="cross-reference-panel">
+                <div className="panel-header">
+                    <h3>Related Events & Connections</h3>
+                </div>
                 <div className="empty-state">
-                    <p>Select an event to view connections and related events</p>
+                    <p>Pick an event to view connections and related events</p>
+                    {recentEvents.length === 0 ? (
+                        <p className="hint">
+                            No events found. Add events to your timeline first.
+                        </p>
+                    ) : (
+                        <div className="recent-event-picker">
+                            <p className="hint">Recent events:</p>
+                            <ul className="recent-event-list" style={{ listStyle: 'none', padding: 0 }}>
+                                {recentEvents.map(evt => (
+                                    <li key={evt.event_id}>
+                                        <button
+                                            className="button secondary small"
+                                            style={{ margin: '4px 0', width: '100%', textAlign: 'left' }}
+                                            onClick={() => handlePickEvent(evt.event_id)}
+                                        >
+                                            {evt.title}
+                                            {evt.start_date && ` — ${safeFormat(evt.start_date, 'MMM d, yyyy')}`}
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
                 </div>
             </div>
         );
@@ -122,6 +195,13 @@ function CrossReferencePanel({ eventId }) {
         <div className="cross-reference-panel">
             <div className="panel-header">
                 <h3>Related Events & Connections</h3>
+                <button
+                    className="button secondary small"
+                    onClick={() => setActiveEventId(null)}
+                    disabled={isAnalyzing}
+                >
+                    Change Event
+                </button>
                 <button
                     className="button primary small"
                     onClick={handleAnalyzeEvent}
@@ -163,9 +243,9 @@ function CrossReferencePanel({ eventId }) {
                         ) : (
                             <div className="cross-ref-list">
                                 {crossRefs.map(ref => {
-                                    const relatedEventId = ref.event_id_1 === eventId ? ref.event_id_2 : ref.event_id_1;
-                                    const relatedTitle = ref.event_id_1 === eventId ? ref.event2_title : ref.event1_title;
-                                    const relatedDate = ref.event_id_1 === eventId ? ref.event2_date : ref.event1_date;
+                                    const relatedEventId = ref.event_id_1 === activeEventId ? ref.event_id_2 : ref.event_id_1;
+                                    const relatedTitle = ref.event_id_1 === activeEventId ? ref.event2_title : ref.event1_title;
+                                    const relatedDate = ref.event_id_1 === activeEventId ? ref.event2_date : ref.event1_date;
 
                                     return (
                                         <div key={ref.reference_id} className="cross-ref-item">

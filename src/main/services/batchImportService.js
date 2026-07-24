@@ -128,15 +128,23 @@ class BatchImportService {
       try {
         file.status = 'processing';
 
-        // Copy file to app's audio directory
-        const appDataPath = this._getAppDataPath();
-        const audioDir = path.join(appDataPath, 'audio');
+        // Copy file into the app-managed audio directory. This MUST be the
+        // same base dir enforced by resolveManagedAudioPath in main.js
+        // (<userData>/assets/audio): audio:getFile refuses to serve and
+        // queue:remove refuses to delete any path outside of it.
+        const audioDir = this._getManagedAudioDir();
         if (!fs.existsSync(audioDir)) {
           fs.mkdirSync(audioDir, { recursive: true });
         }
 
-        const destPath = path.join(audioDir, `${file.id}${path.extname(file.filename)}`);
-        fs.copyFileSync(file.path, destPath);
+        const destPath = this._uniqueDestPath(
+          audioDir,
+          file.id,
+          path.extname(file.filename)
+        );
+        // COPYFILE_EXCL guards against a same-name file appearing between
+        // the uniqueness check and the copy.
+        fs.copyFileSync(file.path, destPath, fs.constants.COPYFILE_EXCL);
 
         // Add to recording queue. Note: recording_queue only stores the audio
         // file path plus status/size/duration. Per-item metadata such as
@@ -409,6 +417,30 @@ class BatchImportService {
   _getAppDataPath() {
     const { app } = require('electron');
     return app.getPath('userData');
+  }
+
+  /**
+   * The app-managed audio directory. Must stay in sync with
+   * getAudioBaseDir() in main.js (<userData>/assets/audio), which is the
+   * base dir that resolveManagedAudioPath enforces for playback (audio:getFile)
+   * and cleanup (queue:remove).
+   */
+  _getManagedAudioDir() {
+    return path.join(this._getAppDataPath(), 'assets', 'audio');
+  }
+
+  /**
+   * Build a destination path in `dir` for `baseName` + `ext` that does not
+   * collide with an existing file, appending -1, -2, ... if needed.
+   */
+  _uniqueDestPath(dir, baseName, ext) {
+    let candidate = path.join(dir, `${baseName}${ext}`);
+    let counter = 1;
+    while (fs.existsSync(candidate)) {
+      candidate = path.join(dir, `${baseName}-${counter}${ext}`);
+      counter++;
+    }
+    return candidate;
   }
 
   /**

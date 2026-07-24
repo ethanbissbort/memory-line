@@ -21,6 +21,9 @@ import { useSettingsStore } from './store/settingsStore';
 function App() {
     const [activePanel, setActivePanel] = useState('timeline'); // timeline, recorder, queue, settings
     const [selectedEvent, setSelectedEvent] = useState(null);
+    // Survives the details modal closing, so the Insights panel can still
+    // target the most recently viewed event.
+    const [lastViewedEventId, setLastViewedEventId] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
 
     const { loadEras } = useTimelineStore();
@@ -46,6 +49,9 @@ function App() {
 
     const handleEventClick = (event) => {
         setSelectedEvent(event);
+        if (event?.event_id) {
+            setLastViewedEventId(event.event_id);
+        }
     };
 
     const handleCloseEventModal = () => {
@@ -96,7 +102,10 @@ function App() {
                         )}
 
                         {activePanel === 'insights' && (
-                            <CrossReferencePanel eventId={selectedEvent?.event_id} />
+                            <CrossReferencePanel
+                                eventId={selectedEvent?.event_id ?? lastViewedEventId}
+                                onEventSelected={setLastViewedEventId}
+                            />
                         )}
 
                         {activePanel === 'rag' && (
