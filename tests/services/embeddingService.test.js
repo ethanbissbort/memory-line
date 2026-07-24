@@ -2,8 +2,8 @@
  * EmbeddingService Unit Tests
  */
 
-const Database = require('better-sqlite3');
 const EmbeddingService = require('../../src/main/services/embeddingService');
+const { createTestDb, insertEvent } = require('../helpers/createTestDb');
 
 // Mock fetch for API calls
 global.fetch = jest.fn();
@@ -13,27 +13,8 @@ describe('EmbeddingService', () => {
     let embeddingService;
 
     beforeEach(() => {
-        // Create in-memory database
-        db = new Database(':memory:');
-
-        // Create schema
-        db.exec(`
-            CREATE TABLE events (
-                event_id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                description TEXT,
-                raw_transcript TEXT
-            );
-
-            CREATE TABLE event_embeddings (
-                embedding_id TEXT PRIMARY KEY,
-                event_id TEXT NOT NULL UNIQUE,
-                embedding_vector TEXT NOT NULL,
-                embedding_provider TEXT NOT NULL,
-                embedding_model TEXT NOT NULL,
-                embedding_dimension INTEGER NOT NULL
-            );
-        `);
+        // Build the database from the canonical production schema
+        db = createTestDb();
 
         embeddingService = new EmbeddingService(db);
 
@@ -89,10 +70,10 @@ describe('EmbeddingService', () => {
 
         test('should generate embedding for event', async () => {
             // Insert test event
-            db.prepare(`
-                INSERT INTO events (event_id, title, description)
-                VALUES ('e1', 'Test Event', 'Test description')
-            `).run();
+            insertEvent(db, {
+                event_id: 'e1', title: 'Test Event', start_date: '2020-01-01',
+                description: 'Test description'
+            });
 
             const result = await embeddingService.generateEventEmbedding('e1', {
                 title: 'Test Event',
@@ -110,10 +91,10 @@ describe('EmbeddingService', () => {
         });
 
         test('should combine multiple text fields', async () => {
-            db.prepare(`
-                INSERT INTO events (event_id, title, description, raw_transcript)
-                VALUES ('e1', 'Title', 'Description', 'Transcript')
-            `).run();
+            insertEvent(db, {
+                event_id: 'e1', title: 'Title', start_date: '2020-01-01',
+                description: 'Description', raw_transcript: 'Transcript'
+            });
 
             const result = await embeddingService.generateEventEmbedding('e1', {
                 title: 'Title',
@@ -159,9 +140,9 @@ describe('EmbeddingService', () => {
             await embeddingService.initialize('local', 'test-model');
 
             // Insert test events with embeddings
-            db.prepare("INSERT INTO events VALUES ('e1', 'Event 1', 'Description 1', NULL)").run();
-            db.prepare("INSERT INTO events VALUES ('e2', 'Event 2', 'Description 2', NULL)").run();
-            db.prepare("INSERT INTO events VALUES ('e3', 'Event 3', 'Description 3', NULL)").run();
+            insertEvent(db, { event_id: 'e1', title: 'Event 1', start_date: '2020-01-01', description: 'Description 1' });
+            insertEvent(db, { event_id: 'e2', title: 'Event 2', start_date: '2020-02-01', description: 'Description 2' });
+            insertEvent(db, { event_id: 'e3', title: 'Event 3', start_date: '2020-03-01', description: 'Description 3' });
 
             // Generate embeddings
             await embeddingService.generateEventEmbedding('e1', { title: 'Event 1', description: 'Description 1' });
@@ -196,7 +177,7 @@ describe('EmbeddingService', () => {
         test('should clear all embeddings', async () => {
             await embeddingService.initialize('local', 'test-model');
 
-            db.prepare("INSERT INTO events VALUES ('e1', 'Event 1', 'Desc', NULL)").run();
+            insertEvent(db, { event_id: 'e1', title: 'Event 1', start_date: '2020-01-01', description: 'Desc' });
             await embeddingService.generateEventEmbedding('e1', { title: 'Event 1' });
 
             // Verify embedding exists

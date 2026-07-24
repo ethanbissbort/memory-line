@@ -2,9 +2,15 @@
  * RAGService Unit Tests
  */
 
-const Database = require('better-sqlite3');
 const RAGService = require('../../src/main/services/ragService');
 const EmbeddingService = require('../../src/main/services/embeddingService');
+const {
+    createTestDb,
+    insertEvent,
+    insertTag,
+    linkTag,
+    insertCrossReference
+} = require('../helpers/createTestDb');
 
 describe('RAGService', () => {
     let db;
@@ -12,40 +18,8 @@ describe('RAGService', () => {
     let ragService;
 
     beforeEach(async () => {
-        // Create in-memory database
-        db = new Database(':memory:');
-
-        // Create schema
-        db.exec(`
-            CREATE TABLE events (
-                event_id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                description TEXT,
-                category TEXT,
-                start_date TEXT NOT NULL
-            );
-
-            CREATE TABLE event_embeddings (
-                embedding_id TEXT PRIMARY KEY,
-                event_id TEXT NOT NULL UNIQUE,
-                embedding_vector TEXT NOT NULL,
-                embedding_provider TEXT NOT NULL,
-                embedding_model TEXT NOT NULL,
-                embedding_dimension INTEGER NOT NULL
-            );
-
-            CREATE TABLE cross_references (
-                reference_id TEXT PRIMARY KEY,
-                source_event_id TEXT NOT NULL,
-                target_event_id TEXT NOT NULL,
-                relationship_type TEXT NOT NULL,
-                confidence_score REAL,
-                llm_reasoning TEXT
-            );
-
-            CREATE TABLE tags (tag_id TEXT PRIMARY KEY, tag_name TEXT NOT NULL);
-            CREATE TABLE event_tags (event_id TEXT, tag_id TEXT);
-        `);
+        // Build the database from the canonical production schema
+        db = createTestDb();
 
         // Initialize services
         embeddingService = new EmbeddingService(db);
@@ -61,23 +35,43 @@ describe('RAGService', () => {
     describe('getCrossReferences', () => {
         test('should return cross references for event', () => {
             // Insert test data
-            db.prepare("INSERT INTO events VALUES ('e1', 'Event 1', 'Desc 1', 'work', '2020-01-01')").run();
-            db.prepare("INSERT INTO events VALUES ('e2', 'Event 2', 'Desc 2', 'milestone', '2020-02-01')").run();
+            insertEvent(db, { event_id: 'e1', title: 'Event 1', description: 'Desc 1', category: 'work', start_date: '2020-01-01' });
+            insertEvent(db, { event_id: 'e2', title: 'Event 2', description: 'Desc 2', category: 'milestone', start_date: '2020-02-01' });
 
-            db.prepare(`
-                INSERT INTO cross_references (reference_id, source_event_id, target_event_id, relationship_type, confidence_score)
-                VALUES ('r1', 'e1', 'e2', 'causal', 0.9)
-            `).run();
+            insertCrossReference(db, {
+                reference_id: 'r1', event_id_1: 'e1', event_id_2: 'e2',
+                relationship_type: 'causal', confidence_score: 0.9,
+                analysis_details: JSON.stringify({ explanation: 'e1 led to e2' })
+            });
 
             const refs = ragService.getCrossReferences('e1');
 
             expect(refs).toHaveLength(1);
-            expect(refs[0].target_event_id).toBe('e2');
+            expect(refs[0].event_id_1).toBe('e1');
+            expect(refs[0].event_id_2).toBe('e2');
             expect(refs[0].relationship_type).toBe('causal');
+            expect(refs[0].event1_title).toBe('Event 1');
+            expect(refs[0].event2_title).toBe('Event 2');
+            // analysis_details is JSON-parsed by the service
+            expect(refs[0].analysis_details).toEqual({ explanation: 'e1 led to e2' });
+        });
+
+        test('should return references from either side of the pair', () => {
+            insertEvent(db, { event_id: 'e1', title: 'Event 1', description: 'Desc 1', category: 'work', start_date: '2020-01-01' });
+            insertEvent(db, { event_id: 'e2', title: 'Event 2', description: 'Desc 2', category: 'milestone', start_date: '2020-02-01' });
+            insertCrossReference(db, {
+                reference_id: 'r1', event_id_1: 'e1', event_id_2: 'e2',
+                relationship_type: 'causal', confidence_score: 0.9
+            });
+
+            // Query by the second event of the ordered pair
+            const refs = ragService.getCrossReferences('e2');
+            expect(refs).toHaveLength(1);
+            expect(refs[0].reference_id).toBe('r1');
         });
 
         test('should return empty array if no references', () => {
-            db.prepare("INSERT INTO events VALUES ('e1', 'Event 1', 'Desc 1', 'work', '2020-01-01')").run();
+            insertEvent(db, { event_id: 'e1', title: 'Event 1', description: 'Desc 1', category: 'work', start_date: '2020-01-01' });
 
             const refs = ragService.getCrossReferences('e1');
 
@@ -90,10 +84,11 @@ describe('RAGService', () => {
             // Insert events with patterns
             for (let i = 1; i <= 10; i++) {
                 const category = i % 3 === 0 ? 'work' : 'milestone';
-                db.prepare(`
-                    INSERT INTO events (event_id, title, description, category, start_date)
-                    VALUES (?, ?, ?, ?, ?)
-                `).run(`e${i}`, `Event ${i}`, `Description ${i}`, category, `2020-0${Math.ceil(i/3)}-01`);
+                insertEvent(db, {
+                    event_id: `e${i}`, title: `Event ${i}`,
+                    description: `Description ${i}`, category,
+                    start_date: `2020-0${Math.ceil(i / 3)}-01`
+                });
             }
         });
 
@@ -121,14 +116,14 @@ describe('RAGService', () => {
     describe('suggestTags', () => {
         beforeEach(() => {
             // Insert events and tags
-            db.prepare("INSERT INTO events VALUES ('e1', 'Work Project', 'Project desc', 'work', '2020-01-01')").run();
-            db.prepare("INSERT INTO events VALUES ('e2', 'Work Meeting', 'Meeting desc', 'work', '2020-02-01')").run();
+            insertEvent(db, { event_id: 'e1', title: 'Work Project', description: 'Project desc', category: 'work', start_date: '2020-01-01' });
+            insertEvent(db, { event_id: 'e2', title: 'Work Meeting', description: 'Meeting desc', category: 'work', start_date: '2020-02-01' });
 
-            db.prepare("INSERT INTO tags VALUES ('t1', 'important')").run();
-            db.prepare("INSERT INTO tags VALUES ('t2', 'career')").run();
+            insertTag(db, { tag_id: 't1', tag_name: 'important' });
+            insertTag(db, { tag_id: 't2', tag_name: 'career' });
 
-            db.prepare("INSERT INTO event_tags VALUES ('e1', 't1')").run();
-            db.prepare("INSERT INTO event_tags VALUES ('e1', 't2')").run();
+            linkTag(db, 'e1', 't1');
+            linkTag(db, 'e1', 't2');
         });
 
         test('should suggest tags based on category', async () => {
@@ -150,9 +145,9 @@ describe('RAGService', () => {
     describe('analyzeFullTimeline', () => {
         beforeEach(async () => {
             // Insert events
-            db.prepare("INSERT INTO events VALUES ('e1', 'Event 1', 'Desc 1', 'work', '2020-01-01')").run();
-            db.prepare("INSERT INTO events VALUES ('e2', 'Event 2', 'Desc 2', 'milestone', '2020-02-01')").run();
-            db.prepare("INSERT INTO events VALUES ('e3', 'Event 3', 'Desc 3', 'work', '2020-03-01')").run();
+            insertEvent(db, { event_id: 'e1', title: 'Event 1', description: 'Desc 1', category: 'work', start_date: '2020-01-01' });
+            insertEvent(db, { event_id: 'e2', title: 'Event 2', description: 'Desc 2', category: 'milestone', start_date: '2020-02-01' });
+            insertEvent(db, { event_id: 'e3', title: 'Event 3', description: 'Desc 3', category: 'work', start_date: '2020-03-01' });
 
             // Generate embeddings
             for (let i = 1; i <= 3; i++) {
@@ -182,22 +177,41 @@ describe('RAGService', () => {
     });
 
     describe('relationship types', () => {
-        test('should support all relationship types', () => {
+        test('should support all relationship types allowed by the schema CHECK', () => {
             const types = ['causal', 'thematic', 'temporal', 'person', 'location', 'other'];
 
             types.forEach(type => {
-                db.prepare("INSERT INTO events VALUES (?, 'Event', 'Desc', 'work', '2020-01-01')").run(`e${type}1`);
-                db.prepare("INSERT INTO events VALUES (?, 'Event', 'Desc', 'work', '2020-01-01')").run(`e${type}2`);
+                insertEvent(db, { event_id: `e${type}1`, title: 'Event', description: 'Desc', category: 'work', start_date: '2020-01-01' });
+                insertEvent(db, { event_id: `e${type}2`, title: 'Event', description: 'Desc', category: 'work', start_date: '2020-01-01' });
 
-                db.prepare(`
-                    INSERT INTO cross_references (reference_id, source_event_id, target_event_id, relationship_type, confidence_score)
-                    VALUES (?, ?, ?, ?, 0.8)
-                `).run(`r${type}`, `e${type}1`, `e${type}2`, type);
+                insertCrossReference(db, {
+                    reference_id: `r${type}`,
+                    event_id_1: `e${type}1`, event_id_2: `e${type}2`,
+                    relationship_type: type, confidence_score: 0.8
+                });
 
                 const refs = ragService.getCrossReferences(`e${type}1`);
                 expect(refs).toHaveLength(1);
                 expect(refs[0].relationship_type).toBe(type);
             });
+        });
+
+        test('storeCrossReference should order the pair and dedupe on re-store', () => {
+            insertEvent(db, { event_id: 'a1', title: 'A', start_date: '2020-01-01' });
+            insertEvent(db, { event_id: 'b1', title: 'B', start_date: '2020-02-01' });
+
+            // Passed in "wrong" order: must be stored as (a1, b1) to satisfy
+            // the schema CHECK (event_id_1 < event_id_2).
+            const id1 = ragService.storeCrossReference('b1', 'a1', 'thematic', 0.6, 'first');
+            const id2 = ragService.storeCrossReference('a1', 'b1', 'thematic', 0.9, 'updated');
+
+            expect(id2).toBe(id1); // same row updated, not duplicated
+            const rows = db.prepare('SELECT * FROM cross_references').all();
+            expect(rows).toHaveLength(1);
+            expect(rows[0].event_id_1).toBe('a1');
+            expect(rows[0].event_id_2).toBe('b1');
+            expect(rows[0].confidence_score).toBe(0.9);
+            expect(JSON.parse(rows[0].analysis_details)).toEqual({ explanation: 'updated' });
         });
     });
 });
