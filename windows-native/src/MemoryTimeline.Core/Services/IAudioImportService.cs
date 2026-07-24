@@ -260,7 +260,9 @@ public class AudioImportService : IAudioImportService
 
         var searchOption = options.RecursiveScan ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
 
-        foreach (var format in options.SupportedFormats)
+        // Restrict the scan to Whisper-compatible formats (see WhisperCompatibleFormats)
+        // so the scan never lists files that IsSupportedFormat would reject at import.
+        foreach (var format in options.SupportedFormats.Intersect(WhisperCompatibleFormats, StringComparer.OrdinalIgnoreCase))
         {
             if (cancellationToken.IsCancellationRequested)
                 break;
@@ -298,11 +300,21 @@ public class AudioImportService : IAudioImportService
         return await ImportFilesAsync(filePaths, options, progress, cancellationToken);
     }
 
+    // The bundled Whisper STT engine only parses 16 kHz PCM WAV input, so the
+    // effective supported-format list is restricted to .wav regardless of what
+    // AudioImportOptions.SupportedFormats advertises: compressed formats
+    // (mp3/m4a/aac/ogg/flac/wma) would import successfully and then fail at
+    // transcription time. Accepting them again requires a transcoding step
+    // (future work).
+    private static readonly string[] WhisperCompatibleFormats = { ".wav" };
+
     public bool IsSupportedFormat(string filePath, AudioImportOptions? options = null)
     {
         options ??= new AudioImportOptions();
         var extension = Path.GetExtension(filePath)?.ToLowerInvariant();
-        return !string.IsNullOrEmpty(extension) && options.SupportedFormats.Contains(extension);
+        return !string.IsNullOrEmpty(extension)
+            && WhisperCompatibleFormats.Contains(extension)
+            && options.SupportedFormats.Contains(extension);
     }
 
     public async Task<AudioImportItem> GetFileInfoAsync(string filePath)

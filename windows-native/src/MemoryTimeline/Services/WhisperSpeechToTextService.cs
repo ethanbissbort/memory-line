@@ -73,6 +73,19 @@ public class WhisperSpeechToTextService : ISpeechToTextService, IDisposable
                 return result;
             }
 
+            // Whisper.net only parses 16 kHz 16-bit PCM WAV input. The queue can hand
+            // us arbitrary file paths (e.g. imported audio), so reject anything that
+            // is not a WAV file up front instead of feeding garbage to the decoder.
+            if (!Path.GetExtension(audioFilePath).Equals(".wav", StringComparison.OrdinalIgnoreCase) ||
+                !HasRiffWaveHeader(audioFilePath))
+            {
+                result.Success = false;
+                result.ErrorMessage = "Unsupported audio format — only 16 kHz WAV recordings can be transcribed";
+                result.ProcessingDurationSeconds = stopwatch.Elapsed.TotalSeconds;
+                _logger.LogWarning("Whisper transcription rejected non-WAV input: {FilePath}", audioFilePath);
+                return result;
+            }
+
             // Ensure the model is present and the factory is loaded (one-time cost).
             var factory = await GetOrCreateFactoryAsync();
             progress?.Report(0.1);
@@ -133,6 +146,39 @@ public class WhisperSpeechToTextService : ISpeechToTextService, IDisposable
             result.ErrorMessage = $"Transcription failed: {ex.Message}";
             result.ProcessingDurationSeconds = stopwatch.Elapsed.TotalSeconds;
             return result;
+        }
+    }
+
+    /// <summary>
+    /// Checks that the file starts with a RIFF/WAVE container header
+    /// (bytes 0-3 = "RIFF", bytes 8-11 = "WAVE"). Returns false for files that
+    /// are too short, unreadable, or carry any other container format.
+    /// </summary>
+    private bool HasRiffWaveHeader(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+
+            Span<byte> header = stackalloc byte[12];
+            var read = 0;
+            while (read < header.Length)
+            {
+                var bytesRead = stream.Read(header[read..]);
+                if (bytesRead == 0)
+                {
+                    return false; // file shorter than a WAV header
+                }
+                read += bytesRead;
+            }
+
+            return header[..4].SequenceEqual("RIFF"u8) &&
+                   header[8..12].SequenceEqual("WAVE"u8);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not read audio header from {Path}", path);
+            return false;
         }
     }
 
