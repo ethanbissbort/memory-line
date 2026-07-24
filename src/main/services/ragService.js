@@ -44,12 +44,29 @@ class RAGService {
                 };
             }
 
-            // Use LLM to analyze relationships
+            // Use LLM to analyze relationships. Every discovered relationship
+            // is persisted immediately through the storeCrossReference dedupe
+            // path so the Connections/Insights UI can reload it from the
+            // cross_references table (previously only analyzeFullTimeline
+            // persisted, and per-event results were discarded).
             const crossReferences = [];
             for (const similarEvent of similarResult.similar_events) {
                 const analysis = await this._analyzePairRelationship(sourceEvent, similarEvent);
                 if (analysis.hasRelationship) {
+                    let referenceId = null;
+                    try {
+                        referenceId = this.storeCrossReference(
+                            eventId,
+                            similarEvent.event_id,
+                            analysis.type,
+                            analysis.confidence,
+                            analysis.explanation
+                        );
+                    } catch (storeError) {
+                        console.error('Failed to persist cross-reference:', storeError);
+                    }
                     crossReferences.push({
+                        reference_id: referenceId,
                         event_id_2: similarEvent.event_id,
                         relationship_type: analysis.type,
                         confidence_score: analysis.confidence,
@@ -275,17 +292,10 @@ Return false for hasRelationship if the events are not meaningfully connected.`;
                     );
 
                     if (result.success) {
-                        // Store cross-references
-                        for (const crossRef of result.cross_references) {
-                            this.storeCrossReference(
-                                event.event_id,
-                                crossRef.event_id_2,
-                                crossRef.relationship_type,
-                                crossRef.confidence_score,
-                                crossRef.explanation
-                            );
-                            totalCrossRefs++;
-                        }
+                        // Persistence now happens inside
+                        // analyzeEventCrossReferences (storeCrossReference
+                        // dedupe path); just tally the results here.
+                        totalCrossRefs += result.cross_references.length;
                     }
                 } catch (error) {
                     errors.push({ event_id: event.event_id, error: error.message });
@@ -446,8 +456,8 @@ Return false for hasRelationship if the events are not meaningfully connected.`;
                 FROM event_tags et
                 INNER JOIN tags t ON et.tag_id = t.tag_id
                 WHERE et.event_id IN (${placeholders})
-                  AND et.event_id NOT IN (
-                      SELECT event_id FROM event_tags WHERE event_id = ?
+                  AND et.tag_id NOT IN (
+                      SELECT tag_id FROM event_tags WHERE event_id = ?
                   )
                 GROUP BY t.tag_name
                 ORDER BY frequency DESC, avg_confidence DESC

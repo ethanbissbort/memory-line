@@ -441,7 +441,7 @@ class ExportService {
                     try {
                         const eventId = event.event_id || uuidv4();
 
-                        insertEvent.run(
+                        const insertResult = insertEvent.run(
                             eventId,
                             event.title,
                             event.start_date,
@@ -484,7 +484,11 @@ class ExportService {
                             });
                         }
 
-                        stats.events++;
+                        // INSERT OR IGNORE silently skips duplicates and constraint
+                        // violations; only count rows that were actually inserted.
+                        if (insertResult.changes > 0) {
+                            stats.events++;
+                        }
                     } catch (error) {
                         stats.errors.push({ type: 'event', title: event.title, error: error.message });
                     }

@@ -194,8 +194,14 @@ class VisualizationService {
         er.end_date,
         COUNT(e.event_id) as event_count,
         COUNT(DISTINCT e.category) as category_count,
-        COUNT(DISTINCT et.tag_id) as unique_tags,
-        COUNT(DISTINCT ep.person_id) as unique_people,
+        (SELECT COUNT(DISTINCT et.tag_id)
+           FROM event_tags et
+           INNER JOIN events e2 ON et.event_id = e2.event_id
+          WHERE e2.era_id = er.era_id) as unique_tags,
+        (SELECT COUNT(DISTINCT ep.person_id)
+           FROM event_people ep
+           INNER JOIN events e3 ON ep.event_id = e3.event_id
+          WHERE e3.era_id = er.era_id) as unique_people,
         AVG(
           CASE WHEN e.end_date IS NOT NULL
           THEN (julianday(e.end_date) - julianday(e.start_date)) * 86400
@@ -203,8 +209,6 @@ class VisualizationService {
         ) as avg_event_duration
       FROM eras er
       LEFT JOIN events e ON er.era_id = e.era_id
-      LEFT JOIN event_tags et ON e.event_id = et.event_id
-      LEFT JOIN event_people ep ON e.event_id = ep.event_id
       GROUP BY er.era_id
       ORDER BY er.start_date
     `;

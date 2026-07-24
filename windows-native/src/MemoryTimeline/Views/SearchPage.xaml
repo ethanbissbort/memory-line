@@ -50,14 +50,14 @@
                     </StackPanel>
                 </Button>
 
-                <Button Grid.Column="2" Margin="8,0,0,0" Command="{x:Bind ViewModel.ClearFiltersCommand}">
+                <Button Grid.Column="2" Margin="8,0,0,0" Click="ClearFilters_Click">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon Glyph="&#xE711;" FontSize="14"/>
                         <TextBlock Text="Clear"/>
                     </StackPanel>
                 </Button>
 
-                <Button Grid.Column="3" Margin="8,0,0,0" Command="{x:Bind ViewModel.ShowSaveSearchCommand}">
+                <Button Grid.Column="3" Margin="8,0,0,0" Click="SaveSearch_Click">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon Glyph="&#xE74E;" FontSize="14"/>
                         <TextBlock Text="Save"/>
@@ -124,7 +124,7 @@
                     <!-- Categories -->
                     <Expander Header="Categories" IsExpanded="True" HorizontalAlignment="Stretch"
                               HorizontalContentAlignment="Stretch">
-                        <StackPanel>
+                        <StackPanel x:Name="CategoryCheckBoxPanel">
                             <CheckBox Content="Milestone" Tag="milestone" Checked="Category_Checked" Unchecked="Category_Unchecked"/>
                             <CheckBox Content="Work" Tag="work" Checked="Category_Checked" Unchecked="Category_Unchecked"/>
                             <CheckBox Content="Education" Tag="education" Checked="Category_Checked" Unchecked="Category_Unchecked"/>
@@ -336,7 +336,6 @@
                        CloseButtonText="Close"
                        PrimaryButtonText="Edit"
                        SecondaryButtonText="View on Timeline"
-                       PrimaryButtonClick="EventDetailDialog_EditClick"
                        SecondaryButtonClick="EventDetailDialog_ViewOnTimelineClick">
             <StackPanel Spacing="12" MinWidth="400">
                 <TextBlock x:Name="EventDetailTitle"

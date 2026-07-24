@@ -20,6 +20,12 @@ public partial class App : Application
 {
     private Window? _mainWindow;
     private IHost? _host;
+
+    // Redirected activations can arrive (on a background thread) before the main
+    // window exists during the startup race; the latest action token is parked
+    // here and drained by OnLaunched once the window is up.
+    private static readonly object _activationSync = new();
+    private static string? _pendingActivationAction;
     private static readonly string LogPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "MemoryTimeline",
@@ -219,6 +225,114 @@ public partial class App : Application
     public Window? Window => _mainWindow;
 
     /// <summary>
+    /// Entry point for activations redirected from secondary instances
+    /// (see Program.OnRedirectedActivation). Called on a background thread:
+    /// marshals to the UI thread via the main window's DispatcherQueue, brings
+    /// the window to the foreground, and routes the action token through the
+    /// same path OnLaunched uses. If the window does not exist yet, the token
+    /// is queued for OnLaunched to drain (a token-less activation is safely
+    /// ignored — the window is about to appear anyway).
+    /// </summary>
+    internal static void OnRedirectedActivation(string? actionToken)
+    {
+        var app = Application.Current as App;
+        var dispatcher = app?._mainWindow?.DispatcherQueue;
+
+        if (app == null || dispatcher == null)
+        {
+            if (!string.IsNullOrEmpty(actionToken))
+            {
+                lock (_activationSync)
+                {
+                    _pendingActivationAction = actionToken;
+                }
+            }
+
+            WriteToLog($"Redirected activation before window ready - queued action: {actionToken ?? "(none)"}");
+            return;
+        }
+
+        var enqueued = dispatcher.TryEnqueue(() =>
+        {
+            try
+            {
+                app.BringMainWindowToForeground();
+
+                if (!string.IsNullOrEmpty(actionToken))
+                {
+                    app.HandleActivationAction(actionToken);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogException("Redirected activation dispatch failed", ex);
+            }
+        });
+
+        if (!enqueued)
+        {
+            WriteToLog("Redirected activation could not be enqueued to the UI thread (dispatcher shutting down)");
+        }
+    }
+
+    /// <summary>
+    /// Restores the main window if minimized and brings it to the foreground.
+    /// Must run on the UI thread.
+    /// </summary>
+    private void BringMainWindowToForeground()
+    {
+        if (_mainWindow == null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (_mainWindow.AppWindow?.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter &&
+                presenter.State == Microsoft.UI.Windowing.OverlappedPresenterState.Minimized)
+            {
+                presenter.Restore();
+            }
+        }
+        catch (Exception ex)
+        {
+            LogException("Restoring minimized window failed", ex);
+        }
+
+        _mainWindow.Activate();
+    }
+
+    /// <summary>
+    /// Routes a Jump List / command-line "action:" token to the matching page.
+    /// Shared by OnLaunched (cold start) and OnRedirectedActivation (activation
+    /// redirected from a secondary instance). Must run on the UI thread.
+    /// Unknown tokens are ignored; navigation failures are logged, never thrown.
+    /// </summary>
+    internal void HandleActivationAction(string actionToken)
+    {
+        try
+        {
+            var target = actionToken.ToLowerInvariant() switch
+            {
+                "action:new-event" or "action:view-timeline" => "Timeline",
+                "action:start-recording" => "Queue",
+                "action:search" => "Search",
+                _ => null
+            };
+
+            if (target != null)
+            {
+                var navigationService = Services.GetRequiredService<INavigationService>();
+                navigationService.NavigateTo(target);
+            }
+        }
+        catch (Exception ex)
+        {
+            LogException("Activation action navigation failed", ex);
+        }
+    }
+
+    /// <summary>
     /// Invoked when the application is launched.
     /// </summary>
     /// <param name="args">Details about the launch request and process.</param>
@@ -277,28 +391,23 @@ public partial class App : Application
             }
 
             // Honor a jump-list / command-line launch action captured by Program.Main.
-            var launchAction = Program.LaunchAction?.ToLowerInvariant();
+            var launchAction = Program.LaunchAction;
             if (!string.IsNullOrEmpty(launchAction))
             {
-                try
-                {
-                    var navigationService = Services.GetRequiredService<INavigationService>();
-                    var target = launchAction switch
-                    {
-                        "action:new-event" or "action:view-timeline" => "Timeline",
-                        "action:start-recording" => "Queue",
-                        "action:search" => "Search",
-                        _ => null
-                    };
-                    if (target != null)
-                    {
-                        navigationService.NavigateTo(target);
-                    }
-                }
-                catch (Exception launchEx)
-                {
-                    LogException("Launch action navigation failed", launchEx);
-                }
+                HandleActivationAction(launchAction);
+            }
+
+            // Drain any activation redirected here before the window existed
+            // (queued by OnRedirectedActivation during the startup race).
+            string? pendingAction;
+            lock (_activationSync)
+            {
+                pendingAction = _pendingActivationAction;
+                _pendingActivationAction = null;
+            }
+            if (!string.IsNullOrEmpty(pendingAction))
+            {
+                HandleActivationAction(pendingAction);
             }
         }
         catch (Exception ex)

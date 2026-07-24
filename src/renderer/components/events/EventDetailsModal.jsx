@@ -17,8 +17,57 @@ const safeFormat = (dateStr, fmt) => {
 function EventDetailsModal({ event, onClose = () => {} }) {
     const [isEditing, setIsEditing] = useState(false);
     const [editedEvent, setEditedEvent] = useState({ ...event });
+    const [audioUrl, setAudioUrl] = useState(null);
+    const [audioLoading, setAudioLoading] = useState(false);
+    const [audioError, setAudioError] = useState(null);
     const { updateEvent, deleteEvent } = useTimelineStore();
     const modalRef = useRef(null);
+
+    // A raw filesystem path is not a loadable <audio> src in the sandboxed
+    // renderer; fetch a playable data URL via the audio:getFile IPC instead
+    // (same pattern as QueuePanel).
+    useEffect(() => {
+        let cancelled = false;
+
+        setAudioUrl(null);
+        setAudioError(null);
+
+        if (!event?.audio_file_path) {
+            setAudioLoading(false);
+            return undefined;
+        }
+
+        setAudioLoading(true);
+        window.electronAPI.audio.getFile(event.audio_file_path)
+            .then(result => {
+                if (cancelled) return;
+                if (result.success) {
+                    setAudioUrl(result.data);
+                } else {
+                    setAudioError(result.error || 'Failed to load audio');
+                }
+            })
+            .catch(error => {
+                if (cancelled) return;
+                console.error('Error loading audio file:', error);
+                setAudioError(error.message);
+            })
+            .finally(() => {
+                if (!cancelled) setAudioLoading(false);
+            });
+
+        return () => {
+            cancelled = true;
+            // Cleanup on close / event change. Data URLs need no revocation,
+            // but revoke defensively in case a blob URL is ever returned.
+            setAudioUrl(prev => {
+                if (prev && prev.startsWith('blob:')) {
+                    URL.revokeObjectURL(prev);
+                }
+                return null;
+            });
+        };
+    }, [event?.audio_file_path]);
 
     // Re-sync the editable copy when the selected event changes
     useEffect(() => {
@@ -208,7 +257,17 @@ function EventDetailsModal({ event, onClose = () => {} }) {
                             {event.audio_file_path && (
                                 <div className="detail-section">
                                     <strong>Audio Recording:</strong>
-                                    <audio controls src={event.audio_file_path} />
+                                    {audioLoading && (
+                                        <p className="hint">Loading audio…</p>
+                                    )}
+                                    {audioError && (
+                                        <p className="error-message">
+                                            Could not load audio: {audioError}
+                                        </p>
+                                    )}
+                                    {audioUrl && (
+                                        <audio controls src={audioUrl} />
+                                    )}
                                 </div>
                             )}
                         </>

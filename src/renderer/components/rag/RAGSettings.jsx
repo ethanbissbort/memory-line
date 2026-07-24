@@ -9,6 +9,7 @@ function RAGSettings() {
     const [embeddingProvider, setEmbeddingProvider] = useState('openai');
     const [embeddingModel, setEmbeddingModel] = useState('text-embedding-ada-002');
     const [embeddingApiKey, setEmbeddingApiKey] = useState('');
+    const [hasStoredApiKey, setHasStoredApiKey] = useState(false);
     const [similarityThreshold, setSimilarityThreshold] = useState(0.75);
     const [autoGenerate, setAutoGenerate] = useState(true);
     const [isInitialized, setIsInitialized] = useState(false);
@@ -28,7 +29,9 @@ function RAGSettings() {
                 const settings = result.data;
                 if (settings.embedding_provider) setEmbeddingProvider(settings.embedding_provider);
                 if (settings.embedding_model) setEmbeddingModel(settings.embedding_model);
-                if (settings.embedding_api_key) setEmbeddingApiKey(settings.embedding_api_key);
+                // The API key is never returned by settings:getAll (secrets are
+                // masked); only a boolean flag indicates one is stored.
+                setHasStoredApiKey(!!settings.has_embedding_api_key);
                 if (settings.rag_similarity_threshold) setSimilarityThreshold(parseFloat(settings.rag_similarity_threshold));
                 if (settings.auto_generate_embeddings) setAutoGenerate(settings.auto_generate_embeddings === 'true');
             }
@@ -44,20 +47,28 @@ function RAGSettings() {
     };
 
     const handleInitializeEmbedding = async () => {
-        if (!embeddingApiKey && embeddingProvider !== 'local') {
+        const enteredKey = embeddingApiKey.trim();
+        if (!enteredKey && !hasStoredApiKey && embeddingProvider !== 'local') {
             alert('Please enter an API key for ' + embeddingProvider);
             return;
         }
 
         try {
+            // When the field is blank, send an empty key: the main process
+            // keeps (and falls back to) the stored encrypted key and never
+            // overwrites it with an empty value.
             const result = await window.electronAPI.embedding.initialize(
                 embeddingProvider,
                 embeddingModel,
-                embeddingApiKey
+                enteredKey
             );
 
             if (result.success) {
                 setIsInitialized(true);
+                if (enteredKey) {
+                    setHasStoredApiKey(true);
+                    setEmbeddingApiKey('');
+                }
                 alert('Embedding service initialized successfully!');
             } else {
                 alert('Failed to initialize embedding service: ' + result.error);
@@ -157,11 +168,32 @@ function RAGSettings() {
 
     const handleSaveSettings = async () => {
         try {
+            // Non-secret settings go through the generic settings store.
+            // The API key is deliberately NOT sent here: settings:update
+            // bypasses encryption, and sending an empty value would clobber
+            // the stored key. When blank, the key is omitted entirely.
             await window.electronAPI.settings.update('embedding_provider', embeddingProvider);
             await window.electronAPI.settings.update('embedding_model', embeddingModel);
-            await window.electronAPI.settings.update('embedding_api_key', embeddingApiKey);
             await window.electronAPI.settings.update('rag_similarity_threshold', similarityThreshold.toString());
             await window.electronAPI.settings.update('auto_generate_embeddings', autoGenerate.toString());
+
+            const enteredKey = embeddingApiKey.trim();
+            if (enteredKey) {
+                // Route the secret through embedding:initialize, which stores
+                // it encrypted at rest (settings:update would store plaintext).
+                const keyResult = await window.electronAPI.embedding.initialize(
+                    embeddingProvider,
+                    embeddingModel,
+                    enteredKey
+                );
+                if (!keyResult.success) {
+                    alert('Settings saved, but storing the API key failed: ' + keyResult.error);
+                    return;
+                }
+                setIsInitialized(true);
+                setHasStoredApiKey(true);
+                setEmbeddingApiKey('');
+            }
 
             alert('Settings saved successfully!');
         } catch (error) {
@@ -230,8 +262,15 @@ function RAGSettings() {
                             type="password"
                             value={embeddingApiKey}
                             onChange={(e) => setEmbeddingApiKey(e.target.value)}
-                            placeholder={`Enter ${embeddingProvider} API key`}
+                            placeholder={hasStoredApiKey
+                                ? 'API key saved — enter a new key to replace it'
+                                : `Enter ${embeddingProvider} API key`}
                         />
+                        {hasStoredApiKey && (
+                            <p className="field-hint">
+                                An API key is configured. Leave blank to keep it.
+                            </p>
+                        )}
                     </div>
                 )}
 

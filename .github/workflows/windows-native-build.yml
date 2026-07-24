@@ -66,17 +66,43 @@ jobs:
           path: windows-native/src/build.log
           if-no-files-found: ignore
 
-      # Compile is the gate for this workflow; test execution of a self-contained
-      # WinUI 3 assembly under headless VSTest is best-effort, so it does not fail
-      # the run. The test outcome + tail is surfaced for visibility.
+      # Tests are gating: a vstest failure (or a missing test assembly) fails the
+      # run. Note the sln maps the Tests project's Release|x64 to Release|AnyCPU,
+      # so its output lands in bin/Release/<tfm>/ (no x64 path segment); search
+      # both layouts recursively so a future platform-mapping change still works.
       - name: Test (Release | x64)
         if: success()
-        continue-on-error: true
         shell: pwsh
         run: |
-          $dll = Get-ChildItem -Recurse -Path MemoryTimeline.Tests/bin/x64/Release `
-                   -Filter MemoryTimeline.Tests.dll | Select-Object -First 1
-          if (-not $dll) { "::error::Test assembly not found"; exit 1 }
+          # Discover the built test assembly. Recurse from the Tests project root
+          # (covers both bin/x64/Release and bin/Release), exact dll name only,
+          # excluding intermediate obj/ output and reference-assembly ref/ folders.
+          $candidates = Get-ChildItem -Path MemoryTimeline.Tests -Recurse -File `
+                          -Filter MemoryTimeline.Tests.dll -ErrorAction SilentlyContinue |
+                        Where-Object { $_.FullName -notmatch '[\\/](obj|ref)[\\/]' -and
+                                       $_.FullName -match '[\\/]bin[\\/]' }
+          # Prefer bin/x64/Release over bin/Release; tie-break on newest build.
+          $dll = $candidates |
+                 Sort-Object @{ Expression = {
+                     if ($_.FullName -match '[\\/]bin[\\/]x64[\\/]Release[\\/]') { 0 }
+                     elseif ($_.FullName -match '[\\/]bin[\\/]Release[\\/]') { 1 }
+                     else { 2 } } },
+                   @{ Expression = 'LastWriteTime'; Descending = $true } |
+                 Select-Object -First 1
+          if (-not $dll) {
+            "::error::MemoryTimeline.Tests.dll not found under MemoryTimeline.Tests (searched bin/x64/Release and bin/Release recursively, excluding obj/ and ref/). Failing the run."
+            if (Test-Path MemoryTimeline.Tests/bin) {
+              Write-Host "Files present under MemoryTimeline.Tests/bin:"
+              Get-ChildItem -Path MemoryTimeline.Tests/bin -Recurse -File |
+                Select-Object -First 200 |
+                ForEach-Object { Write-Host "  $($_.FullName)" }
+            } else {
+              Write-Host "MemoryTimeline.Tests/bin does not exist. Project directory contents:"
+              Get-ChildItem -Path MemoryTimeline.Tests |
+                ForEach-Object { Write-Host "  $($_.FullName)" }
+            }
+            exit 1
+          }
           Write-Host "Running tests in $($dll.FullName)"
           dotnet vstest $dll.FullName --logger:"trx;LogFileName=test.trx" `
             --ResultsDirectory:TestResults 2>&1 | Tee-Object -FilePath test.log

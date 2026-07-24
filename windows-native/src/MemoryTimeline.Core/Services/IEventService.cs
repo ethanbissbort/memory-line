@@ -312,23 +312,36 @@ public class EventService : IEventService
     {
         try
         {
-            var eventEntity = await _eventRepository.GetByIdWithIncludesAsync(eventId);
-            if (eventEntity == null)
+            // Work directly against a fresh context: adding a junction row through a
+            // detached Event graph + repository Update marks the new row Modified,
+            // which issues an UPDATE affecting 0 rows and throws DbUpdateConcurrencyException.
+            await using var context = await _contextFactory.CreateDbContextAsync();
+
+            if (!await context.Events.AnyAsync(e => e.EventId == eventId))
             {
                 throw new InvalidOperationException($"Event not found: {eventId}");
             }
 
-            var eventTag = new EventTag
+            if (!await context.Tags.AnyAsync(t => t.TagId == tagId))
+            {
+                throw new InvalidOperationException($"Tag not found: {tagId}");
+            }
+
+            if (await context.EventTags.AnyAsync(et => et.EventId == eventId && et.TagId == tagId))
+            {
+                _logger.LogDebug("Tag {TagId} is already associated with event {EventId}", tagId, eventId);
+                return;
+            }
+
+            context.EventTags.Add(new EventTag
             {
                 EventId = eventId,
                 TagId = tagId,
                 IsManual = isManual,
                 ConfidenceScore = confidence,
                 CreatedAt = DateTime.UtcNow
-            };
-
-            eventEntity.EventTags.Add(eventTag);
-            await _eventRepository.UpdateAsync(eventEntity);
+            });
+            await context.SaveChangesAsync();
 
             _logger.LogInformation("Tag {TagId} added to event {EventId}", tagId, eventId);
         }
@@ -343,17 +356,22 @@ public class EventService : IEventService
     {
         try
         {
-            var eventEntity = await _eventRepository.GetByIdWithIncludesAsync(eventId);
-            if (eventEntity == null)
+            // Delete the junction row directly; removing it from a detached Event
+            // graph never issued a DELETE (the repository Update only marked the
+            // root entity Modified), so removals silently no-oped.
+            await using var context = await _contextFactory.CreateDbContextAsync();
+
+            if (!await context.Events.AnyAsync(e => e.EventId == eventId))
             {
                 throw new InvalidOperationException($"Event not found: {eventId}");
             }
 
-            var eventTag = eventEntity.EventTags.FirstOrDefault(et => et.TagId == tagId);
+            // Composite key order matches AppDbContext: (EventId, TagId)
+            var eventTag = await context.EventTags.FindAsync(eventId, tagId);
             if (eventTag != null)
             {
-                eventEntity.EventTags.Remove(eventTag);
-                await _eventRepository.UpdateAsync(eventEntity);
+                context.EventTags.Remove(eventTag);
+                await context.SaveChangesAsync();
                 _logger.LogInformation("Tag {TagId} removed from event {EventId}", tagId, eventId);
             }
         }
@@ -389,21 +407,33 @@ public class EventService : IEventService
     {
         try
         {
-            var eventEntity = await _eventRepository.GetByIdWithIncludesAsync(eventId);
-            if (eventEntity == null)
+            // See AddTagToEventAsync: junction rows are written directly with a
+            // fresh context instead of through a detached Event graph.
+            await using var context = await _contextFactory.CreateDbContextAsync();
+
+            if (!await context.Events.AnyAsync(e => e.EventId == eventId))
             {
                 throw new InvalidOperationException($"Event not found: {eventId}");
             }
 
-            var eventPerson = new EventPerson
+            if (!await context.People.AnyAsync(p => p.PersonId == personId))
+            {
+                throw new InvalidOperationException($"Person not found: {personId}");
+            }
+
+            if (await context.EventPeople.AnyAsync(ep => ep.EventId == eventId && ep.PersonId == personId))
+            {
+                _logger.LogDebug("Person {PersonId} is already associated with event {EventId}", personId, eventId);
+                return;
+            }
+
+            context.EventPeople.Add(new EventPerson
             {
                 EventId = eventId,
                 PersonId = personId,
                 CreatedAt = DateTime.UtcNow
-            };
-
-            eventEntity.EventPeople.Add(eventPerson);
-            await _eventRepository.UpdateAsync(eventEntity);
+            });
+            await context.SaveChangesAsync();
 
             _logger.LogInformation("Person {PersonId} added to event {EventId}", personId, eventId);
         }
@@ -418,17 +448,20 @@ public class EventService : IEventService
     {
         try
         {
-            var eventEntity = await _eventRepository.GetByIdWithIncludesAsync(eventId);
-            if (eventEntity == null)
+            // See RemoveTagFromEventAsync: delete the junction row directly.
+            await using var context = await _contextFactory.CreateDbContextAsync();
+
+            if (!await context.Events.AnyAsync(e => e.EventId == eventId))
             {
                 throw new InvalidOperationException($"Event not found: {eventId}");
             }
 
-            var eventPerson = eventEntity.EventPeople.FirstOrDefault(ep => ep.PersonId == personId);
+            // Composite key order matches AppDbContext: (EventId, PersonId)
+            var eventPerson = await context.EventPeople.FindAsync(eventId, personId);
             if (eventPerson != null)
             {
-                eventEntity.EventPeople.Remove(eventPerson);
-                await _eventRepository.UpdateAsync(eventEntity);
+                context.EventPeople.Remove(eventPerson);
+                await context.SaveChangesAsync();
                 _logger.LogInformation("Person {PersonId} removed from event {EventId}", personId, eventId);
             }
         }
@@ -464,21 +497,33 @@ public class EventService : IEventService
     {
         try
         {
-            var eventEntity = await _eventRepository.GetByIdWithIncludesAsync(eventId);
-            if (eventEntity == null)
+            // See AddTagToEventAsync: junction rows are written directly with a
+            // fresh context instead of through a detached Event graph.
+            await using var context = await _contextFactory.CreateDbContextAsync();
+
+            if (!await context.Events.AnyAsync(e => e.EventId == eventId))
             {
                 throw new InvalidOperationException($"Event not found: {eventId}");
             }
 
-            var eventLocation = new EventLocation
+            if (!await context.Locations.AnyAsync(l => l.LocationId == locationId))
+            {
+                throw new InvalidOperationException($"Location not found: {locationId}");
+            }
+
+            if (await context.EventLocations.AnyAsync(el => el.EventId == eventId && el.LocationId == locationId))
+            {
+                _logger.LogDebug("Location {LocationId} is already associated with event {EventId}", locationId, eventId);
+                return;
+            }
+
+            context.EventLocations.Add(new EventLocation
             {
                 EventId = eventId,
                 LocationId = locationId,
                 CreatedAt = DateTime.UtcNow
-            };
-
-            eventEntity.EventLocations.Add(eventLocation);
-            await _eventRepository.UpdateAsync(eventEntity);
+            });
+            await context.SaveChangesAsync();
 
             _logger.LogInformation("Location {LocationId} added to event {EventId}", locationId, eventId);
         }
@@ -493,17 +538,20 @@ public class EventService : IEventService
     {
         try
         {
-            var eventEntity = await _eventRepository.GetByIdWithIncludesAsync(eventId);
-            if (eventEntity == null)
+            // See RemoveTagFromEventAsync: delete the junction row directly.
+            await using var context = await _contextFactory.CreateDbContextAsync();
+
+            if (!await context.Events.AnyAsync(e => e.EventId == eventId))
             {
                 throw new InvalidOperationException($"Event not found: {eventId}");
             }
 
-            var eventLocation = eventEntity.EventLocations.FirstOrDefault(el => el.LocationId == locationId);
+            // Composite key order matches AppDbContext: (EventId, LocationId)
+            var eventLocation = await context.EventLocations.FindAsync(eventId, locationId);
             if (eventLocation != null)
             {
-                eventEntity.EventLocations.Remove(eventLocation);
-                await _eventRepository.UpdateAsync(eventEntity);
+                context.EventLocations.Remove(eventLocation);
+                await context.SaveChangesAsync();
                 _logger.LogInformation("Location {LocationId} removed from event {EventId}", locationId, eventId);
             }
         }

@@ -96,6 +96,142 @@ function safeJsonParse(value, fallback = null) {
     }
 }
 
+// -------------------------------------------------------------------
+// stt_config embedded-secret handling.
+// stt_config is a JSON VALUE whose fields (apiKey, secretAccessKey, ...)
+// carry provider secrets, so key-name filtering alone (isSecretSettingKey)
+// does not protect it. The helpers below implement the contract:
+//   READ  (settings:getAll): every secret field is replaced by '' and a
+//         sibling boolean has_<field_snake_case> reports whether a value
+//         is stored (e.g. apiKey -> apiKey: '', has_api_key: true).
+//   WRITE (settings:update / stt:initializeEngine): an EMPTY incoming
+//         secret field is merged with the stored value so the masked
+//         read-side value can never wipe a stored key; a non-empty
+//         incoming value overwrites as normal. has_* echo flags are
+//         stripped, and secret fields are encrypted at rest via
+//         encryptSecretValue (decrypted main-side at use time only).
+// -------------------------------------------------------------------
+
+const STT_CONFIG_SETTING_KEY = 'stt_config';
+
+/**
+ * Field names inside JSON config values that carry secrets: apiKey /
+ * api_key variants, *_key, and anything secret-named. Excludes the has_*
+ * indicator flags this module adds for the renderer, and non-secret
+ * fields such as keyFilePath / modelPath / accessKeyId.
+ */
+function isSecretConfigField(name) {
+    if (typeof name !== 'string' || name.length === 0) return false;
+    if (name.startsWith('has_')) return false;
+    const flat = name.replace(/[_-]/g, '').toLowerCase();
+    if (flat === 'apikey') return true;          // apiKey, api_key, api-key
+    if (/secret/i.test(name)) return true;       // secretAccessKey, *_secret
+    return /_key$/i.test(name);                  // access_key, deepgram_key, ...
+}
+
+/** Indicator name for a secret field: apiKey -> has_api_key. */
+function secretConfigFlagName(name) {
+    return 'has_' + name
+        .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+        .replace(/[-\s]+/g, '_')
+        .toLowerCase();
+}
+
+function isEmptySecretValue(value) {
+    return value == null || (typeof value === 'string' && value.trim() === '');
+}
+
+/**
+ * Walk a parsed config value and invoke fn(container, fieldName) for every
+ * secret-carrying field, recursing into nested objects/arrays.
+ */
+function forEachSecretConfigField(node, fn) {
+    if (Array.isArray(node)) {
+        node.forEach(item => forEachSecretConfigField(item, fn));
+        return;
+    }
+    if (!node || typeof node !== 'object') return;
+    for (const key of Object.keys(node)) {
+        if (isSecretConfigField(key)) {
+            fn(node, key);
+        } else if (node[key] && typeof node[key] === 'object') {
+            forEachSecretConfigField(node[key], fn);
+        }
+    }
+}
+
+/**
+ * Renderer-facing view of an stt_config JSON string: every secret field is
+ * blanked and a sibling has_<field> boolean reports whether a non-empty
+ * value is stored. Malformed JSON keeps the existing safe-parse behavior
+ * (safeJsonParse fails, the raw value is returned unchanged).
+ */
+function sanitizeSttConfigForRenderer(rawValue) {
+    const parsed = safeJsonParse(rawValue, undefined);
+    if (parsed === undefined || parsed === null || typeof parsed !== 'object') {
+        return rawValue;
+    }
+    forEachSecretConfigField(parsed, (obj, key) => {
+        const hasValue = !isEmptySecretValue(obj[key]);
+        obj[key] = '';
+        obj[secretConfigFlagName(key)] = hasValue;
+    });
+    return JSON.stringify(parsed);
+}
+
+/**
+ * Merge an incoming (parsed) config with the stored one so that an EMPTY
+ * incoming secret field preserves the stored secret (prevents the masked
+ * read-side value from wiping stored keys on save). Non-empty incoming
+ * values win. Also strips the has_* indicator flags the renderer may echo
+ * back from settings:getAll. Mutates `incoming` in place.
+ */
+function mergeSecretConfigObjects(incoming, stored) {
+    if (Array.isArray(incoming)) {
+        incoming.forEach((item, i) => {
+            mergeSecretConfigObjects(item, Array.isArray(stored) ? stored[i] : undefined);
+        });
+        return;
+    }
+    if (!incoming || typeof incoming !== 'object') return;
+    const storedObj = (stored && typeof stored === 'object' && !Array.isArray(stored))
+        ? stored
+        : {};
+    for (const key of Object.keys(incoming)) {
+        if (isSecretConfigField(key)) {
+            // Drop the read-side indicator flag if it was echoed back.
+            delete incoming[secretConfigFlagName(key)];
+            if (isEmptySecretValue(incoming[key]) && !isEmptySecretValue(storedObj[key])) {
+                incoming[key] = storedObj[key];
+            }
+        } else if (incoming[key] && typeof incoming[key] === 'object') {
+            mergeSecretConfigObjects(incoming[key], storedObj[key]);
+        }
+    }
+}
+
+/** Encrypt every non-empty, not-yet-encrypted secret field for storage. */
+function encryptSecretConfigFields(node) {
+    forEachSecretConfigField(node, (obj, key) => {
+        const value = obj[key];
+        if (typeof value === 'string' && value.length > 0 &&
+            !value.startsWith(SECRET_ENC_PREFIX)) {
+            obj[key] = encryptSecretValue(value);
+        }
+    });
+}
+
+/** Decrypt every encrypted secret field for main-process use at call time. */
+function decryptSecretConfigFields(node) {
+    forEachSecretConfigField(node, (obj, key) => {
+        const value = obj[key];
+        if (typeof value === 'string' && value.startsWith(SECRET_ENC_PREFIX)) {
+            const decrypted = decryptSecretValue(value);
+            obj[key] = decrypted == null ? '' : decrypted;
+        }
+    });
+}
+
 /**
  * Sanitize a user-supplied search string for an FTS5 MATCH expression.
  * Splits into tokens and wraps each in double quotes so that FTS5 operators
@@ -792,6 +928,11 @@ ipcMain.handle('settings:getAll', async () => {
                 // whether a value is set so the UI can reflect state.
                 settings['has_' + row.setting_key] =
                     !!(row.setting_value && String(row.setting_value).length > 0);
+            } else if (row.setting_key === STT_CONFIG_SETTING_KEY) {
+                // stt_config is JSON whose fields embed secrets. Blank each
+                // secret field and expose a has_<field> boolean instead.
+                settings[row.setting_key] =
+                    sanitizeSttConfigForRenderer(row.setting_value);
             } else {
                 settings[row.setting_key] = row.setting_value;
             }
@@ -816,13 +957,35 @@ ipcMain.handle('settings:getAll', async () => {
 ipcMain.handle('settings:update', async (event, { key, value }) => {
     try {
         const db = databaseService.getDatabase();
+
+        let storeValue = value;
+        if (key === STT_CONFIG_SETTING_KEY) {
+            // stt_config carries embedded secrets. Merge empty incoming
+            // secret fields with the stored ones (the renderer only ever
+            // receives masked '' values, which must not wipe stored keys),
+            // then encrypt secret fields at rest. Malformed JSON falls
+            // through and is stored verbatim (existing behavior).
+            const incoming = safeJsonParse(value, undefined);
+            if (incoming !== undefined && incoming !== null && typeof incoming === 'object') {
+                const storedRow = db.prepare(
+                    'SELECT setting_value FROM app_settings WHERE setting_key = ?'
+                ).get(key);
+                const stored = storedRow
+                    ? safeJsonParse(storedRow.setting_value, undefined)
+                    : undefined;
+                mergeSecretConfigObjects(incoming, stored);
+                encryptSecretConfigFields(incoming);
+                storeValue = JSON.stringify(incoming);
+            }
+        }
+
         const stmt = db.prepare(`
             INSERT INTO app_settings (setting_key, setting_value)
             VALUES (?, ?)
             ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value
         `);
 
-        stmt.run(key, value);
+        stmt.run(key, storeValue);
 
         return { success: true };
     } catch (error) {
@@ -1624,15 +1787,40 @@ ipcMain.handle('stt:initializeEngine', async (event, { engine, config }) => {
         `);
         updateEngine.run(engine);
 
+        // Merge empty incoming secret fields (apiKey etc.) with the stored
+        // config so a renderer round-trip of the masked settings:getAll
+        // value cannot wipe stored keys, then persist with secret fields
+        // encrypted at rest. The runtime config handed to the STT service
+        // keeps the plaintext secrets.
+        let runtimeConfig = config;
+        let persistedJson = JSON.stringify(config);
+        if (config && typeof config === 'object') {
+            const storedRow = db.prepare(
+                'SELECT setting_value FROM app_settings WHERE setting_key = ?'
+            ).get(STT_CONFIG_SETTING_KEY);
+            const stored = storedRow
+                ? safeJsonParse(storedRow.setting_value, undefined)
+                : undefined;
+            if (stored && typeof stored === 'object') {
+                decryptSecretConfigFields(stored);
+            }
+            runtimeConfig = JSON.parse(JSON.stringify(config));
+            mergeSecretConfigObjects(runtimeConfig, stored);
+
+            const persisted = JSON.parse(JSON.stringify(runtimeConfig));
+            encryptSecretConfigFields(persisted);
+            persistedJson = JSON.stringify(persisted);
+        }
+
         const updateConfig = db.prepare(`
             INSERT INTO app_settings (setting_key, setting_value)
             VALUES ('stt_config', ?)
             ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value
         `);
-        updateConfig.run(JSON.stringify(config));
+        updateConfig.run(persistedJson);
 
         // Initialize STT service
-        await anthropicService.initializeSTT(engine, config);
+        await anthropicService.initializeSTT(engine, runtimeConfig);
 
         return { success: true };
     } catch (error) {
@@ -1659,6 +1847,12 @@ async function initializeSTTService() {
         if (engineResult && engineResult.setting_value) {
             const engine = engineResult.setting_value;
             const config = configResult ? safeJsonParse(configResult.setting_value, {}) : {};
+
+            // Secret fields inside stt_config are stored encrypted at rest;
+            // decrypt them main-side before handing to the STT service.
+            if (config && typeof config === 'object') {
+                decryptSecretConfigFields(config);
+            }
 
             await anthropicService.initializeSTT(engine, config);
             console.log(`STT service initialized with engine: ${engine}`);

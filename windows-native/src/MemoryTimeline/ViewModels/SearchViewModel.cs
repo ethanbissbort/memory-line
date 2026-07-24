@@ -183,10 +183,8 @@ public partial class SearchViewModel : ObservableObject
     [ObservableProperty]
     private double? _minConfidence;
 
-    // Save search dialog
-    [ObservableProperty]
-    private bool _showSaveSearchDialog;
-
+    // Save search dialog (the dialog itself is shown/hidden by the view;
+    // these properties carry the values it collects)
     [ObservableProperty]
     private string _saveSearchName = string.Empty;
 
@@ -403,15 +401,23 @@ public partial class SearchViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Toggle category filter.
+    /// Set a category filter to an explicit state. Idempotent: checking an
+    /// already-selected category (or unchecking an unselected one) is a no-op,
+    /// so a checkbox event can never invert the filter state.
     /// </summary>
-    [RelayCommand]
-    public async Task ToggleCategoryAsync(string category)
+    public async Task SetCategoryFilterAsync(string category, bool isSelected)
     {
-        if (SelectedCategories.Contains(category))
-            SelectedCategories.Remove(category);
-        else
+        if (isSelected)
+        {
+            if (SelectedCategories.Contains(category))
+                return;
             SelectedCategories.Add(category);
+        }
+        else
+        {
+            if (!SelectedCategories.Remove(category))
+                return;
+        }
 
         CurrentPage = 1;
         OnPropertyChanged(nameof(HasFilters));
@@ -529,14 +535,13 @@ public partial class SearchViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Show save search dialog.
+    /// Reset save-search state before the page shows the Save Search dialog
+    /// (ContentDialog can only be opened via ShowAsync from code-behind).
     /// </summary>
-    [RelayCommand]
     public void ShowSaveSearch()
     {
         SaveSearchName = string.Empty;
         SaveSearchAsFavorite = false;
-        ShowSaveSearchDialog = true;
     }
 
     /// <summary>
@@ -553,7 +558,6 @@ public partial class SearchViewModel : ObservableObject
             var filter = BuildSearchFilter();
             await RunSerializedAsync(() => _searchService.SaveSearchAsync(SaveSearchName, filter, SaveSearchAsFavorite));
 
-            ShowSaveSearchDialog = false;
             await LoadSavedSearchesAsync();
 
             StatusMessage = $"Search saved: {SaveSearchName}";
@@ -563,15 +567,6 @@ public partial class SearchViewModel : ObservableObject
             _logger.LogError(ex, "Error saving search");
             StatusMessage = "Error saving search";
         }
-    }
-
-    /// <summary>
-    /// Cancel save search.
-    /// </summary>
-    [RelayCommand]
-    public void CancelSaveSearch()
-    {
-        ShowSaveSearchDialog = false;
     }
 
     /// <summary>

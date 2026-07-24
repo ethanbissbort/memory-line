@@ -114,6 +114,59 @@ public static class Program
         }
     }
 
+    /// <summary>
+    /// Extracts a Jump List style "action:" token from an activation's payload,
+    /// or returns null when the activation carries none. Used for both the
+    /// cold-start activation (DecideRedirection) and redirected activations
+    /// received while running (OnRedirectedActivation), so both paths parse
+    /// tokens identically.
+    /// </summary>
+    internal static string? ExtractActionToken(AppActivationArguments args)
+    {
+        try
+        {
+            if (args.Kind == ExtendedActivationKind.Launch &&
+                args.Data is Windows.ApplicationModel.Activation.ILaunchActivatedEventArgs launchData &&
+                !string.IsNullOrWhiteSpace(launchData.Arguments))
+            {
+                foreach (var arg in launchData.Arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (arg.StartsWith("action:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return arg;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log($"ExtractActionToken error (non-fatal): {ex.Message}");
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Handles activations redirected from secondary instances. Fires on a
+    /// background (non-UI) thread; App marshals to the UI thread, brings the
+    /// main window to the foreground, and routes any "action:" token through
+    /// the same navigation path App.OnLaunched uses.
+    /// </summary>
+    private static void OnRedirectedActivation(object? sender, AppActivationArguments args)
+    {
+        try
+        {
+            Log($"Redirected activation received. Kind: {args.Kind}");
+            var actionToken = ExtractActionToken(args);
+            Log($"Redirected activation action token: {actionToken ?? "(none)"}");
+            App.OnRedirectedActivation(actionToken);
+        }
+        catch (Exception ex)
+        {
+            Log($"Redirected activation handling error (non-fatal): {ex.Message}");
+        }
+    }
+
     private static bool DecideRedirection()
     {
         try
@@ -127,11 +180,10 @@ public static class Program
             // travel in the activation payload. Capture any "action:" token so
             // App.OnLaunched can navigate accordingly (no-op if already captured
             // from the raw command line in Main).
-            if (args.Kind == ExtendedActivationKind.Launch &&
-                args.Data is Windows.ApplicationModel.Activation.ILaunchActivatedEventArgs launchData &&
-                !string.IsNullOrWhiteSpace(launchData.Arguments))
+            var activationAction = ExtractActionToken(args);
+            if (activationAction != null)
             {
-                CaptureLaunchAction(launchData.Arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+                CaptureLaunchAction(new[] { activationAction });
             }
 
             ExtendedActivationKind kind = args.Kind;
@@ -141,6 +193,12 @@ public static class Program
             if (keyInstance.IsCurrent)
             {
                 Log("This is the main instance");
+
+                // Secondary launches redirect their activation to this process via
+                // RedirectActivationToAsync. Without this subscription those
+                // redirected activations (second double-click, Jump List quick
+                // action while the app is running) would be silently dropped.
+                keyInstance.Activated += OnRedirectedActivation;
             }
             else
             {

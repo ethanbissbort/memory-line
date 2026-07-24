@@ -120,10 +120,14 @@ public class EventRepository : IEventRepository
     public async Task<IEnumerable<Event>> GetByDateRangeAsync(DateTime startDate, DateTime endDate)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
+        // Overlap predicate (same semantics as EraRepository.GetByDateRangeAsync):
+        // an event is in range when it starts before the range ends and ends
+        // (or, for point-in-time events, starts) after the range begins.
+        // This keeps multi-day events that are already in progress visible.
         return await context.Events
             .Include(e => e.Era)
             .AsNoTracking() // Read-only optimization
-            .Where(e => e.StartDate >= startDate && e.StartDate <= endDate)
+            .Where(e => e.StartDate <= endDate && (e.EndDate ?? e.StartDate) >= startDate)
             .OrderBy(e => e.StartDate)
             .ToListAsync();
     }

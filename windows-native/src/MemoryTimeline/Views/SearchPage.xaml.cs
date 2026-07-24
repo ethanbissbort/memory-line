@@ -21,6 +21,13 @@ public sealed partial class SearchPage : Page
     /// </summary>
     private bool _initialized;
 
+    /// <summary>
+    /// True while <see cref="SyncFilterControlsFromViewModel"/> is programmatically
+    /// updating filter widgets, so their Checked/Unchecked/SelectionChanged handlers
+    /// don't re-fire filter logic (reentrancy guard).
+    /// </summary>
+    private bool _syncingFilters;
+
     public SearchPage()
     {
         InitializeComponent();
@@ -31,7 +38,54 @@ public sealed partial class SearchPage : Page
     private async void Page_Loaded(object sender, RoutedEventArgs e)
     {
         await ViewModel.InitializeAsync();
+
+        // Reflect ViewModel filter state in the widgets (the ViewModel may carry
+        // state from a previous visit; XAML defaults only cover a fresh one).
+        SyncFilterControlsFromViewModel();
         _initialized = true;
+    }
+
+    /// <summary>
+    /// Resyncs every event-driven filter widget (category and audio/transcript
+    /// checkboxes, sort and page-size combos) from ViewModel state. Guarded so
+    /// the programmatic IsChecked/SelectedItem changes don't re-fire filter logic.
+    /// </summary>
+    private void SyncFilterControlsFromViewModel()
+    {
+        _syncingFilters = true;
+        try
+        {
+            foreach (var child in CategoryCheckBoxPanel.Children)
+            {
+                if (child is CheckBox checkBox && checkBox.Tag is string category)
+                {
+                    checkBox.IsChecked = ViewModel.SelectedCategories.Contains(category);
+                }
+            }
+
+            // Unchecked means "no filter" (null), not false.
+            HasAudioCheckbox.IsChecked = ViewModel.HasAudio == true;
+            HasTranscriptCheckbox.IsChecked = ViewModel.HasTranscript == true;
+
+            SelectComboBoxItemByTag(SortByComboBox, ViewModel.SortBy);
+            SelectComboBoxItemByTag(PageSizeComboBox, ViewModel.PageSize.ToString());
+        }
+        finally
+        {
+            _syncingFilters = false;
+        }
+    }
+
+    private static void SelectComboBoxItemByTag(ComboBox comboBox, string tag)
+    {
+        foreach (var item in comboBox.Items)
+        {
+            if (item is ComboBoxItem comboBoxItem && (comboBoxItem.Tag as string) == tag)
+            {
+                comboBox.SelectedItem = comboBoxItem;
+                return;
+            }
+        }
     }
 
     private void SearchBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
@@ -74,47 +128,55 @@ public sealed partial class SearchPage : Page
 
     private async void Category_Checked(object sender, RoutedEventArgs e)
     {
+        if (_syncingFilters) return;
         if (sender is CheckBox checkBox && checkBox.Tag is string category)
         {
-            await ViewModel.ToggleCategoryAsync(category);
+            // Explicit add (idempotent) rather than toggle, so a checkbox event
+            // can never invert the ViewModel's filter state.
+            await ViewModel.SetCategoryFilterAsync(category, true);
         }
     }
 
     private async void Category_Unchecked(object sender, RoutedEventArgs e)
     {
+        if (_syncingFilters) return;
         if (sender is CheckBox checkBox && checkBox.Tag is string category)
         {
-            await ViewModel.ToggleCategoryAsync(category);
+            await ViewModel.SetCategoryFilterAsync(category, false);
         }
     }
 
     private async void HasAudio_Checked(object sender, RoutedEventArgs e)
     {
+        if (_syncingFilters) return;
         ViewModel.HasAudio = true;
         await ViewModel.SearchAsync();
     }
 
     private async void HasAudio_Unchecked(object sender, RoutedEventArgs e)
     {
+        if (_syncingFilters) return;
         ViewModel.HasAudio = null;
         await ViewModel.SearchAsync();
     }
 
     private async void HasTranscript_Checked(object sender, RoutedEventArgs e)
     {
+        if (_syncingFilters) return;
         ViewModel.HasTranscript = true;
         await ViewModel.SearchAsync();
     }
 
     private async void HasTranscript_Unchecked(object sender, RoutedEventArgs e)
     {
+        if (_syncingFilters) return;
         ViewModel.HasTranscript = null;
         await ViewModel.SearchAsync();
     }
 
     private async void SortBy_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (ViewModel == null || !_initialized) return;
+        if (ViewModel == null || !_initialized || _syncingFilters) return;
         if (sender is ComboBox comboBox && comboBox.SelectedItem is ComboBoxItem item && item.Tag is string sortBy)
         {
             await ViewModel.ChangeSortAsync(sortBy);
@@ -123,7 +185,7 @@ public sealed partial class SearchPage : Page
 
     private async void PageSize_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!_initialized) return;
+        if (!_initialized || _syncingFilters) return;
         if (sender is ComboBox comboBox && comboBox.SelectedItem is ComboBoxItem item && item.Tag is string sizeStr)
         {
             if (int.TryParse(sizeStr, out var size))
@@ -131,6 +193,15 @@ public sealed partial class SearchPage : Page
                 await ViewModel.ChangePageSizeAsync(size);
             }
         }
+    }
+
+    private async void ClearFilters_Click(object sender, RoutedEventArgs e)
+    {
+        await ViewModel.ClearFiltersAsync();
+
+        // ClearFiltersAsync mutates ViewModel state directly; resync the
+        // event-driven filter widgets so their visuals match the cleared state.
+        SyncFilterControlsFromViewModel();
     }
 
     private async void PageNumber_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
@@ -147,7 +218,23 @@ public sealed partial class SearchPage : Page
         if (e.ClickedItem is SavedSearch savedSearch)
         {
             await ViewModel.LoadSavedSearchAsync(savedSearch);
+
+            // LoadSavedSearchAsync applies the saved filter to ViewModel state;
+            // resync the event-driven filter widgets to match it.
+            SyncFilterControlsFromViewModel();
         }
+    }
+
+    private async void SaveSearch_Click(object sender, RoutedEventArgs e)
+    {
+        // ContentDialog can only be opened via ShowAsync from code-behind, so the
+        // Save button is wired here rather than to a ViewModel command. Reset the
+        // ViewModel's save-search state and the dialog controls, then show it.
+        ViewModel.ShowSaveSearch();
+        SaveSearchNameTextBox.Text = string.Empty;
+        SaveSearchFavoriteCheckBox.IsChecked = false;
+        SaveSearchDialog.XamlRoot = XamlRoot;
+        await SaveSearchDialog.ShowAsync();
     }
 
     private async void SaveSearchDialog_PrimaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
@@ -177,7 +264,7 @@ public sealed partial class SearchPage : Page
         }
     }
 
-    private async void SearchResult_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    private void SearchResult_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
         if (ViewModel.SelectedEvent != null)
         {
@@ -238,13 +325,16 @@ public sealed partial class SearchPage : Page
 
         _contextMenuEvent = eventData;
         EventDetailDialog.XamlRoot = XamlRoot;
-        await EventDetailDialog.ShowAsync();
-    }
+        var result = await EventDetailDialog.ShowAsync();
 
-    private void EventDetailDialog_EditClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
-    {
-        args.Cancel = true; // Don't close yet, we'll show another dialog
-        _ = ShowEditEventDialogAsync(_contextMenuEvent!);
+        // WinUI 3 allows only one open ContentDialog per XamlRoot. The Edit
+        // primary button closes the detail dialog (its click is not cancelled);
+        // once ShowAsync has completed - i.e. the detail dialog is fully
+        // dismissed - the edit dialog can safely be shown.
+        if (result == ContentDialogResult.Primary)
+        {
+            await ShowEditEventDialogAsync(eventData);
+        }
     }
 
     private void EventDetailDialog_ViewOnTimelineClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
@@ -326,9 +416,9 @@ public sealed partial class SearchPage : Page
 
     private void NavigateToEventOnTimeline(Event eventData)
     {
-        // Navigate to Timeline page with the event date
-        // The navigation service should pass the date as a parameter
-        _navigationService.NavigateTo("Timeline", eventData.StartDate);
+        // TimelinePage.OnNavigatedTo expects the event id string
+        // (`e.Parameter is string eventId`) and resolves the event's date itself.
+        _navigationService.NavigateTo("Timeline", eventData.EventId);
     }
 
     #endregion

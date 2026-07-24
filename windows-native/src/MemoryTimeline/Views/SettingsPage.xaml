@@ -84,6 +84,9 @@
                              SelectedItem="{x:Bind ViewModel.LlmProvider, Mode=TwoWay}"
                              HorizontalAlignment="Stretch"
                              PlaceholderText="Select provider"/>
+                    <TextBlock Text="Anthropic (Claude) — additional providers planned"
+                              Style="{StaticResource CaptionTextBlockStyle}"
+                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 </StackPanel>
 
                 <StackPanel Spacing="8">

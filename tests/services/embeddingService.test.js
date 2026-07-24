@@ -2,8 +2,8 @@
  * EmbeddingService Unit Tests
  */
 
-const Database = require('better-sqlite3');
 const EmbeddingService = require('../../src/main/services/embeddingService');
+const { createTestDb, insertEvent, insertEmbedding } = require('../helpers/createTestDb');
 
 // Mock fetch for API calls
 global.fetch = jest.fn();
@@ -13,27 +13,8 @@ describe('EmbeddingService', () => {
     let embeddingService;
 
     beforeEach(() => {
-        // Create in-memory database
-        db = new Database(':memory:');
-
-        // Create schema
-        db.exec(`
-            CREATE TABLE events (
-                event_id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                description TEXT,
-                raw_transcript TEXT
-            );
-
-            CREATE TABLE event_embeddings (
-                embedding_id TEXT PRIMARY KEY,
-                event_id TEXT NOT NULL UNIQUE,
-                embedding_vector TEXT NOT NULL,
-                embedding_provider TEXT NOT NULL,
-                embedding_model TEXT NOT NULL,
-                embedding_dimension INTEGER NOT NULL
-            );
-        `);
+        // Build the database from the canonical production schema
+        db = createTestDb();
 
         embeddingService = new EmbeddingService(db);
 
@@ -89,10 +70,10 @@ describe('EmbeddingService', () => {
 
         test('should generate embedding for event', async () => {
             // Insert test event
-            db.prepare(`
-                INSERT INTO events (event_id, title, description)
-                VALUES ('e1', 'Test Event', 'Test description')
-            `).run();
+            insertEvent(db, {
+                event_id: 'e1', title: 'Test Event', start_date: '2020-01-01',
+                description: 'Test description'
+            });
 
             const result = await embeddingService.generateEventEmbedding('e1', {
                 title: 'Test Event',
@@ -110,10 +91,10 @@ describe('EmbeddingService', () => {
         });
 
         test('should combine multiple text fields', async () => {
-            db.prepare(`
-                INSERT INTO events (event_id, title, description, raw_transcript)
-                VALUES ('e1', 'Title', 'Description', 'Transcript')
-            `).run();
+            insertEvent(db, {
+                event_id: 'e1', title: 'Title', start_date: '2020-01-01',
+                description: 'Description', raw_transcript: 'Transcript'
+            });
 
             const result = await embeddingService.generateEventEmbedding('e1', {
                 title: 'Title',
@@ -130,65 +111,115 @@ describe('EmbeddingService', () => {
             expect(result.success).toBe(false);
             expect(result.error).toContain('No text available');
         });
-    });
 
-    describe('cosineSimilarity', () => {
-        test('should calculate cosine similarity', () => {
-            const vecA = [1, 0, 0];
-            const vecB = [1, 0, 0];
+        test('should replace an existing embedding for the same event', async () => {
+            insertEvent(db, {
+                event_id: 'e1', title: 'Test Event', start_date: '2020-01-01'
+            });
 
-            const similarity = embeddingService.constructor.prototype._calculateCosineSimilarity ?
-                embeddingService._calculateCosineSimilarity(vecA, vecB) :
-                require('../../src/main/services/embeddingService.js').cosineSimilarity?.(vecA, vecB) || 1.0;
+            await embeddingService.generateEventEmbedding('e1', { title: 'Test Event' });
+            await embeddingService.generateEventEmbedding('e1', { title: 'Test Event v2' });
 
-            expect(similarity).toBeCloseTo(1.0, 5);
-        });
-
-        test('should return 0 for orthogonal vectors', () => {
-            const vecA = [1, 0, 0];
-            const vecB = [0, 1, 0];
-
-            // Since cosineSimilarity is a module-level function, we need to test it differently
-            // For now, we'll just verify the embedding service works
-            expect(vecA.length).toBe(vecB.length);
+            const count = db.prepare(
+                'SELECT COUNT(*) as count FROM event_embeddings WHERE event_id = ?'
+            ).get('e1').count;
+            expect(count).toBe(1);
         });
     });
 
-    describe('findSimilarEvents', () => {
+    describe('findSimilarEvents (deterministic vectors)', () => {
+        // cosineSimilarity is module-private, so it is exercised through
+        // findSimilarEvents with embeddings inserted directly with known
+        // vectors (the 'local' provider would generate random ones).
         beforeEach(async () => {
             await embeddingService.initialize('local', 'test-model');
 
-            // Insert test events with embeddings
-            db.prepare("INSERT INTO events VALUES ('e1', 'Event 1', 'Description 1', NULL)").run();
-            db.prepare("INSERT INTO events VALUES ('e2', 'Event 2', 'Description 2', NULL)").run();
-            db.prepare("INSERT INTO events VALUES ('e3', 'Event 3', 'Description 3', NULL)").run();
+            insertEvent(db, { event_id: 'e1', title: 'Event 1', start_date: '2020-01-01', description: 'Description 1' });
+            insertEvent(db, { event_id: 'e2', title: 'Event 2', start_date: '2020-02-01', description: 'Description 2' });
+            insertEvent(db, { event_id: 'e3', title: 'Event 3', start_date: '2020-03-01', description: 'Description 3' });
+            insertEvent(db, { event_id: 'e4', title: 'Event 4', start_date: '2020-04-01', description: 'Description 4' });
 
-            // Generate embeddings
-            await embeddingService.generateEventEmbedding('e1', { title: 'Event 1', description: 'Description 1' });
-            await embeddingService.generateEventEmbedding('e2', { title: 'Event 2', description: 'Description 2' });
-            await embeddingService.generateEventEmbedding('e3', { title: 'Event 3', description: 'Description 3' });
+            insertEmbedding(db, 'e1', [1, 0, 0]);
+            insertEmbedding(db, 'e2', [2, 0, 0]); // same direction as e1 -> similarity 1
+            insertEmbedding(db, 'e3', [0, 1, 0]); // orthogonal to e1     -> similarity 0
+            insertEmbedding(db, 'e4', [1, 1, 0]); // 45 degrees to e1     -> similarity ~0.7071
         });
 
-        test('should find similar events', async () => {
-            const result = await embeddingService.findSimilarEvents('e1', 0.5, 10);
-
-            expect(result.success).toBe(true);
-            expect(Array.isArray(result.similar_events)).toBe(true);
-        });
-
-        test('should filter by threshold', async () => {
+        test('should score same-direction vectors as 1 regardless of magnitude', async () => {
             const result = await embeddingService.findSimilarEvents('e1', 0.99, 10);
 
             expect(result.success).toBe(true);
-            // With random local embeddings, unlikely to have 0.99 similarity
-            expect(result.similar_events.length).toBeLessThanOrEqual(2);
+            expect(result.similar_events.map(e => e.event_id)).toEqual(['e2']);
+            expect(result.similar_events[0].similarity_score).toBeCloseTo(1.0, 5);
+            expect(result.count).toBe(1);
+        });
+
+        test('should sort by similarity and score orthogonal vectors as 0', async () => {
+            const result = await embeddingService.findSimilarEvents('e1', 0, 10);
+
+            expect(result.success).toBe(true);
+            expect(result.similar_events.map(e => e.event_id)).toEqual(['e2', 'e4', 'e3']);
+            expect(result.similar_events[1].similarity_score).toBeCloseTo(Math.SQRT1_2, 5);
+            expect(result.similar_events[2].similarity_score).toBeCloseTo(0, 5);
+        });
+
+        test('should filter by threshold', async () => {
+            const result = await embeddingService.findSimilarEvents('e1', 0.5, 10);
+
+            expect(result.success).toBe(true);
+            expect(result.similar_events.map(e => e.event_id)).toEqual(['e2', 'e4']);
         });
 
         test('should limit results', async () => {
             const result = await embeddingService.findSimilarEvents('e1', 0.0, 1);
 
             expect(result.success).toBe(true);
-            expect(result.similar_events.length).toBeLessThanOrEqual(1);
+            expect(result.similar_events.map(e => e.event_id)).toEqual(['e2']);
+        });
+
+        test('should treat dimension-mismatched vectors as similarity 0 instead of throwing', async () => {
+            insertEvent(db, { event_id: 'e5', title: 'Event 5', start_date: '2020-05-01' });
+            insertEmbedding(db, 'e5', [1, 0]); // 2-dim vs 3-dim source
+
+            const all = await embeddingService.findSimilarEvents('e1', 0, 10);
+            const e5 = all.similar_events.find(e => e.event_id === 'e5');
+            expect(e5.similarity_score).toBe(0);
+
+            const filtered = await embeddingService.findSimilarEvents('e1', 0.5, 10);
+            expect(filtered.similar_events.map(e => e.event_id)).not.toContain('e5');
+        });
+
+        test('should return an error result when the source event has no embedding', async () => {
+            const result = await embeddingService.findSimilarEvents('missing-event');
+
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('no embedding');
+        });
+    });
+
+    describe('getEventEmbedding / deleteEventEmbedding', () => {
+        beforeEach(async () => {
+            await embeddingService.initialize('local', 'test-model');
+            insertEvent(db, { event_id: 'e1', title: 'Event 1', start_date: '2020-01-01' });
+            insertEmbedding(db, 'e1', [0.25, 0.5, 0.75]);
+        });
+
+        test('getEventEmbedding should JSON-parse the stored vector', () => {
+            const embedding = embeddingService.getEventEmbedding('e1');
+
+            expect(embedding.event_id).toBe('e1');
+            expect(embedding.embedding_vector).toEqual([0.25, 0.5, 0.75]);
+            expect(embedding.embedding_provider).toBe('local');
+            expect(embedding.embedding_dimension).toBe(3);
+        });
+
+        test('getEventEmbedding should return undefined for unknown event', () => {
+            expect(embeddingService.getEventEmbedding('nope')).toBeUndefined();
+        });
+
+        test('deleteEventEmbedding should remove the row', () => {
+            embeddingService.deleteEventEmbedding('e1');
+            expect(embeddingService.getEventEmbedding('e1')).toBeUndefined();
         });
     });
 
@@ -196,7 +227,7 @@ describe('EmbeddingService', () => {
         test('should clear all embeddings', async () => {
             await embeddingService.initialize('local', 'test-model');
 
-            db.prepare("INSERT INTO events VALUES ('e1', 'Event 1', 'Desc', NULL)").run();
+            insertEvent(db, { event_id: 'e1', title: 'Event 1', start_date: '2020-01-01', description: 'Desc' });
             await embeddingService.generateEventEmbedding('e1', { title: 'Event 1' });
 
             // Verify embedding exists

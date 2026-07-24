@@ -75,7 +75,10 @@ public partial class SettingsViewModel : ObservableObject
     // Available options
     public List<string> ThemeOptions { get; } = new() { "System", "Light", "Dark", "Solarized Dark" };
     public List<string> ZoomLevelOptions { get; } = new() { "Year", "Month", "Week", "Day" };
-    public List<string> LlmProviderOptions { get; } = new() { "Anthropic", "OpenAI", "Local" };
+    // Only Anthropic is implemented (AnthropicLlmService is the sole ILlmService).
+    // Do not list unimplemented providers here: selecting one used to persist an
+    // unsupported provider/model and break all event extraction.
+    public List<string> LlmProviderOptions { get; } = new() { "Anthropic" };
 
     public SettingsViewModel(
         ISettingsService settingsService,
@@ -454,7 +457,9 @@ public partial class SettingsViewModel : ObservableObject
     /// <summary>
     /// Maps a canonical (lowercase) stored value to the matching Title-case
     /// display option so ComboBox selection is never blank on load.
-    /// Falls back to simple first-letter capitalization, then to the default.
+    /// A stored value that is not a supported option normalizes to the default
+    /// (e.g. a legacy "openai"/"local" llm_provider becomes "Anthropic"), so an
+    /// unsupported value can never round-trip back into settings on save.
     /// </summary>
     private static string ToDisplayOption(string? storedValue, List<string> options, string defaultOption)
     {
@@ -465,12 +470,8 @@ public partial class SettingsViewModel : ObservableObject
 
         var match = options.FirstOrDefault(o =>
             string.Equals(o, storedValue, StringComparison.OrdinalIgnoreCase));
-        if (match != null)
-        {
-            return match;
-        }
 
-        return char.ToUpper(storedValue[0]) + storedValue[1..];
+        return match ?? defaultOption;
     }
 
     partial void OnSelectedThemeChanged(string value)
@@ -478,16 +479,4 @@ public partial class SettingsViewModel : ObservableObject
         StatusMessage = $"Theme changed to {value}";
     }
 
-    partial void OnLlmProviderChanged(string value)
-    {
-        // Update model options based on provider
-        if (value == "OpenAI")
-        {
-            LlmModel = "gpt-4-turbo-preview";
-        }
-        else if (value == "Anthropic")
-        {
-            LlmModel = "claude-3-5-sonnet-20241022";
-        }
-    }
 }

@@ -276,7 +276,20 @@ public class AudioPlaybackService : IAudioPlaybackService, IDisposable
     private void OnMediaOpened(MediaPlayer sender, object args)
     {
         _logger.LogInformation("Media opened. Duration: {Duration}s", GetDuration());
-        SetPlaybackState(AudioPlaybackState.Stopped);
+
+        // MediaOpened fires asynchronously, typically AFTER the caller has already
+        // invoked Play() (MediaPlayer defers the actual start until the media is
+        // open). Only transition to Stopped ("loaded, ready to play") when we are
+        // still in the Opening state; if Play()/Pause()/Stop() has already advanced
+        // the state machine, opening completion must not clobber that state.
+        if (_playbackState == AudioPlaybackState.Opening)
+        {
+            SetPlaybackState(AudioPlaybackState.Stopped);
+        }
+
+        // The duration only becomes known once the media is open — publish it so
+        // listeners can update their position/duration UI regardless of state.
+        RaisePositionChanged();
     }
 
     private void OnMediaEnded(MediaPlayer sender, object args)
