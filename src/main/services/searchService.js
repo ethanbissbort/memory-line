@@ -480,7 +480,8 @@ class SearchService {
    * @returns {Object} Success result
    */
   saveSearch(name, searchOptions) {
-    const key = `saved_search_${Date.now()}`;
+    // Timestamp alone collides for saves within the same millisecond (PK violation)
+    const key = `saved_search_${Date.now()}_${require('crypto').randomBytes(4).toString('hex')}`;
     const value = JSON.stringify({
       name,
       options: searchOptions,

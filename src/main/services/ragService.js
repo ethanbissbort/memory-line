@@ -456,8 +456,8 @@ Return false for hasRelationship if the events are not meaningfully connected.`;
                 FROM event_tags et
                 INNER JOIN tags t ON et.tag_id = t.tag_id
                 WHERE et.event_id IN (${placeholders})
-                  AND et.event_id NOT IN (
-                      SELECT event_id FROM event_tags WHERE event_id = ?
+                  AND et.tag_id NOT IN (
+                      SELECT tag_id FROM event_tags WHERE event_id = ?
                   )
                 GROUP BY t.tag_name
                 ORDER BY frequency DESC, avg_confidence DESC

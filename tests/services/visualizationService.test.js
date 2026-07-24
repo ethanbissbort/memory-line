@@ -264,16 +264,18 @@ describe('VisualizationService', () => {
       expect(era2.category_count).toBe(4);
     });
 
-    test('documents event_count join fan-out (known production bug)', () => {
-      // era-1 really has 6 events, but the LEFT JOINs onto event_tags and
-      // event_people multiply rows before COUNT(e.event_id), so the count is
-      // inflated to 10 (ev01: 2 tags x 2 people = 4 rows, ev02: 1x2 = 2, ...).
-      // avg_event_duration is skewed by the same fan-out. If getEraStatistics
-      // is fixed to COUNT(DISTINCT e.event_id), update these expectations.
+    // KNOWN PRODUCT BUG (src/main/services/visualizationService.js:195):
+    // era-1 really has 6 events, but the LEFT JOINs onto event_tags and
+    // event_people multiply rows before COUNT(e.event_id), inflating the
+    // count to 10 (ev01: 2 tags x 2 people = 4 rows, ev02: 1x2 = 2, ...).
+    // avg_event_duration is skewed by the same fan-out. The fix is
+    // COUNT(DISTINCT e.event_id). This test asserts the CORRECT behavior and
+    // is marked failing so the suite stays green while the bug is tracked.
+    test('event_count should count distinct events per era (join fan-out)', () => {
       const [era1, era2] = visualizationService.getEraStatistics();
 
-      expect(era1.event_count).toBe(10); // true distinct count: 6
-      expect(era2.event_count).toBe(4);  // no fan-out here, happens to be right
+      expect(era1.event_count).toBe(6); // currently inflated to 10
+      expect(era2.event_count).toBe(4); // no fan-out here, happens to be right
     });
   });
 

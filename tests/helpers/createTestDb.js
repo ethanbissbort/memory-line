@@ -123,8 +123,30 @@ function insertCrossReference(db, {
     return reference_id;
 }
 
+/**
+ * Insert an event embedding row directly with a known vector so similarity
+ * tests are deterministic (the 'local' provider generates random vectors).
+ */
+function insertEmbedding(db, event_id, vector, {
+    embedding_id = `emb-${event_id}`,
+    embedding_provider = 'local',
+    embedding_model = 'test-model'
+} = {}) {
+    db.prepare(`
+        INSERT INTO event_embeddings (
+            embedding_id, event_id, embedding_vector,
+            embedding_provider, embedding_model, embedding_dimension
+        ) VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+        embedding_id, event_id, JSON.stringify(vector),
+        embedding_provider, embedding_model, vector.length
+    );
+    return embedding_id;
+}
+
 module.exports = {
     createTestDb,
+    insertEmbedding,
     insertEra,
     insertEvent,
     insertTag,
