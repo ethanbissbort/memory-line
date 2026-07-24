@@ -128,7 +128,7 @@
                          VerticalScrollBarVisibility="Auto"
                          x:Name="GanttScrollViewer">
                 <Grid x:Name="GanttCanvas"
-                      MinWidth="{x:Bind ViewModel.ViewportWidth, Mode=OneWay}"
+                      MinWidth="{x:Bind ViewModel.TotalContentWidth, Mode=OneWay}"
                       MinHeight="{x:Bind ViewModel.TotalContentHeight, Mode=OneWay}">
 
                     <Grid.RowDefinitions>
@@ -137,8 +137,16 @@
                         <RowDefinition Height="*"/>    <!-- Era bars -->
                     </Grid.RowDefinitions>
 
-                    <!-- Milestone Markers Zone -->
-                    <Canvas Grid.Row="0" Background="{ThemeResource LayerFillColorAltBrush}">
+                    <!-- Milestone Markers Zone.
+                         The drawing canvas sits in column 1 after a 140px spacer that
+                         matches the era-name label column of each era row, so milestone
+                         PixelX (computed from ViewportStart) lines up with the era bars. -->
+                    <Grid Grid.Row="0" Background="{ThemeResource LayerFillColorAltBrush}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="140"/>  <!-- Era name column spacer -->
+                            <ColumnDefinition Width="*"/>    <!-- Marker area -->
+                        </Grid.ColumnDefinitions>
+                        <Canvas Grid.Column="1">
                         <ItemsControl ItemsSource="{x:Bind ViewModel.MilestoneMarkers, Mode=OneWay}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
@@ -178,10 +186,18 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                    </Canvas>
+                        </Canvas>
+                    </Grid>
 
-                    <!-- Time Ruler -->
-                    <Canvas Grid.Row="1" Background="{ThemeResource LayerOnAcrylicFillColorDefaultBrush}">
+                    <!-- Time Ruler.
+                         Same 140px spacer as the milestone zone and era rows so tick
+                         PixelX shares the era bars' origin. -->
+                    <Grid Grid.Row="1" Background="{ThemeResource LayerOnAcrylicFillColorDefaultBrush}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="140"/>  <!-- Era name column spacer -->
+                            <ColumnDefinition Width="*"/>    <!-- Ruler area -->
+                        </Grid.ColumnDefinitions>
+                        <Canvas Grid.Column="1">
                         <ItemsControl ItemsSource="{x:Bind ViewModel.TimeRulerTicks, Mode=OneWay}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
@@ -210,7 +226,8 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                    </Canvas>
+                        </Canvas>
+                    </Grid>
 
                     <!-- Era Bars Area -->
                     <ScrollViewer Grid.Row="2"

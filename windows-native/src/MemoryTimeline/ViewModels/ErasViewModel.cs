@@ -75,6 +75,24 @@ public partial class ErasViewModel : ObservableObject
     [ObservableProperty]
     private double _viewportHeight = 600;
 
+    /// <summary>
+    /// Width of the era-name label column in the Gantt layout (ErasPage.xaml).
+    /// The milestone zone, time ruler, and era bar canvases all start after this
+    /// offset so pixel positions computed from ViewportStart stay aligned.
+    /// </summary>
+    public const double EraNameColumnWidth = 140;
+
+    /// <summary>
+    /// Total horizontal content size of the Gantt chart: the era-name label
+    /// column plus the plotted viewport width. Used for the scrollable extent.
+    /// </summary>
+    public double TotalContentWidth => EraNameColumnWidth + ViewportWidth;
+
+    partial void OnViewportWidthChanged(double value)
+    {
+        OnPropertyChanged(nameof(TotalContentWidth));
+    }
+
     // UI state
     [ObservableProperty]
     private bool _isLoading;

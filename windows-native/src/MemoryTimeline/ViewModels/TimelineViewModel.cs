@@ -314,19 +314,45 @@ public partial class TimelineViewModel : ObservableObject
             // Update filters if this is a new era
             if (!EraFilters.Any(f => f.EraId == era.EraId))
             {
-                EraFilters.Add(new EraFilterDto
+                var filter = new EraFilterDto
                 {
                     EraId = era.EraId,
                     Name = era.Name,
                     ColorCode = era.ColorCode,
                     IsVisible = true
-                });
+                };
+
+                // Re-evaluate VisibleEraBars when the user toggles this era's
+                // checkbox (TwoWay-bound to IsVisible in TimelineControl.xaml);
+                // without this the bar layer only refreshed on full reloads.
+                filter.PropertyChanged += OnEraFilterPropertyChanged;
+
+                EraFilters.Add(filter);
             }
         }
 
         _eraBarTrackCount = tracks.Count > 0 ? tracks.Count : 1;
         OnPropertyChanged(nameof(EraBarsHeight));
         OnPropertyChanged(nameof(VisibleEraBars));
+    }
+
+    /// <summary>
+    /// Handles a single era filter checkbox toggle: re-evaluates the computed
+    /// VisibleEraBars so the era's band is added/removed immediately without
+    /// requiring a pan/zoom/reload. Marshals to the UI thread if needed.
+    /// </summary>
+    private void OnEraFilterPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(EraFilterDto.IsVisible)) return;
+
+        if (_dispatcherQueue != null && !_dispatcherQueue.HasThreadAccess)
+        {
+            _dispatcherQueue.TryEnqueue(() => OnPropertyChanged(nameof(VisibleEraBars)));
+        }
+        else
+        {
+            OnPropertyChanged(nameof(VisibleEraBars));
+        }
     }
 
     /// <summary>

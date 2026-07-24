@@ -49,6 +49,26 @@ public partial class ReviewViewModel : ObservableObject
     public bool HasPendingEvents => PendingEvents.Any();
     public bool IsEmpty => !HasPendingEvents;
 
+    /// <summary>
+    /// Set by the view to show a confirmation dialog before destructive actions.
+    /// Arguments: title, message, confirm-button label. Returns true when the
+    /// user confirms. Rejecting a pending event hard-deletes it (including its
+    /// transcript) with no recovery path, so confirmation is required.
+    /// </summary>
+    public Func<string, string, string, Task<bool>>? ConfirmDestructiveActionAsync { get; set; }
+
+    private async Task<bool> ConfirmAsync(string title, string message, string confirmLabel)
+    {
+        var handler = ConfirmDestructiveActionAsync;
+        if (handler == null)
+        {
+            // No view attached (e.g. unit tests): keep the command functional.
+            return true;
+        }
+
+        return await handler(title, message, confirmLabel);
+    }
+
     public ReviewViewModel(
         IEventExtractionService extractionService,
         ILogger<ReviewViewModel> logger)
@@ -142,12 +162,24 @@ public partial class ReviewViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Rejects and deletes a pending event.
+    /// Rejects and deletes a pending event after user confirmation
+    /// (rejection permanently deletes the event and its transcript).
     /// </summary>
     [RelayCommand]
     private async Task RejectEventAsync(PendingEventDto? eventDto)
     {
         if (eventDto == null) return;
+
+        var confirmed = await ConfirmAsync(
+            "Reject Pending Event",
+            $"Reject and permanently delete \"{eventDto.Title}\"? " +
+            "The extracted event and its transcript cannot be recovered.",
+            "Reject");
+        if (!confirmed)
+        {
+            StatusMessage = "Reject cancelled";
+            return;
+        }
 
         try
         {
@@ -246,11 +278,26 @@ public partial class ReviewViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Rejects all pending events.
+    /// Rejects all pending events after user confirmation
+    /// (rejection permanently deletes each event and its transcript).
     /// </summary>
     [RelayCommand]
     private async Task RejectAllAsync()
     {
+        var pendingCount = PendingEvents.Count;
+        if (pendingCount == 0) return;
+
+        var confirmed = await ConfirmAsync(
+            "Reject All Pending Events",
+            $"Reject and permanently delete {pendingCount} pending event{(pendingCount == 1 ? "" : "s")}? " +
+            "The extracted events and their transcripts cannot be recovered.",
+            "Reject All");
+        if (!confirmed)
+        {
+            StatusMessage = "Reject all cancelled";
+            return;
+        }
+
         try
         {
             IsLoading = true;
