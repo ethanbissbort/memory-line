@@ -62,7 +62,14 @@ public class ImportService : IImportService
             // Back up the database before making any changes. The backup is the
             // safety net for the app's only destructive bulk operation, so a
             // backup failure ABORTS the import instead of degrading to a warning.
-            if (options.CreateBackup)
+            // Non-SQLite providers (e.g. the EF InMemory provider used in tests)
+            // have no database file to back up, so the backup is skipped there.
+            var isSqliteProvider = dbContext.Database.ProviderName?.Contains("Sqlite", StringComparison.OrdinalIgnoreCase) == true;
+            if (options.CreateBackup && !isSqliteProvider)
+            {
+                _logger.LogDebug("Skipping pre-import backup: provider {Provider} has no database file", dbContext.Database.ProviderName);
+            }
+            if (options.CreateBackup && isSqliteProvider)
             {
                 progress?.Report((25, "Creating database backup..."));
                 if (!TryCreateDatabaseBackup(dbContext, out var backupError))
