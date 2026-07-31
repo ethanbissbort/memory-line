@@ -133,7 +133,9 @@ public class TimelineScaleTests
         var result = TimelineScale.GetEventWidth(startDate, endDate, ZoomLevel.Month);
 
         // Assert
-        result.Should().Be(3.0); // 1 day * 3.0 pixels/day
+        // 1 day * 3.0 pixels/day = 3.0, which is below the Month-zoom minimum
+        // event width (4.0) — GetEventWidth clamps for visibility.
+        result.Should().Be(4.0);
     }
 
     [Fact]
