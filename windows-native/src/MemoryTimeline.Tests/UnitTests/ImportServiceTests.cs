@@ -190,7 +190,9 @@ public class ImportServiceTests : IDisposable
 
         // Assert
         result.Success.Should().BeTrue();
-        result.EventsImported.Should().Be(1);
+        // Overwriting an existing event is counted as an update, not an import.
+        result.EventsUpdated.Should().Be(1);
+        result.EventsImported.Should().Be(0);
 
         await using var verifyContext = _contextFactory.CreateDbContext();
         var updatedEvent = await verifyContext.Events.FirstAsync();

@@ -261,8 +261,6 @@ public class ImportService : IImportService
 
                 if (existingEvent != null)
                 {
-                    // The simple boolean options take precedence, then the
-                    // ConflictResolution strategy decides the remaining cases.
                     if (options.UpdateExisting)
                     {
                         UpdateEventFromJson(existingEvent, jsonEvent);
@@ -270,7 +268,9 @@ public class ImportService : IImportService
                         continue;
                     }
 
-                    if (options.SkipDuplicates)
+                    // SkipDuplicates is a legacy convenience that defaults to true;
+                    // it must not shadow an explicitly chosen non-Skip strategy.
+                    if (options.SkipDuplicates && options.ConflictResolution == ConflictResolution.Skip)
                     {
                         result.EventsSkipped++;
                         continue;
@@ -288,7 +288,7 @@ public class ImportService : IImportService
                             break;
 
                         case ConflictResolution.CreateDuplicate:
-                            await CreateEventFromJson(dbContext, jsonEvent);
+                            await CreateEventFromJson(dbContext, jsonEvent, result);
                             result.EventsImported++;
                             break;
 
@@ -307,7 +307,7 @@ public class ImportService : IImportService
                 }
                 else
                 {
-                    await CreateEventFromJson(dbContext, jsonEvent);
+                    await CreateEventFromJson(dbContext, jsonEvent, result);
                     result.EventsImported++;
                 }
             }
@@ -319,7 +319,7 @@ public class ImportService : IImportService
         }
     }
 
-    private async Task CreateEventFromJson(AppDbContext dbContext, JsonEvent jsonEvent)
+    private async Task CreateEventFromJson(AppDbContext dbContext, JsonEvent jsonEvent, ImportResult result)
     {
         var evt = new Event
         {
@@ -355,6 +355,9 @@ public class ImportService : IImportService
                         CreatedAt = DateTime.UtcNow
                     };
                     dbContext.Tags.Add(tag);
+                    // Tags created via an event's tag list count as imported so
+                    // TagsImported reflects every new tag this import produced.
+                    result.TagsImported++;
                 }
                 evt.EventTags.Add(new EventTag
                 {
