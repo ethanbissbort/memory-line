@@ -55,6 +55,14 @@ public sealed partial class EventBubble : UserControl
     /// </summary>
     public double PinOpacity => Event?.IsApproximate == true ? 0.55 : 1.0;
 
+    // NOTE (F2 spec, deliberate deferral): the spec also asks for a single
+    // attached image to be used as the bubble FILL at Day/Week zoom. That is
+    // intentionally not implemented: the pin is ~30x40 device pixels, so a
+    // photo fill at that size is illegible, and decoding/rendering per-bubble
+    // thumbnails adds per-frame timeline cost (the audit's Appendix E risk 1,
+    // "thumbnails on bubbles increase per-frame timeline cost"). The
+    // photo-count badge below carries the "has photos" signal instead.
+
     /// <summary>Photo-count badge text ("3", capped at "9+").</summary>
     public string MediaBadgeText
     {
@@ -95,6 +103,7 @@ public sealed partial class EventBubble : UserControl
             bubble.OnPropertyChanged(nameof(CategoryGlyph));
             bubble.OnPropertyChanged(nameof(PinOpacity));
             bubble.OnPropertyChanged(nameof(MediaBadgeVisibility));
+            bubble.OnPropertyChanged(nameof(MediaBadgeText));
             bubble.UpdateToolTip();
         }
     }

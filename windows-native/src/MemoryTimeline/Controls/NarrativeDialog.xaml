@@ -26,6 +26,27 @@
                 <Run Text="Scope: "/><Run Text="{x:Bind ViewModel.ScopeDisplayName, Mode=OneWay}" FontWeight="SemiBold"/>
             </TextBlock>
 
+            <!-- Editable range: DateRange scope ONLY. Pre-filled from the
+                 viewport; validated (From <= To) before generating, with the
+                 error shown in the InfoBar above. -->
+            <Grid ColumnSpacing="12"
+                 Visibility="{x:Bind ViewModel.IsDateRangeScope, Mode=OneWay}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <CalendarDatePicker Grid.Column="0"
+                                   Header="From"
+                                   Date="{x:Bind ViewModel.RangeFrom, Mode=TwoWay}"
+                                   HorizontalAlignment="Stretch"/>
+
+                <CalendarDatePicker Grid.Column="1"
+                                   Header="To"
+                                   Date="{x:Bind ViewModel.RangeTo, Mode=TwoWay}"
+                                   HorizontalAlignment="Stretch"/>
+            </Grid>
+
             <!-- Options -->
             <Grid ColumnSpacing="12">
                 <Grid.ColumnDefinitions>

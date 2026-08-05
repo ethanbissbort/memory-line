@@ -311,6 +311,70 @@ public class NarrativeServiceTests : IDisposable
         narrative.Sections[1].Prose.Should().Be("Yearly prose.");
     }
 
+    [Fact]
+    public async Task GenerateAsync_CoarsePrecisionOnlyChunks_UseHonestHeadingsNotRawAnchorYears()
+    {
+        // Arrange: three year-groups of 30 events each (90 total, so the
+        // partitioner splits and no adjacent pair merges under the 40 cap):
+        //   - 1990 anchors, ALL Decade precision  -> heading must be "1990s"
+        //   - 1995 anchors, ALL Unknown precision -> heading must be the scope
+        //     label (an Unknown anchor is a placeholder, not a headline year)
+        //   - 2020 anchors, Day precision         -> keeps the year heading
+        var events = new List<Event>();
+        for (var i = 0; i < 30; i++)
+        {
+            events.Add(new Event
+            {
+                EventId = $"dec-{i:D2}",
+                Title = $"Decade memory {i}",
+                StartDate = new DateTime(1990, (i % 12) + 1, 1),
+                DatePrecision = DatePrecision.Decade,
+                Category = "other"
+            });
+            events.Add(new Event
+            {
+                EventId = $"unk-{i:D2}",
+                Title = $"Undated memory {i}",
+                StartDate = new DateTime(1995, (i % 12) + 1, 1),
+                DatePrecision = DatePrecision.Unknown,
+                Category = "other"
+            });
+            events.Add(new Event
+            {
+                EventId = $"day-{i:D2}",
+                Title = $"Dated memory {i}",
+                StartDate = new DateTime(2020, (i % 12) + 1, 1),
+                DatePrecision = DatePrecision.Day,
+                Category = "other"
+            });
+        }
+        await SeedEventsBulkAsync(events);
+
+        SetupSectionProse("Coarse prose.");
+        SetupConnective("not json"); // keep headings/title deterministic
+
+        // Act
+        var narrative = await _service.GenerateAsync(new NarrativeRequest
+        {
+            Scope = NarrativeScope.DateRange,
+            From = new DateTime(1990, 1, 1),
+            To = new DateTime(2020, 12, 31)
+        });
+
+        // Assert: the Decade-only chunk reads as the decade, the Unknown-only
+        // chunk falls back to the scope label, and the Day chunk keeps its year.
+        narrative.Sections.Should().HaveCount(3);
+        narrative.Sections[0].Heading.Should().Be("1990s");
+        narrative.Sections[1].Heading.Should().Be("1 Jan 1990 – 31 Dec 2020");
+        narrative.Sections[2].Heading.Should().Be("2020");
+
+        // The coarse chunks' raw anchor years must not leak into the prompts
+        // (the heading is fed to the model as "# Section: {heading}").
+        _sectionPrompts.Should().HaveCount(3);
+        _sectionPrompts[0].User.Should().Contain("# Section: 1990s");
+        _sectionPrompts[1].User.Should().NotContain("1995");
+    }
+
     #endregion
 
     #region Prompt assembly (grounding + date precision)

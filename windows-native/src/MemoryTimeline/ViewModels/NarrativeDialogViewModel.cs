@@ -28,6 +28,24 @@ public partial class NarrativeDialogViewModel : ObservableObject
     [ObservableProperty]
     private string _scopeDisplayName = string.Empty;
 
+    /// <summary>
+    /// True for DateRange-scoped requests; shows the editable From/To pickers
+    /// (F5: the range must be editable, not locked to the visible viewport).
+    /// </summary>
+    [ObservableProperty]
+    private bool _isDateRangeScope;
+
+    /// <summary>
+    /// Editable lower range bound, pre-filled from the viewport (CalendarDatePicker
+    /// binds a nullable DateTimeOffset). Only meaningful for DateRange scope.
+    /// </summary>
+    [ObservableProperty]
+    private DateTimeOffset? _rangeFrom;
+
+    /// <summary>Editable upper range bound (see <see cref="RangeFrom"/>).</summary>
+    [ObservableProperty]
+    private DateTimeOffset? _rangeTo;
+
     /// <summary>Selected voice index: 0 Reflective, 1 Factual, 2 Warm.</summary>
     [ObservableProperty]
     private int _voiceIndex;
@@ -81,6 +99,13 @@ public partial class NarrativeDialogViewModel : ObservableObject
         VoiceIndex = (int)request.Voice;
         TargetWords = request.TargetWords;
         IncludeCitations = request.IncludeCitations;
+
+        // DateRange scope: expose the caller-provided (viewport) range through
+        // the editable pickers so the user can widen or move it.
+        IsDateRangeScope = request.Scope == NarrativeScope.DateRange;
+        RangeFrom = request.From is DateTime fromValue ? new DateTimeOffset(fromValue) : null;
+        RangeTo = request.To is DateTime toValue ? new DateTimeOffset(toValue) : null;
+
         GenerateCommand.NotifyCanExecuteChanged();
     }
 
@@ -124,6 +149,23 @@ public partial class NarrativeDialogViewModel : ObservableObject
             return;
         }
 
+        // Validate the editable range BEFORE spending anything - the error
+        // surfaces in the dialog's InfoBar, same as generation failures.
+        if (IsDateRangeScope)
+        {
+            if (RangeFrom == null || RangeTo == null)
+            {
+                ErrorMessage = "Pick both From and To dates for the story's range.";
+                return;
+            }
+
+            if (RangeFrom.Value.Date > RangeTo.Value.Date)
+            {
+                ErrorMessage = "The From date must be on or before the To date.";
+                return;
+            }
+        }
+
         ErrorMessage = null;
         _cts?.Cancel();
         _cts?.Dispose();
@@ -146,6 +188,19 @@ public partial class NarrativeDialogViewModel : ObservableObject
                 : (int)Math.Clamp(TargetWords, 150, 8000);
             request.IncludeCitations = IncludeCitations;
 
+            if (IsDateRangeScope)
+            {
+                // Whole-day semantics: From starts its day, To runs to the end
+                // of its day, so "to 31 Dec" includes all of 31 Dec (guarded
+                // against DateTime.MaxValue overflow).
+                var fromDate = RangeFrom!.Value.Date;
+                var toDate = RangeTo!.Value.Date;
+                request.From = fromDate;
+                request.To = toDate >= DateTime.MaxValue.Date
+                    ? DateTime.MaxValue
+                    : toDate.AddDays(1).AddSeconds(-1);
+            }
+
             // Progress is constructed on the UI thread, so reports marshal
             // back through the synchronization context automatically.
             var progress = new Progress<(int pct, string stage)>(p => StageText = p.stage);
@@ -153,6 +208,14 @@ public partial class NarrativeDialogViewModel : ObservableObject
             var narrative = await _narrativeService.GenerateAsync(request, progress, ct);
 
             _narrative = narrative;
+
+            // The user may have edited the range - keep the "Scope:" header
+            // honest by adopting the service's label for the range actually used.
+            if (IsDateRangeScope && !string.IsNullOrWhiteSpace(narrative.ScopeLabel))
+            {
+                ScopeDisplayName = narrative.ScopeLabel!;
+            }
+
             NarrativeTitle = narrative.Title;
             Sections.Clear();
             foreach (var section in narrative.Sections)

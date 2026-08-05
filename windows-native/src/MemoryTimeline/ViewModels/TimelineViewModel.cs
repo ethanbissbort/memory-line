@@ -1096,13 +1096,15 @@ public partial class TimelineViewModel : ObservableObject
     /// <summary>
     /// Attaches files to the selected event, reporting progress in the status
     /// bar. Failures surface in the timeline error InfoBar; successes refresh
-    /// the strip via <see cref="MediaAttachedMessage"/>.
+    /// the strip via <see cref="MediaAttachedMessage"/>. Returns the attached
+    /// media (empty on failure) so the view can offer the EXIF-date
+    /// reconciliation (F2: photo taken outside the event's date window).
     /// </summary>
-    public async Task AttachMediaToSelectedEventAsync(IReadOnlyList<string> paths)
+    public async Task<List<EventMedia>> AttachMediaToSelectedEventAsync(IReadOnlyList<string> paths)
     {
         var target = SelectedEvent;
         if (target == null || paths.Count == 0)
-            return;
+            return new List<EventMedia>();
 
         try
         {
@@ -1115,12 +1117,14 @@ public partial class TimelineViewModel : ObservableObject
             StatusText = attached.Count == 1
                 ? "1 photo attached"
                 : $"{attached.Count} photos attached";
+            return attached;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error attaching media to event {EventId}", target.EventId);
             StatusText = "Error attaching photos";
             ErrorMessage = $"Could not attach photos: {ex.Message}";
+            return new List<EventMedia>();
         }
     }
 
@@ -1251,6 +1255,127 @@ public partial class TimelineViewModel : ObservableObject
         {
             _logger.LogError(ex, "Error attaching staged photos to event {EventId}", eventId);
             ErrorMessage = $"The event was saved, but some photos could not be attached: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// F2 EXIF-date reconciliation, decision half (the ContentDialog itself
+    /// lives in the view — Core and the ViewModel stay dialog-free here).
+    /// Given the media just attached to an event, returns the earliest EXIF
+    /// CapturedAt when that date falls OUTSIDE the event's precision window
+    /// (<see cref="DatePrecisionExtensions.GetWindow"/>), meaning the view
+    /// should offer to update the event date — or null when no offer is
+    /// warranted (no CapturedAt anywhere, date inside the window, event gone,
+    /// or the check itself failed). Media without CapturedAt never trigger an
+    /// offer. A batch yields at most ONE offer, keyed on the earliest capture.
+    /// </summary>
+    public async Task<DateTime?> GetExifDateOfferAsync(string eventId, IReadOnlyList<EventMedia> newlyAttached)
+    {
+        try
+        {
+            var capturedDates = newlyAttached
+                .Where(m => m.CapturedAt.HasValue)
+                .Select(m => m.CapturedAt!.Value)
+                .ToList();
+            if (capturedDates.Count == 0)
+                return null;
+
+            var earliest = capturedDates.Min();
+
+            var existingEvent = await _eventService.GetEventByIdAsync(eventId);
+            if (existingEvent == null)
+                return null;
+
+            // Compare at day granularity against the window the event's
+            // precision implies (a "Summer 1998" event covers the whole
+            // season - a photo from July 1998 needs no offer). For Unknown
+            // precision the window is degenerate (the placeholder anchor), so
+            // a dated photo practically always triggers the offer - which is
+            // exactly right for an event with no usable date.
+            var (windowStart, windowEnd) = DatePrecisionExtensions.GetWindow(
+                existingEvent.StartDate, existingEvent.DatePrecision);
+
+            return earliest.Date < windowStart.Date || earliest.Date > windowEnd.Date
+                ? earliest
+                : null;
+        }
+        catch (Exception ex)
+        {
+            // The attach itself already succeeded; a failed offer check must
+            // not turn it into an error. Skipping the offer is safe.
+            _logger.LogWarning(ex, "Could not evaluate EXIF date offer for event {EventId}", eventId);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Applies an accepted EXIF-date offer: moves the event to the photo's
+    /// capture day (DatePrecision becomes Day - the EXIF timestamp pins the
+    /// calendar day) and persists through the same service + messenger path
+    /// as the Edit dialog, so every subscribed view refreshes via
+    /// <see cref="EventUpdatedMessage"/>. Failures surface in the timeline
+    /// error InfoBar.
+    /// </summary>
+    public async Task ApplyExifEventDateAsync(string eventId, DateTime capturedAt)
+    {
+        if (string.IsNullOrEmpty(eventId)) return;
+        if (IsLoading)
+        {
+            ErrorMessage = "The timeline is busy with another operation. Please try again.";
+            return;
+        }
+
+        try
+        {
+            IsLoading = true;
+            StatusText = "Updating event date...";
+            ErrorMessage = null;
+
+            var existingEvent = await _eventService.GetEventByIdAsync(eventId);
+            if (existingEvent == null)
+            {
+                StatusText = "Event not found";
+                ErrorMessage = "The event could not be found. It may have been deleted.";
+                return;
+            }
+
+            var newDate = capturedAt.Date;
+            existingEvent.StartDate = newDate;
+            existingEvent.DatePrecision = DatePrecision.Day;
+
+            await _eventService.UpdateEventAsync(existingEvent);
+
+            // Notify other views; a subscriber failure must not fail the update.
+            try
+            {
+                WeakReferenceMessenger.Default.Send(new EventUpdatedMessage(eventId, newDate));
+            }
+            catch (Exception messengerEx)
+            {
+                _logger.LogWarning(messengerEx, "Error publishing EventUpdatedMessage for event {EventId}", eventId);
+            }
+
+            // Refresh the timeline; re-point the selection at the reloaded DTO
+            // (null when the new date moved the event out of the viewport).
+            await LoadEventsForViewportAsync();
+            if (SelectedEvent?.EventId == eventId)
+            {
+                SelectedEvent = Events.FirstOrDefault(e => e.EventId == eventId);
+            }
+
+            StatusText = $"Event date updated to {newDate.ToString("d MMM yyyy", System.Globalization.CultureInfo.InvariantCulture)}";
+            _logger.LogInformation(
+                "Event {EventId} date updated to {Date} from photo EXIF", eventId, newDate);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error applying EXIF date to event {EventId}", eventId);
+            StatusText = "Error updating event date";
+            ErrorMessage = $"Could not update the event date: {ex.Message}";
+        }
+        finally
+        {
+            IsLoading = false;
         }
     }
 
@@ -1650,6 +1775,30 @@ public partial class TimelineViewModel : ObservableObject
                 AddTagChip(tagName);
             }
 
+            // Re-stage the photos that were pending when the draft was saved
+            // (AddDialogPendingPhotos refreshes the "N photos will be attached
+            // on save" label). Paths whose files no longer exist are dropped
+            // with a visible status note instead of failing the attach later.
+            if (payload.PendingPhotoPaths is { Count: > 0 })
+            {
+                var stillPresent = payload.PendingPhotoPaths
+                    .Where(p => !string.IsNullOrWhiteSpace(p) && File.Exists(p))
+                    .ToList();
+
+                if (stillPresent.Count > 0)
+                {
+                    AddDialogPendingPhotos(stillPresent);
+                }
+
+                var dropped = payload.PendingPhotoPaths.Count - stillPresent.Count;
+                if (dropped > 0)
+                {
+                    StatusText = dropped == 1
+                        ? "1 photo staged in this draft could no longer be found and was skipped"
+                        : $"{dropped} photos staged in this draft could no longer be found and were skipped";
+                }
+            }
+
             return payload;
         }
         catch (Exception ex)
@@ -1695,7 +1844,12 @@ public partial class TimelineViewModel : ObservableObject
                 PersonNames = DialogPeople
                     .Where(c => string.IsNullOrEmpty(c.PersonId))
                     .Select(c => c.Name)
-                    .ToList()
+                    .ToList(),
+                // Photos staged for attach-on-save must survive "Save as
+                // Draft" - the label promised they would be attached.
+                PendingPhotoPaths = _dialogPendingPhotoPaths.Count == 0
+                    ? null
+                    : _dialogPendingPhotoPaths.ToList()
             };
 
             var json = JsonSerializer.Serialize(payload);

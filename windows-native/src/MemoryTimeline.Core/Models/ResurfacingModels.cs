@@ -30,8 +30,11 @@ public class ResurfacedMemory
 
     /// <summary>
     /// Whole years between the anchor year and the reference date's year
-    /// ("5 years ago today"). Always at least 1: same-year events are not
-    /// resurfaced as memories.
+    /// ("5 years ago today"). At least 1 for On This Day, the weekly digest,
+    /// and anniversaries (those surfaces never resurface same-year events),
+    /// but CAN be 0 for <c>GetRandomAsync</c> picks, which may land on a
+    /// current-year event (HomeViewModel renders "This year" for 0).
+    /// Consumers must handle the 0 case.
     /// </summary>
     public int YearsAgo { get; set; }
 }

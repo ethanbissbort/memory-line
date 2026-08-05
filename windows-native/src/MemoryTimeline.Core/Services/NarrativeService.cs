@@ -367,8 +367,12 @@ public class NarrativeService : INarrativeService
 
     /// <summary>
     /// Deterministic headings: the scope label for a single section, else the
-    /// chunk's year (or year span), with duplicate year headings numbered
-    /// ("2019 — part 1 of 3").
+    /// chunk's year (or year span), with duplicate headings numbered
+    /// ("2019 — part 1 of 3"). Chunks whose events are ALL coarser than Year
+    /// precision never use raw anchor years (see <see cref="BuildChunkHeading"/>) —
+    /// the heading is fed into the prompt as "# Section: {heading}" and would
+    /// otherwise leak precision that <see cref="BuildEventLine"/> deliberately
+    /// hides via <see cref="DateDisplay.FormatPrecise"/>.
     /// </summary>
     private static List<string> BuildSectionHeadings(List<List<Event>> chunks, string? scopeLabel)
     {
@@ -378,14 +382,8 @@ public class NarrativeService : INarrativeService
         }
 
         var culture = CultureInfo.InvariantCulture;
-        var raw = chunks.Select(chunk =>
-        {
-            var minYear = chunk[0].StartDate.Year;
-            var maxYear = chunk[^1].StartDate.Year;
-            return minYear == maxYear
-                ? minYear.ToString(culture)
-                : $"{minYear.ToString(culture)} – {maxYear.ToString(culture)}";
-        }).ToList();
+        var fallbackLabel = string.IsNullOrWhiteSpace(scopeLabel) ? "The story" : scopeLabel;
+        var raw = chunks.Select(chunk => BuildChunkHeading(chunk, fallbackLabel, culture)).ToList();
 
         var totals = raw.GroupBy(h => h, StringComparer.Ordinal)
             .Where(g => g.Count() > 1)
@@ -402,6 +400,40 @@ public class NarrativeService : INarrativeService
         }
 
         return raw;
+    }
+
+    /// <summary>
+    /// Heading for one chunk. A chunk with at least one Year-or-finer event
+    /// keeps the anchor-year heading (single year, or "minYear – maxYear").
+    /// A chunk containing ONLY coarser-than-Year events must not leak the raw
+    /// anchor years its own event lines hide: Decade-precision chunks read as
+    /// the honest decade label ("1990s", or "1990s – 2000s" for a span), and
+    /// a chunk of only Unknown-precision events (whose anchors are
+    /// placeholders) falls back to the scope label.
+    /// </summary>
+    private static string BuildChunkHeading(List<Event> chunk, string fallbackLabel, CultureInfo culture)
+    {
+        if (chunk.Any(e => e.DatePrecision <= DatePrecision.Year))
+        {
+            var minYear = chunk[0].StartDate.Year;
+            var maxYear = chunk[^1].StartDate.Year;
+            return minYear == maxYear
+                ? minYear.ToString(culture)
+                : $"{minYear.ToString(culture)} – {maxYear.ToString(culture)}";
+        }
+
+        // Only Decade/Unknown precision left. Unknown anchors carry no usable
+        // date, so the heading comes from the coarsest DATED precision present.
+        var dated = chunk.Where(e => e.DatePrecision != DatePrecision.Unknown).ToList();
+        if (dated.Count == 0)
+        {
+            return fallbackLabel;
+        }
+
+        var coarsest = dated.Max(e => e.DatePrecision);
+        var first = DateDisplay.FormatPrecise(dated[0].StartDate, coarsest);
+        var last = DateDisplay.FormatPrecise(dated[^1].StartDate, coarsest);
+        return first == last ? first : $"{first} – {last}";
     }
 
     #endregion

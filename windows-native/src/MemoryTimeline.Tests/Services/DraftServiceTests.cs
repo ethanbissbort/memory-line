@@ -202,7 +202,8 @@ public class DraftServiceTests : IDisposable
             Location = "Highway 1",
             TagNames = new List<string> { "vacation", "driving" },
             PersonIds = new List<string> { "person-1" },
-            PersonNames = new List<string> { "New Friend" }
+            PersonNames = new List<string> { "New Friend" },
+            PendingPhotoPaths = new List<string> { @"C:\Photos\beach.jpg", @"C:\Photos\cliff.png" }
         };
 
         // Act
@@ -272,6 +273,25 @@ public class DraftServiceTests : IDisposable
         // Assert
         roundTripped.Should().NotBeNull();
         roundTripped.Should().BeEquivalentTo(payload);
+    }
+
+    [Fact]
+    public void GetPayload_EventDraftSavedBeforePendingPhotoPaths_DeserializesWithNullPaths()
+    {
+        // Drafts saved before PendingPhotoPaths existed must still load; the
+        // property is nullable precisely so old JSON deserializes to null.
+        var dto = new DraftDto
+        {
+            DraftType = DraftTypes.Event,
+            PayloadJson = """{"Title":"Old draft","TagNames":["legacy"]}"""
+        };
+
+        var payload = dto.GetPayload<EventDraftPayload>();
+
+        payload.Should().NotBeNull();
+        payload!.Title.Should().Be("Old draft");
+        payload.TagNames.Should().Equal("legacy");
+        payload.PendingPhotoPaths.Should().BeNull();
     }
 
     [Fact]

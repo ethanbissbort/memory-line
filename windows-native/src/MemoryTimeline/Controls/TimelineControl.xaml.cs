@@ -788,6 +788,7 @@ public sealed partial class TimelineControl : UserControl
     private async Task ShowAddEventDialogAsync(DateTime defaultDate)
     {
         _editingEventId = null;
+        _dialogSessionAttachedMedia.Clear();
         EventDialog.Title = "Add Event";
 
         // Reset dialog state (chips, era choices, draft id) in the ViewModel.
@@ -830,6 +831,7 @@ public sealed partial class TimelineControl : UserControl
             return;
 
         _editingEventId = null;
+        _dialogSessionAttachedMedia.Clear();
         EventDialog.Title = "Add Event";
 
         await _viewModel.PrepareEventDialogAsync(null);
@@ -889,6 +891,7 @@ public sealed partial class TimelineControl : UserControl
     private async Task ShowEditEventDialogAsync(TimelineEventDto eventDto)
     {
         _editingEventId = eventDto.EventId;
+        _dialogSessionAttachedMedia.Clear();
         EventDialog.Title = "Edit Event";
 
         // Reset dialog state and load the event's current people/tags into
@@ -922,6 +925,16 @@ public sealed partial class TimelineControl : UserControl
 
         EventDialog.XamlRoot = XamlRoot;
         await EventDialog.ShowAsync();
+
+        // Photos attached while the Edit dialog was open could not show the
+        // EXIF-date offer then (one ContentDialog at a time); offer now, once,
+        // re-evaluated against the event's current (possibly just-saved) date.
+        if (_dialogSessionAttachedMedia.Count > 0)
+        {
+            var attachedDuringDialog = _dialogSessionAttachedMedia.ToList();
+            _dialogSessionAttachedMedia.Clear();
+            await OfferExifDateAdjustAsync(eventDto.EventId, attachedDuringDialog);
+        }
     }
 
     /// <summary>
@@ -1324,6 +1337,12 @@ public sealed partial class TimelineControl : UserControl
     private int _lightboxIndex = -1;
     private bool _lightboxRemoveArmed;
 
+    // Media attached immediately while the EDIT Event dialog is open. Only one
+    // ContentDialog can be open at a time, so the F2 EXIF-date offer for these
+    // attachments is deferred until the Edit dialog closes (see
+    // ShowEditEventDialogAsync); details-panel attachments offer right away.
+    private readonly List<EventMedia> _dialogSessionAttachedMedia = new();
+
     /// <summary>
     /// Opens a multi-select file picker for photos (unpackaged-app interop:
     /// the picker must be initialized with the window handle).
@@ -1391,20 +1410,23 @@ public sealed partial class TimelineControl : UserControl
     /// <summary>"Add photos..." on the details-panel strip.</summary>
     private async void AddPhotosToSelectedEvent_Click(object sender, RoutedEventArgs e)
     {
-        if (_viewModel?.SelectedEvent == null)
+        var target = _viewModel?.SelectedEvent;
+        if (_viewModel == null || target == null)
             return;
 
         var paths = await PickMediaFilesAsync();
         if (paths.Count > 0)
         {
-            await _viewModel.AttachMediaToSelectedEventAsync(paths);
+            var attached = await _viewModel.AttachMediaToSelectedEventAsync(paths);
+            await OfferExifDateAdjustAsync(target.EventId, attached);
         }
     }
 
     /// <summary>Files dropped on the details-panel strip.</summary>
     private async void DetailsMediaStrip_Drop(object sender, DragEventArgs e)
     {
-        if (_viewModel?.SelectedEvent == null)
+        var target = _viewModel?.SelectedEvent;
+        if (_viewModel == null || target == null)
             return;
 
         try
@@ -1412,7 +1434,8 @@ public sealed partial class TimelineControl : UserControl
             var paths = await GetDroppedFilePathsAsync(e);
             if (paths.Count > 0)
             {
-                await _viewModel.AttachMediaToSelectedEventAsync(paths);
+                var attached = await _viewModel.AttachMediaToSelectedEventAsync(paths);
+                await OfferExifDateAdjustAsync(target.EventId, attached);
             }
         }
         catch (Exception ex)
@@ -1468,10 +1491,53 @@ public sealed partial class TimelineControl : UserControl
             _viewModel.DialogPendingPhotosLabel = attached.Count == 1
                 ? "1 photo attached"
                 : $"{attached.Count} photos attached";
+
+            // The EXIF-date offer cannot show now (the Edit dialog is a
+            // ContentDialog and only one can be open); collect the batch and
+            // offer once after the dialog closes.
+            _dialogSessionAttachedMedia.AddRange(attached);
         }
         catch (Exception ex)
         {
             ShowEventDialogError($"Could not attach photos: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// F2 EXIF-date reconciliation, offer half: when the just-attached batch
+    /// contains a photo whose EXIF capture date falls outside the event's
+    /// precision window (the ViewModel decides — media without CapturedAt
+    /// never qualify), offers to move the event to the capture day. At most
+    /// ONE offer per batch, keyed on the earliest capture date. "Update"
+    /// persists through the ViewModel's event-update path (which publishes
+    /// EventUpdatedMessage); "Keep" leaves the event untouched.
+    /// </summary>
+    private async Task OfferExifDateAdjustAsync(string eventId, IReadOnlyList<EventMedia> newlyAttached)
+    {
+        if (_viewModel == null || newlyAttached.Count == 0)
+            return;
+
+        var capturedAt = await _viewModel.GetExifDateOfferAsync(eventId, newlyAttached);
+        if (capturedAt == null)
+            return;
+
+        var exifDateText = capturedAt.Value.ToString(
+            "d MMM yyyy", System.Globalization.CultureInfo.InvariantCulture);
+
+        var offerDialog = new ContentDialog
+        {
+            Title = "Update event date?",
+            Content = $"Photo taken {exifDateText} — update event date to match?",
+            PrimaryButtonText = "Update",
+            CloseButtonText = "Keep",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = XamlRoot
+        };
+
+        var result = await offerDialog.ShowAsync();
+        if (result == ContentDialogResult.Primary)
+        {
+            await _viewModel.ApplyExifEventDateAsync(eventId, capturedAt.Value);
         }
     }
 
