@@ -60,7 +60,29 @@ public sealed partial class EventBubble : UserControl
         {
             bubble.OnPropertyChanged(nameof(CategoryBrush));
             bubble.OnPropertyChanged(nameof(CategoryGlyph));
+            bubble.UpdateToolTip();
         }
+    }
+
+    /// <summary>
+    /// Sets a hover tooltip with the event's title, dates, and linked people
+    /// (the people line appears only when person names have been loaded).
+    /// </summary>
+    private void UpdateToolTip()
+    {
+        if (Event == null)
+        {
+            ToolTipService.SetToolTip(this, null);
+            return;
+        }
+
+        var text = $"{Event.Title}\n{FormatDate(Event.StartDate)}{FormatEndDate(Event.EndDate)}";
+        if (Event.HasPeople)
+        {
+            text += $"\nWith: {Event.PeopleDisplay}";
+        }
+
+        ToolTipService.SetToolTip(this, text);
     }
 
     private void RootGrid_PointerEntered(object sender, PointerRoutedEventArgs e)

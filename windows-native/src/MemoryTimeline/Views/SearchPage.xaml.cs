@@ -379,6 +379,17 @@ public sealed partial class SearchPage : Page
             EventDetailLocationPanel.Visibility = Visibility.Collapsed;
         }
 
+        var peopleDisplay = GetPeopleDisplay(eventData.EventPeople);
+        if (peopleDisplay.Length > 0)
+        {
+            EventDetailPeople.Text = peopleDisplay;
+            EventDetailPeoplePanel.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            EventDetailPeoplePanel.Visibility = Visibility.Collapsed;
+        }
+
         _contextMenuEvent = eventData;
         EventDetailDialog.XamlRoot = XamlRoot;
         var result = await EventDetailDialog.ShowAsync();
