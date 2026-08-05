@@ -65,6 +65,90 @@ public partial class TimelineViewModel : ObservableObject
 
     private int _eraBarTrackCount = 1;
 
+    /// <summary>
+    /// Duration events rendered as span bars (RenderMode == Span). Pins stay
+    /// in <see cref="Events"/>; the control renders the two layers separately.
+    /// </summary>
+    public ObservableCollection<TimelineEventDto> SpanEvents { get; } = new();
+
+    /// <summary>
+    /// Events with approximate dates (precision coarser than Month) that get a
+    /// soft gradient uncertainty underlay behind their pin/span.
+    /// </summary>
+    public ObservableCollection<TimelineEventDto> UncertainEvents { get; } = new();
+
+    /// <summary>Rows of the swimlane gutter panel (empty in Auto mode).</summary>
+    public ObservableCollection<LaneGutterRowDto> LaneGutterRows { get; } = new();
+
+    /// <summary>
+    /// The active swimlane mode. Auto keeps the classic track stacking; other
+    /// modes re-layout the ALREADY-LOADED events into horizontal lanes without
+    /// a database reload (no flicker, no scroll-position loss).
+    /// </summary>
+    [ObservableProperty]
+    private LaneMode _laneMode = LaneMode.Auto;
+
+    /// <summary>True when a swimlane mode (not Auto) is active; shows the gutter.</summary>
+    public bool IsLaneModeActive => LaneMode != LaneMode.Auto;
+
+    partial void OnLaneModeChanged(LaneMode value)
+    {
+        OnPropertyChanged(nameof(IsLaneModeActive));
+        _collapsedLaneKeys.Clear();
+
+        // Lane switches re-layout from the cached DTOs - no DB work here.
+        // Positions update in place through the DTOs' observable properties,
+        // so nothing is torn down and the scroll position is untouched.
+        if (Viewport != null && _loadedEventDtos.Count > 0)
+        {
+            // Restore the Auto stacking geometry first; lane geometry (if any)
+            // then overrides PixelY per lane.
+            _timelineService.CalculateEventPositions(_loadedEventDtos, Viewport);
+        }
+
+        RecomputeLanes();
+        ApplyLaneGeometry();
+        RebuildLaneGutter();
+
+        // Notify other views; a subscriber failure must not break the switch.
+        try
+        {
+            WeakReferenceMessenger.Default.Send(new LaneModeChangedMessage(value.ToString()));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error publishing LaneModeChangedMessage");
+        }
+    }
+
+    // All DTOs fetched by the last settled reload (including the ±30-day
+    // buffer); the pin/span/uncertainty collections are projections of this.
+    private List<TimelineEventDto> _loadedEventDtos = new();
+
+    // All era DTOs fetched by the last settled reload.
+    private List<TimelineEraDto> _loadedEras = new();
+
+    // Lane membership computed on the reload path (never per scroll tick);
+    // pan/zoom ticks only re-apply the cached assignment's geometry.
+    private List<TimelineLane> _lanes = new();
+
+    // Collapsed lane keys for the CURRENT mode; cleared on mode change,
+    // deliberately not persisted anywhere.
+    private readonly HashSet<string> _collapsedLaneKeys = new(StringComparer.OrdinalIgnoreCase);
+
+    // Last-request-wins debounce for viewport reloads: pan/zoom ticks shift
+    // the already-loaded DTOs synchronously and the DB reload fires once,
+    // ~150ms after the LAST tick (O(gestures) reloads instead of O(ticks)).
+    private readonly ReloadCoalescer _reloadCoalescer = new();
+
+    // Monotonic sequences: a load that completes after a newer load started
+    // drops its stale results instead of clobbering them.
+    private long _eventLoadSequence;
+    private long _eraLoadSequence;
+
+    /// <summary>Number of loaded events currently visible in the viewport.</summary>
+    private int VisibleEventCount => _loadedEventDtos.Count(e => e.IsVisible);
+
     [ObservableProperty]
     private ZoomLevel _currentZoomLevel = ZoomLevel.Month;
 
@@ -216,7 +300,7 @@ public partial class TimelineViewModel : ObservableObject
         {
             var media = await _mediaService.GetForEventAsync(message.EventId);
 
-            var dto = Events.FirstOrDefault(e => e.EventId == message.EventId);
+            var dto = FindLoadedEvent(message.EventId);
             if (dto != null)
             {
                 dto.MediaCount = media.Count;
@@ -322,7 +406,7 @@ public partial class TimelineViewModel : ObservableObject
             {
                 // Re-point the details panel at the reloaded DTO (null when the
                 // edit moved the event outside the current viewport).
-                SelectedEvent = Events.FirstOrDefault(e => e.EventId == message.EventId);
+                SelectedEvent = FindLoadedEvent(message.EventId);
             }
         }
         catch (Exception ex)
@@ -361,10 +445,13 @@ public partial class TimelineViewModel : ObservableObject
 
         try
         {
-            var dto = Events.FirstOrDefault(e => e.EventId == message.EventId);
+            var dto = FindLoadedEvent(message.EventId);
             if (dto != null)
             {
+                _loadedEventDtos.Remove(dto);
                 Events.Remove(dto);
+                SpanEvents.Remove(dto);
+                UncertainEvents.Remove(dto);
             }
 
             if (SelectedEvent?.EventId == message.EventId)
@@ -395,7 +482,7 @@ public partial class TimelineViewModel : ObservableObject
             // Create initial viewport
             await CreateViewportAsync(CurrentZoomLevel, DateTime.Now);
 
-            StatusText = $"Loaded {Events.Count} events";
+            StatusText = $"Loaded {VisibleEventCount} events";
         }
         catch (Exception ex)
         {
@@ -438,28 +525,178 @@ public partial class TimelineViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Loads events for the current viewport.
+    /// Loads events for the current viewport (the settled-reload path). All
+    /// fetched DTOs - including the ±30-day buffer - are kept and rendered
+    /// with a Visibility binding, so intra-buffer pans reveal them instantly
+    /// without waiting for the next reload.
     /// </summary>
     private async Task LoadEventsForViewportAsync()
     {
         if (Viewport == null) return;
 
+        // Last-request-wins: if another load starts while this query is in
+        // flight, this one's stale results are dropped on completion.
+        var sequence = ++_eventLoadSequence;
+
         try
         {
-            var events = await _timelineService.GetEventsForViewportAsync(Viewport);
-            Events.Clear();
-            foreach (var evt in events.Where(e => e.IsVisible))
+            var events = (await _timelineService.GetEventsForViewportAsync(Viewport)).ToList();
+            if (sequence != _eventLoadSequence)
+                return;
+
+            _loadedEventDtos = events;
+
+            var viewport = Viewport;
+            if (viewport != null)
             {
-                Events.Add(evt);
+                // The viewport may have moved while the query ran (the user
+                // kept panning); re-anchor the DTOs to the live viewport.
+                _timelineService.CalculateEventPositions(_loadedEventDtos, viewport);
             }
 
-            _logger.LogDebug("Loaded {Count} visible events", Events.Count);
+            // Lane membership recomputes on this settled path only - never per
+            // scroll tick (ticks just re-apply the cached assignment).
+            RecomputeLanes();
+            ApplyLaneGeometry();
+            RebuildEventCollections();
+            RebuildLaneGutter();
+
+            _logger.LogDebug(
+                "Loaded {Count} events for the viewport ({Visible} visible)",
+                _loadedEventDtos.Count,
+                VisibleEventCount);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error loading events for viewport");
             ErrorMessage = $"Could not load events: {ex.Message}";
         }
+    }
+
+    /// <summary>Finds a loaded event DTO (pin or span) by id.</summary>
+    private TimelineEventDto? FindLoadedEvent(string eventId)
+        => _loadedEventDtos.FirstOrDefault(e => e.EventId == eventId);
+
+    /// <summary>
+    /// Rebuilds the pin/span/uncertainty layer collections from the loaded
+    /// DTOs. Only called on the settled reload path (or when a zoom shift
+    /// actually flipped an event between pin and span) - never on plain pans.
+    /// </summary>
+    private void RebuildEventCollections()
+    {
+        Events.Clear();
+        SpanEvents.Clear();
+        UncertainEvents.Clear();
+
+        foreach (var evt in _loadedEventDtos)
+        {
+            if (evt.RenderMode == EventRenderMode.Span)
+            {
+                SpanEvents.Add(evt);
+            }
+            else
+            {
+                Events.Add(evt);
+            }
+
+            if (evt.IsApproximate)
+            {
+                UncertainEvents.Add(evt);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Recomputes lane membership for the current mode from the loaded DTOs.
+    /// Runs on the settled reload path and on mode changes only.
+    /// </summary>
+    private void RecomputeLanes()
+    {
+        _lanes = LaneAssignment.ComputeLanes(_loadedEventDtos, LaneMode).ToList();
+    }
+
+    /// <summary>
+    /// Applies lane geometry (rows from the top of the events area) over the
+    /// stacking positions the pure calc produced. In Auto mode this is a no-op
+    /// apart from clearing any leftover collapse flags, so Auto renders
+    /// exactly as the classic stacked layout.
+    /// </summary>
+    private void ApplyLaneGeometry()
+    {
+        if (LaneMode == LaneMode.Auto)
+        {
+            foreach (var evt in _loadedEventDtos)
+            {
+                evt.IsLaneCollapsed = false;
+            }
+
+            return;
+        }
+
+        double top = 0;
+        foreach (var lane in _lanes)
+        {
+            var collapsed = _collapsedLaneKeys.Contains(lane.LaneKey);
+            var rowHeight = collapsed
+                ? LaneAssignment.CollapsedLaneRowHeight
+                : LaneAssignment.LaneRowHeight;
+
+            foreach (var evt in lane.Events)
+            {
+                evt.IsLaneCollapsed = collapsed;
+                evt.PixelY = top + Math.Max(0, (LaneAssignment.LaneRowHeight - evt.Height) / 2.0);
+            }
+
+            top += rowHeight;
+        }
+    }
+
+    /// <summary>
+    /// Rebuilds the gutter row DTOs (labels, counts, collapse chevrons) from
+    /// the cached lanes. Row heights match the lane geometry constants so the
+    /// gutter rows stay aligned with the lane rows.
+    /// </summary>
+    private void RebuildLaneGutter()
+    {
+        LaneGutterRows.Clear();
+        if (LaneMode == LaneMode.Auto)
+            return;
+
+        for (var i = 0; i < _lanes.Count; i++)
+        {
+            var lane = _lanes[i];
+            var collapsed = _collapsedLaneKeys.Contains(lane.LaneKey);
+            LaneGutterRows.Add(new LaneGutterRowDto
+            {
+                LaneKey = lane.LaneKey,
+                Label = lane.Label,
+                EventCount = lane.Events.Count,
+                RowHeight = collapsed
+                    ? LaneAssignment.CollapsedLaneRowHeight
+                    : LaneAssignment.LaneRowHeight,
+                IsCollapsed = collapsed,
+                IsAlternate = i % 2 == 1
+            });
+        }
+    }
+
+    /// <summary>
+    /// Collapses or expands one lane: its events hide and the row shrinks,
+    /// rows below shift up. Pure re-layout of cached data - no reload, and
+    /// nothing is persisted.
+    /// </summary>
+    public void ToggleLaneCollapse(string laneKey)
+    {
+        if (string.IsNullOrEmpty(laneKey))
+            return;
+
+        if (!_collapsedLaneKeys.Remove(laneKey))
+        {
+            _collapsedLaneKeys.Add(laneKey);
+        }
+
+        ApplyLaneGeometry();
+        RebuildLaneGutter();
     }
 
     /// <summary>
@@ -469,17 +706,32 @@ public partial class TimelineViewModel : ObservableObject
     {
         if (Viewport == null) return;
 
+        // Last-request-wins: drop stale results if a newer load started.
+        var sequence = ++_eraLoadSequence;
+
         try
         {
-            var eras = await _timelineService.GetErasForViewportAsync(Viewport);
+            var eras = (await _timelineService.GetErasForViewportAsync(Viewport)).ToList();
+            if (sequence != _eraLoadSequence)
+                return;
+
+            _loadedEras = eras;
+
+            var viewport = Viewport;
+            if (viewport != null)
+            {
+                // Re-anchor to the live viewport (it may have moved mid-query).
+                _timelineService.CalculateEraPositions(_loadedEras, viewport);
+            }
+
             Eras.Clear();
-            foreach (var era in eras.Where(e => e.IsVisible))
+            foreach (var era in _loadedEras.Where(e => e.IsVisible))
             {
                 Eras.Add(era);
             }
 
             // Generate era bars and update filters
-            GenerateEraBars(eras);
+            GenerateEraBars(_loadedEras);
 
             _logger.LogDebug("Loaded {Count} visible eras", Eras.Count);
         }
@@ -721,9 +973,9 @@ public partial class TimelineViewModel : ObservableObject
     /// </summary>
     /// <param name="cursorScreenX">Cursor X position in pixels relative to viewport</param>
     /// <param name="wheelDelta">Raw mouse wheel delta (typically ±120 per tick)</param>
-    public async Task CursorAnchoredZoomAsync(double cursorScreenX, double wheelDelta)
+    public Task CursorAnchoredZoomAsync(double cursorScreenX, double wheelDelta)
     {
-        if (Viewport == null) return;
+        if (Viewport == null) return Task.CompletedTask;
 
         try
         {
@@ -751,17 +1003,24 @@ public partial class TimelineViewModel : ObservableObject
             // Update current zoom level display
             CurrentZoomLevel = Viewport.ZoomLevel;
 
-            // Reload events and ticks
-            await LoadEventsForViewportAsync();
-            await LoadErasForViewportAsync();
-            GenerateTimeRulerTicks();
+            // Immediate visual scale change on the loaded DTOs; the DB reload
+            // is debounced until the wheel stops (~150ms after the last tick).
+            ApplyViewportShift();
+            ScheduleViewportReload();
+
+            // The viewport instance was mutated in place - re-raise the
+            // notification so the proportional scrollbar tracks the zoom.
+            OnPropertyChanged(nameof(Viewport));
 
             StatusText = $"Zoom: {newPixelsPerDay:F2} px/day";
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error performing cursor-anchored zoom");
+            ErrorMessage = $"Could not zoom the timeline: {ex.Message}";
         }
+
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -821,23 +1080,118 @@ public partial class TimelineViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Pans the timeline by pixel offset.
+    /// Pans the timeline by pixel offset. The shift itself is cheap and
+    /// synchronous - viewport dates move and the ALREADY-LOADED DTOs are
+    /// repositioned via the pure position calc (no DB) - while the database
+    /// reload is debounced to fire once, ~150ms after the LAST pan/zoom tick.
+    /// There is deliberately no IsLoading bail-out here: the old guard dropped
+    /// ticks mid-load and lost the final position; the coalescer supersedes
+    /// pending reloads instead, so the settled position always reloads.
     /// </summary>
     public async Task PanAsync(double pixelOffset)
     {
-        if (Viewport == null || IsLoading) return;
+        if (Viewport == null) return;
 
         try
         {
+            // Pure viewport math (Task.FromResult inside) - no DB work.
             Viewport = await _timelineService.PanAsync(Viewport, pixelOffset);
+            ApplyViewportShift();
+            ScheduleViewportReload();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error panning timeline");
+            ErrorMessage = $"Could not pan the timeline: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Cheap synchronous re-layout after a viewport change: repositions the
+    /// already-loaded event and era DTOs with the pure calcs and regenerates
+    /// the ruler ticks. Never touches the database.
+    /// </summary>
+    private void ApplyViewportShift()
+    {
+        var viewport = Viewport;
+        if (viewport == null) return;
+
+        if (_loadedEventDtos.Count > 0)
+        {
+            _timelineService.CalculateEventPositions(_loadedEventDtos, viewport);
+            ApplyLaneGeometry();
+
+            // A zoom shift can flip events between pin and span; repartition
+            // the render layers only when that actually happened (plain pans
+            // never change widths, so this stays a cheap scan).
+            var needsRepartition =
+                SpanEvents.Any(e => e.RenderMode != EventRenderMode.Span) ||
+                Events.Any(e => e.RenderMode != EventRenderMode.Pin);
+            if (needsRepartition)
+            {
+                RebuildEventCollections();
+            }
+        }
+
+        if (_loadedEras.Count > 0)
+        {
+            _timelineService.CalculateEraPositions(_loadedEras, viewport);
+            GenerateEraBars(_loadedEras);
+        }
+
+        GenerateTimeRulerTicks();
+    }
+
+    /// <summary>
+    /// Schedules the trailing debounced reload for the current gesture burst.
+    /// Each tick supersedes the previous ticket; only the LAST tick's task
+    /// survives the quiet period and performs the single coalesced reload.
+    /// </summary>
+    private void ScheduleViewportReload()
+    {
+        var ticket = _reloadCoalescer.RecordTick();
+        _ = ReloadWhenSettledAsync(ticket);
+    }
+
+    /// <summary>
+    /// Waits out the quiet period and, if no newer tick superseded this one,
+    /// reloads events/eras/ruler for the settled viewport. Reads the LIVE
+    /// viewport at fire time, so the final position always wins.
+    /// </summary>
+    private async Task ReloadWhenSettledAsync(long ticket)
+    {
+        try
+        {
+            await Task.Delay(_reloadCoalescer.QuietPeriod);
+            if (!_reloadCoalescer.IsCurrent(ticket) || Viewport == null)
+                return;
+
             await LoadEventsForViewportAsync();
             await LoadErasForViewportAsync();
             GenerateTimeRulerTicks();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error panning timeline");
+            _logger.LogError(ex, "Error during debounced viewport reload");
+            ErrorMessage = $"Could not refresh the timeline: {ex.Message}";
         }
+    }
+
+    /// <summary>
+    /// Called by the control after it mutated the viewport instance directly
+    /// (proportional-scrollbar edge drags): applies the immediate visual
+    /// scale/position change, schedules the debounced reload, and re-raises
+    /// the Viewport notification so dependents stay in sync.
+    /// </summary>
+    public void NotifyViewportChangedExternally()
+    {
+        var viewport = Viewport;
+        if (viewport == null) return;
+
+        CurrentZoomLevel = viewport.ZoomLevel;
+        ApplyViewportShift();
+        ScheduleViewportReload();
+        OnPropertyChanged(nameof(Viewport));
     }
 
     /// <summary>
@@ -977,7 +1331,7 @@ public partial class TimelineViewModel : ObservableObject
                 GenerateTimeRulerTicks();
             }
 
-            StatusText = $"Refreshed - {Events.Count} events shown";
+            StatusText = $"Refreshed - {VisibleEventCount} events shown";
         }
         catch (Exception ex)
         {
@@ -1156,7 +1510,7 @@ public partial class TimelineViewModel : ObservableObject
                 ? "Photos"
                 : $"Photos ({SelectedEventMedia.Count})";
 
-            var dto = Events.FirstOrDefault(e => e.EventId == media.EventId);
+            var dto = FindLoadedEvent(media.EventId);
             if (dto != null && dto.MediaCount > 0)
             {
                 dto.MediaCount--;
@@ -1576,7 +1930,7 @@ public partial class TimelineViewModel : ObservableObject
             // Update selected event if it was the one edited
             if (SelectedEvent?.EventId == eventId)
             {
-                SelectedEvent = Events.FirstOrDefault(e => e.EventId == eventId);
+                SelectedEvent = FindLoadedEvent(eventId);
             }
 
             StatusText = $"Event '{title}' updated";
@@ -2121,7 +2475,7 @@ public partial class TimelineViewModel : ObservableObject
     /// </summary>
     private void ApplyPeopleNamesToLoadedEvent(string eventId, IEnumerable<string> names)
     {
-        var dto = Events.FirstOrDefault(e => e.EventId == eventId);
+        var dto = FindLoadedEvent(eventId);
         if (dto != null)
         {
             dto.PeopleNames = names
@@ -2229,6 +2583,38 @@ public sealed class EventTagChipDto
 {
     /// <summary>The tag name.</summary>
     public string Name { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// One row of the swimlane gutter panel. Immutable - the gutter collection is
+/// rebuilt on reload/mode-change/collapse-toggle (never per scroll tick), so
+/// no change notification is needed.
+/// </summary>
+public sealed class LaneGutterRowDto
+{
+    public string LaneKey { get; init; } = string.Empty;
+
+    public string Label { get; init; } = string.Empty;
+
+    public int EventCount { get; init; }
+
+    /// <summary>Row height in pixels; matches the lane row the events use.</summary>
+    public double RowHeight { get; init; }
+
+    public bool IsCollapsed { get; init; }
+
+    /// <summary>Every other row gets a subtle stripe.</summary>
+    public bool IsAlternate { get; init; }
+
+    /// <summary>Chevron: down when expanded, right when collapsed.</summary>
+    public string ChevronGlyph => IsCollapsed ? "\uE70E" : "\uE70D";
+
+    public string CountDisplay => EventCount == 1 ? "1 event" : $"{EventCount} events";
+
+    /// <summary>Stripe layer opacity (rows alternate 0 / 1 over a subtle brush).</summary>
+    public double StripeOpacity => IsAlternate ? 1.0 : 0.0;
+
+    public string AutomationLabel => $"Collapse or expand the {Label} lane";
 }
 
 /// <summary>

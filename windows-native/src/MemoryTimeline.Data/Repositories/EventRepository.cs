@@ -124,12 +124,15 @@ public class EventRepository : IEventRepository
         // an event is in range when it starts before the range ends and ends
         // (or, for point-in-time events, starts) after the range begins.
         // This keeps multi-day events that are already in progress visible.
-        // People are included so timeline DTOs can surface them without a
-        // per-event lazy load.
+        // People and tags are included so timeline DTOs can surface them
+        // without a per-event lazy load (tags feed the timeline's tag-lane
+        // grouping; one batched query, never per-event).
         return await context.Events
             .Include(e => e.Era)
             .Include(e => e.EventPeople)
                 .ThenInclude(ep => ep.Person)
+            .Include(e => e.EventTags)
+                .ThenInclude(et => et.Tag)
             .AsNoTracking() // Read-only optimization
             .Where(e => e.StartDate <= endDate && (e.EndDate ?? e.StartDate) >= startDate)
             .OrderBy(e => e.StartDate)

@@ -141,8 +141,89 @@
                     </MenuFlyout>
                 </Grid.ContextFlyout>
 
-                <!-- Events layer - map pins in the upper area, stacking upward -->
+                <!-- Events layer - three stacked sub-layers positioned in the
+                     same coordinate space: uncertainty underlays (bottom),
+                     duration span bars (middle), map pins (top). Transforms
+                     and visibility are OneWay so pan/zoom shifts reposition
+                     already-rendered items in place without container churn. -->
                 <Canvas x:Name="EventsCanvas" Grid.Row="0" Grid.RowSpan="2">
+                    <!-- Uncertainty underlays: soft gradient bands spanning the
+                         DatePrecision window of approximate events (F1). -->
+                    <ItemsControl x:Name="UncertaintyLayer"
+                                 ItemsSource="{x:Bind ViewModel.UncertainEvents, Mode=OneWay}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <Canvas/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="dto:TimelineEventDto">
+                                <Rectangle Width="{x:Bind WindowWidth, Mode=OneWay}"
+                                          Height="{x:Bind Height, Mode=OneWay}"
+                                          Fill="{x:Bind UncertaintyBrush}"
+                                          RadiusX="4"
+                                          RadiusY="4"
+                                          IsHitTestVisible="False"
+                                          Visibility="{x:Bind ShowUncertaintyBand, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <Rectangle.RenderTransform>
+                                        <TranslateTransform X="{x:Bind WindowStartX, Mode=OneWay}" Y="{x:Bind PixelY, Mode=OneWay}"/>
+                                    </Rectangle.RenderTransform>
+                                </Rectangle>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- Span bars: duration events wide enough to earn a real
+                         width (left edge anchored on the start date). -->
+                    <ItemsControl x:Name="SpansLayer"
+                                 ItemsSource="{x:Bind ViewModel.SpanEvents, Mode=OneWay}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <Canvas/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="dto:TimelineEventDto">
+                                <controls:EventSpanBar Event="{x:Bind Mode=OneWay}"
+                                                      Width="{x:Bind Width, Mode=OneWay}"
+                                                      Height="24"
+                                                      Visibility="{x:Bind IsVisible, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"
+                                                      Tapped="EventBubble_Tapped"
+                                                      RightTapped="EventBubble_RightTapped"
+                                                      PointerEntered="EventBubble_PointerEntered"
+                                                      PointerExited="EventBubble_PointerExited">
+                                    <controls:EventSpanBar.RenderTransform>
+                                        <TranslateTransform X="{x:Bind PixelX, Mode=OneWay}" Y="{x:Bind PixelY, Mode=OneWay}"/>
+                                    </controls:EventSpanBar.RenderTransform>
+                                    <controls:EventSpanBar.ContextFlyout>
+                                        <MenuFlyout>
+                                            <MenuFlyoutItem Text="View Details"
+                                                           Click="ViewEventMenuItem_Click">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="&#xE8A7;"/>
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                            <MenuFlyoutItem Text="Edit Event"
+                                                           Click="EditEventMenuItem_Click">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="&#xE70F;"/>
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                            <MenuFlyoutSeparator/>
+                                            <MenuFlyoutItem Text="Delete Event"
+                                                           Click="DeleteEventMenuItem_Click">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="&#xE74D;"/>
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                        </MenuFlyout>
+                                    </controls:EventSpanBar.ContextFlyout>
+                                </controls:EventSpanBar>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- Map pins (point-in-time and short-duration events) -->
                     <ItemsControl x:Name="EventsLayer"
                                  ItemsSource="{x:Bind ViewModel.Events, Mode=OneWay}">
                         <ItemsControl.ItemsPanel>
@@ -155,12 +236,13 @@
                                 <controls:EventBubble Event="{x:Bind Mode=OneWay}"
                                                      Width="{x:Bind Width}"
                                                      Height="{x:Bind Height}"
+                                                     Visibility="{x:Bind IsVisible, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"
                                                      Tapped="EventBubble_Tapped"
                                                      RightTapped="EventBubble_RightTapped"
                                                      PointerEntered="EventBubble_PointerEntered"
                                                      PointerExited="EventBubble_PointerExited">
                                     <controls:EventBubble.RenderTransform>
-                                        <TranslateTransform X="{x:Bind PixelX}" Y="{x:Bind PixelY}"/>
+                                        <TranslateTransform X="{x:Bind PixelX, Mode=OneWay}" Y="{x:Bind PixelY, Mode=OneWay}"/>
                                     </controls:EventBubble.RenderTransform>
                                     <controls:EventBubble.ContextFlyout>
                                         <MenuFlyout>
@@ -257,6 +339,59 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </Grid>
+
+                <!-- Swimlane gutter (lane modes only): fixed labels overlaying
+                     the left edge of the events area, one row per lane. Row
+                     heights come from the same lane constants the events use,
+                     so gutter rows stay aligned with lane rows. The events
+                     area does not scroll vertically, and neither does this. -->
+                <Border x:Name="LaneGutter"
+                       Grid.Row="0"
+                       Width="140"
+                       HorizontalAlignment="Left"
+                       VerticalAlignment="Stretch"
+                       Background="{ThemeResource LayerFillColorDefaultBrush}"
+                       BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                       BorderThickness="0,0,1,0"
+                       Visibility="{x:Bind ViewModel.IsLaneModeActive, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <ItemsControl ItemsSource="{x:Bind ViewModel.LaneGutterRows, Mode=OneWay}"
+                                 VerticalAlignment="Top">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:LaneGutterRowDto">
+                                <Grid Height="{x:Bind RowHeight}">
+                                    <!-- Alternating row stripe -->
+                                    <Border Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                           Opacity="{x:Bind StripeOpacity}"/>
+                                    <StackPanel Orientation="Horizontal"
+                                               Spacing="4"
+                                               Padding="4,0"
+                                               VerticalAlignment="Center">
+                                        <Button Background="Transparent"
+                                               BorderThickness="0"
+                                               Padding="2"
+                                               VerticalAlignment="Center"
+                                               Click="LaneCollapse_Click"
+                                               AutomationProperties.Name="{x:Bind AutomationLabel}"
+                                               ToolTipService.ToolTip="Collapse or expand this lane">
+                                            <FontIcon Glyph="{x:Bind ChevronGlyph}" FontSize="10"/>
+                                        </Button>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="{x:Bind Label}"
+                                                      FontSize="12"
+                                                      FontWeight="SemiBold"
+                                                      TextTrimming="CharacterEllipsis"
+                                                      MaxWidth="96"/>
+                                            <TextBlock Text="{x:Bind CountDisplay}"
+                                                      FontSize="10"
+                                                      Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                                                      Visibility="{x:Bind IsCollapsed, Converter={StaticResource InvertedBoolToVisibilityConverter}}"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Border>
             </Grid>
 
             <!-- Zoom controls overlay -->
@@ -498,6 +633,49 @@
                 <AppBarButton.Icon>
                     <FontIcon Glyph="&#xE8A5;"/>
                 </AppBarButton.Icon>
+            </AppBarButton>
+
+            <AppBarButton x:Name="LaneModeButton"
+                         Label="Lanes"
+                         ToolTipService.ToolTip="Group events into horizontal swimlanes">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE8FD;"/>
+                </AppBarButton.Icon>
+                <AppBarButton.Flyout>
+                    <MenuFlyout>
+                        <RadioMenuFlyoutItem x:Name="LaneModeAutoItem"
+                                            Text="Auto (stacked)"
+                                            Tag="Auto"
+                                            GroupName="LaneModeGroup"
+                                            IsChecked="True"
+                                            Click="LaneModeItem_Click"/>
+                        <RadioMenuFlyoutItem x:Name="LaneModeCategoryItem"
+                                            Text="By category"
+                                            Tag="Category"
+                                            GroupName="LaneModeGroup"
+                                            Click="LaneModeItem_Click"/>
+                        <RadioMenuFlyoutItem x:Name="LaneModePersonItem"
+                                            Text="By person"
+                                            Tag="Person"
+                                            GroupName="LaneModeGroup"
+                                            Click="LaneModeItem_Click"/>
+                        <RadioMenuFlyoutItem x:Name="LaneModeLocationItem"
+                                            Text="By location"
+                                            Tag="Location"
+                                            GroupName="LaneModeGroup"
+                                            Click="LaneModeItem_Click"/>
+                        <RadioMenuFlyoutItem x:Name="LaneModeEraItem"
+                                            Text="By era"
+                                            Tag="Era"
+                                            GroupName="LaneModeGroup"
+                                            Click="LaneModeItem_Click"/>
+                        <RadioMenuFlyoutItem x:Name="LaneModeTagItem"
+                                            Text="By tag"
+                                            Tag="Tag"
+                                            GroupName="LaneModeGroup"
+                                            Click="LaneModeItem_Click"/>
+                    </MenuFlyout>
+                </AppBarButton.Flyout>
             </AppBarButton>
 
             <AppBarSeparator/>

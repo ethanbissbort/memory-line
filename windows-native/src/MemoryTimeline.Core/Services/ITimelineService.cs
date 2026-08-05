@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using MemoryTimeline.Core.DTOs;
 using MemoryTimeline.Core.Models;
+using MemoryTimeline.Data.Models;
 using MemoryTimeline.Data.Repositories;
 
 namespace MemoryTimeline.Core.Services;
@@ -296,6 +297,7 @@ public class TimelineService : ITimelineService
         const double pinWidth = 30.0;
         const double pinHeight = 40.0;
         const double pinSpacing = 5.0; // Spacing between stacked pins
+        const double spanHeight = 24.0; // Rounded span bar height
 
         // The baseline is near the bottom of the events area (above era bars).
         // Era bars area is ~40px, timeline axis is 80px, so events area is viewport height - 120px.
@@ -305,22 +307,67 @@ public class TimelineService : ITimelineService
 
         // Use the coordinate converter for date-to-screen transformations
         var converter = TimelineCoordinateConverter.FromViewport(viewport);
+        var maxVisibleX = Math.Max(0.0, viewport.ViewportWidth);
 
         foreach (var evt in events.OrderBy(e => e.StartDate))
         {
-            // Calculate horizontal position using coordinate converter - center the pin on the date
             var datePixelX = converter.DateToScreen(evt.StartDate);
-            evt.PixelX = datePixelX - (pinWidth / 2); // Center the pin on the date
 
-            // Fixed pin dimensions
-            evt.Width = pinWidth;
-            evt.Height = pinHeight;
+            // Duration-proportional width at the current scale. The
+            // pixels-per-day overload keeps span edges aligned with pin
+            // positions when the viewport sits between discrete zoom levels
+            // (continuous cursor zoom); at a discrete level it equals
+            // TimelineScale.GetEventWidth(start, end, viewport.ZoomLevel).
+            var proportionalWidth = TimelineScale.GetEventWidth(
+                evt.StartDate, evt.EndDate, viewport.PixelsPerDay, viewport.ZoomLevel);
+
+            if (evt.EndDate.HasValue && proportionalWidth > pinWidth)
+            {
+                // Span: left edge anchored on the start date, real width.
+                evt.RenderMode = EventRenderMode.Span;
+                evt.PixelX = datePixelX;
+                evt.Width = proportionalWidth;
+                evt.Height = spanHeight;
+
+                // Overhang past the viewport edges drives the end-cap chevrons.
+                evt.SpanLeftOverhang = Math.Max(0, -evt.PixelX);
+                evt.SpanRightOverhang = Math.Max(0, evt.PixelX + evt.Width - maxVisibleX);
+            }
+            else
+            {
+                // Pin: fixed size, centered on the start date. Duration events
+                // too short to exceed the pin width stay pins.
+                evt.RenderMode = EventRenderMode.Pin;
+                evt.PixelX = datePixelX - (pinWidth / 2);
+                evt.Width = pinWidth;
+                evt.Height = pinHeight;
+                evt.SpanLeftOverhang = 0;
+                evt.SpanRightOverhang = 0;
+            }
 
             // Check visibility using coordinate converter
-            evt.IsVisible = converter.IsRangeVisible(evt.StartDate, evt.EndDate);
+            evt.IsInViewport = converter.IsRangeVisible(evt.StartDate, evt.EndDate);
+
+            // Uncertainty window (F1 integration): pixel bounds of the
+            // DatePrecision window for events coarser than Month, clamped to
+            // the viewport so a decade window can't produce a megapixel-wide
+            // rect. Inside the viewport the bounds equal GetWindow exactly.
+            if (evt.IsApproximate)
+            {
+                var (earliest, latest) = DatePrecisionExtensions.GetWindow(evt.StartDate, evt.DatePrecision);
+                evt.WindowStartX = Math.Clamp(converter.DateToScreen(earliest), 0.0, maxVisibleX);
+                evt.WindowEndX = Math.Clamp(converter.DateToScreen(latest), 0.0, maxVisibleX);
+            }
+            else
+            {
+                evt.WindowStartX = 0;
+                evt.WindowEndX = 0;
+            }
         }
 
-        // Use tracks to stack overlapping pins above each other
+        // Use tracks to stack overlapping items above each other. The overlap
+        // math in FindAvailableTrack uses each event's REAL width
+        // (PixelX + Width), so wide spans claim their full horizontal extent.
         var tracks = new List<List<TimelineEventDto>>();
 
         foreach (var evt in events.OrderBy(e => e.StartDate))

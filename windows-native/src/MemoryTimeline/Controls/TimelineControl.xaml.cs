@@ -103,6 +103,10 @@ public sealed partial class TimelineControl : UserControl
             UpdateTimelineSize();
             UpdateScrollbarFromViewport();
         }
+
+        // The ViewModel is a singleton; reflect its current lane mode in the
+        // freshly created dropdown.
+        SyncLaneModeRadios();
     }
 
     private async void TimelineControl_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -250,9 +254,12 @@ public sealed partial class TimelineControl : UserControl
     }
 
     /// <summary>
-    /// Handles view duration (zoom) changes from the proportional scrollbar edges.
+    /// Handles view duration (zoom) changes from the proportional scrollbar
+    /// edges. The visual scale change applies immediately to the already-
+    /// loaded items (cheap, in-memory); the database reload is debounced by
+    /// the ViewModel so an edge drag costs one reload, not one per tick.
     /// </summary>
-    private async void TimelineScrollBar_ViewDurationChanged(object sender, ViewDurationChangedEventArgs e)
+    private void TimelineScrollBar_ViewDurationChanged(object sender, ViewDurationChangedEventArgs e)
     {
         if (_viewModel?.Viewport == null || _isUpdatingScrollbar)
             return;
@@ -276,13 +283,61 @@ public sealed partial class TimelineControl : UserControl
             _viewModel.Viewport.PixelsPerDay = newPixelsPerDay;
             _viewModel.Viewport.ZoomLevel = ZoomHelper.GetClosestZoomLevel(newPixelsPerDay);
 
-            // Reload events and eras for the new viewport
-            // This would ideally be done through the ViewModel
-            await _viewModel.RefreshCommand.ExecuteAsync(null);
+            // Immediate re-layout of loaded items + trailing debounced reload.
+            _viewModel.NotifyViewportChangedExternally();
         }
         finally
         {
             _isUpdatingScrollbar = false;
+        }
+    }
+
+    #endregion
+
+    #region Swimlane Handlers
+
+    /// <summary>
+    /// Applies the lane mode chosen in the CommandBar "Lanes" dropdown. The
+    /// ViewModel re-lays-out the already-loaded events without a reload.
+    /// </summary>
+    private void LaneModeItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel == null || sender is not RadioMenuFlyoutItem item)
+            return;
+
+        if (Enum.TryParse<LaneMode>(item.Tag?.ToString(), out var mode) &&
+            _viewModel.LaneMode != mode)
+        {
+            _viewModel.LaneMode = mode;
+        }
+    }
+
+    /// <summary>Collapses/expands the lane whose gutter chevron was clicked.</summary>
+    private void LaneCollapse_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: LaneGutterRowDto row })
+        {
+            _viewModel?.ToggleLaneCollapse(row.LaneKey);
+        }
+    }
+
+    /// <summary>
+    /// Syncs the Lanes dropdown check state with the (singleton) ViewModel's
+    /// current mode - the control is recreated on every navigation.
+    /// </summary>
+    private void SyncLaneModeRadios()
+    {
+        if (_viewModel == null)
+            return;
+
+        var current = _viewModel.LaneMode.ToString();
+        foreach (var item in new[]
+                 {
+                     LaneModeAutoItem, LaneModeCategoryItem, LaneModePersonItem,
+                     LaneModeLocationItem, LaneModeEraItem, LaneModeTagItem
+                 })
+        {
+            item.IsChecked = string.Equals(item.Tag?.ToString(), current, StringComparison.OrdinalIgnoreCase);
         }
     }
 
