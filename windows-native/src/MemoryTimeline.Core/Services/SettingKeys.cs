@@ -16,4 +16,6 @@ public static class SettingKeys
     public const string EmbeddingApiKey = "embedding_api_key"; // matches DB seed
     public const string EmbeddingModel = "embedding_model";    // matches DB seed
     public const string Theme = "theme";                       // matches DB seed
+    public const string AskTopK = "ask_top_k";                 // matches DB seed
+    public const string AskIncludeTranscripts = "ask_include_transcripts"; // matches DB seed
 }

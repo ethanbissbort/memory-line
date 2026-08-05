@@ -338,7 +338,9 @@ public class AppDbContext : DbContext
             new AppSetting { SettingKey = "embedding_api_key", SettingValue = "", UpdatedAt = SeedTimestamp },
             new AppSetting { SettingKey = "auto_generate_embeddings", SettingValue = "true", UpdatedAt = SeedTimestamp },
             new AppSetting { SettingKey = "send_transcripts_only", SettingValue = "true", UpdatedAt = SeedTimestamp },
-            new AppSetting { SettingKey = "require_confirmation", SettingValue = "true", UpdatedAt = SeedTimestamp }
+            new AppSetting { SettingKey = "require_confirmation", SettingValue = "true", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "ask_top_k", SettingValue = "12", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "ask_include_transcripts", SettingValue = "false", UpdatedAt = SeedTimestamp }
         );
 
         // Seed default era categories

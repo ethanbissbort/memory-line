@@ -127,6 +127,8 @@ public partial class App : Application
                     // Phase 5: RAG & Embedding services
                     services.AddHttpClient<IEmbeddingService, OpenAIEmbeddingService>();
                     services.AddSingleton<IRagService, RagService>();
+                    // Ask your timeline: conversational retrieval over the archive
+                    services.AddSingleton<IMemoryQueryService, MemoryQueryService>();
 
                     // Phase 6: Export/Import & Windows Integration services
                     services.AddSingleton<IExportService, ExportService>();
@@ -155,6 +157,7 @@ public partial class App : Application
                     services.AddTransient<AnalyticsViewModel>();
                     services.AddTransient<ErasViewModel>();
                     services.AddTransient<ContactsViewModel>();
+                    services.AddTransient<AskViewModel>();
 
                     // Register Views. Pages are NOT registered: Frame.Navigate creates them
                     // via Activator, so page registrations were dead code; each page pulls

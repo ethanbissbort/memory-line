@@ -24,6 +24,11 @@
 
             <NavigationView.MenuItems>
                 <NavigationViewItem Content="Timeline" Tag="Timeline" Icon="Calendar"/>
+                <NavigationViewItem Content="Ask" Tag="Ask">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE9CE;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Content="Queue" Tag="Queue" Icon="Microphone"/>
                 <NavigationViewItem Content="Review" Tag="Review" Icon="Accept"/>
                 <NavigationViewItem Content="People" Tag="People">

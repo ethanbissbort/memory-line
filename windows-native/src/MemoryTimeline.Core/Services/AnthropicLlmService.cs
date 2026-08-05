@@ -171,6 +171,63 @@ public class AnthropicLlmService : ILlmService
         }
     }
 
+    /// <summary>
+    /// Runs a single free-form completion against the configured Claude model.
+    /// Reuses the same client-initialization path as extraction (settings are
+    /// re-read on every call, so key/model changes apply immediately).
+    /// </summary>
+    /// <remarks>
+    /// The system prompt is prepended to the user message content (clearly
+    /// delimited) rather than using dedicated system-message plumbing: the only
+    /// Anthropic.SDK call shape proven in this codebase is a plain user
+    /// <see cref="Message"/> passed to GetClaudeMessageAsync. Likewise the SDK
+    /// call is not visibly cancellable here, so the <paramref name="ct"/> is
+    /// honored at the call boundaries instead.
+    /// </remarks>
+    public async Task<string> CompleteAsync(string systemPrompt, string userPrompt, int maxTokens = 2000, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        await InitializeClientAsync();
+
+        if (_client == null)
+        {
+            throw new ConfigurationException("Anthropic API key not configured — add it in Settings");
+        }
+
+        var combinedPrompt = string.IsNullOrWhiteSpace(systemPrompt)
+            ? userPrompt
+            : $"<system_instructions>\n{systemPrompt}\n</system_instructions>\n\n{userPrompt}";
+
+        var parameters = new MessageParameters
+        {
+            Messages = new List<Message>
+            {
+                new Message(RoleType.User, combinedPrompt)
+            },
+            Model = ModelName,
+            MaxTokens = maxTokens,
+            Temperature = 0.3m,
+            Stream = false
+        };
+
+        _logger.LogInformation("Sending completion request to Claude API ({Length} chars)", combinedPrompt.Length);
+
+        ct.ThrowIfCancellationRequested();
+        var response = await _client.Messages.GetClaudeMessageAsync(parameters);
+        ct.ThrowIfCancellationRequested();
+
+        var textContent = response?.Message?.Content?
+            .FirstOrDefault(c => c is TextContent) as TextContent;
+
+        if (textContent == null || string.IsNullOrWhiteSpace(textContent.Text))
+        {
+            throw new InvalidOperationException("Claude returned an empty response.");
+        }
+
+        return textContent.Text.Trim();
+    }
+
     #region Private Methods
 
     /// <summary>

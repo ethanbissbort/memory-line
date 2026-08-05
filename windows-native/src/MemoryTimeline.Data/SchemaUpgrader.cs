@@ -266,6 +266,39 @@ public static class SchemaUpgrader
                 await ExecuteAsync(connection,
                     "CREATE INDEX IF NOT EXISTS \"IX_people_is_favorite\" ON \"people\" (\"is_favorite\");");
             }
+
+            // Seed parity with AppDbContext.SeedDefaultSettings (HasData);
+            // EnsureCreated is a no-op on databases created by older builds, so
+            // any settings row seeded after that build is missing there.
+            // INSERT OR IGNORE keeps this idempotent and never overwrites a
+            // value the user has since changed.
+            if (existingTables.Contains("app_settings"))
+            {
+                await ExecuteAsync(connection,
+                    """
+                    INSERT OR IGNORE INTO "app_settings" ("setting_key", "setting_value", "updated_at") VALUES
+                        ('theme',                    'light',                    '2025-01-21 00:00:00'),
+                        ('default_zoom_level',       'month',                    '2025-01-21 00:00:00'),
+                        ('audio_quality',            'high',                     '2025-01-21 00:00:00'),
+                        ('llm_provider',             'anthropic',                '2025-01-21 00:00:00'),
+                        ('llm_model',                'claude-sonnet-4-20250514', '2025-01-21 00:00:00'),
+                        ('llm_max_tokens',           '4000',                     '2025-01-21 00:00:00'),
+                        ('llm_temperature',          '0.3',                      '2025-01-21 00:00:00'),
+                        ('stt_engine',               'windows',                  '2025-01-21 00:00:00'),
+                        ('stt_config',               '{}',                       '2025-01-21 00:00:00'),
+                        ('rag_auto_run_enabled',     'false',                    '2025-01-21 00:00:00'),
+                        ('rag_schedule',             'weekly',                   '2025-01-21 00:00:00'),
+                        ('rag_similarity_threshold', '0.75',                     '2025-01-21 00:00:00'),
+                        ('embedding_provider',       'local',                    '2025-01-21 00:00:00'),
+                        ('embedding_model',          'onnx-text-embedding',      '2025-01-21 00:00:00'),
+                        ('embedding_api_key',        '',                         '2025-01-21 00:00:00'),
+                        ('auto_generate_embeddings', 'true',                     '2025-01-21 00:00:00'),
+                        ('send_transcripts_only',    'true',                     '2025-01-21 00:00:00'),
+                        ('require_confirmation',     'true',                     '2025-01-21 00:00:00'),
+                        ('ask_top_k',                '12',                       '2025-01-21 00:00:00'),
+                        ('ask_include_transcripts',  'false',                    '2025-01-21 00:00:00');
+                    """);
+            }
         }
         finally
         {
