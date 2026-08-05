@@ -829,6 +829,7 @@ public partial class ErasViewModel : ObservableObject
                 EndDate = EditEndDate,
                 CategoryId = EditCategoryId,
                 ColorCode = EditColorCode,
+                ColorOverride = string.IsNullOrWhiteSpace(EditColorOverride) ? null : EditColorOverride.Trim(),
                 Description = string.IsNullOrWhiteSpace(EditDescription) ? null : EditDescription.Trim(),
                 Notes = string.IsNullOrWhiteSpace(EditNotes) ? null : EditNotes.Trim(),
                 Tags = EditTags.ToList()
@@ -881,7 +882,7 @@ public partial class ErasViewModel : ObservableObject
             EditColorCode = string.IsNullOrWhiteSpace(payload.ColorCode)
                 ? ColorPalette[Eras.Count % ColorPalette.Count]
                 : payload.ColorCode;
-            EditColorOverride = string.Empty;
+            EditColorOverride = payload.ColorOverride ?? string.Empty;
             EditCategoryId = payload.CategoryId ?? Categories.FirstOrDefault()?.CategoryId;
             EditDescription = payload.Description ?? string.Empty;
             EditNotes = payload.Notes ?? string.Empty;

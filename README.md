@@ -55,6 +55,7 @@ Every hop persists its state, so a failure at any stage is recoverable and visib
 - **Recording** with pause/resume/cancel using Windows `MediaCapture`; recordings are written under `%LOCALAPPDATA%\MemoryTimeline\AudioRecordings`.
 - **Local speech-to-text** via **Whisper** ([Whisper.net](https://github.com/sandrohanea/whisper.net)) — file-based, fully **offline** after a one-time model download. The recorded WAV is transcribed on-device; no audio is sent to the cloud.
 - **LLM event extraction** with Anthropic **Claude**, producing structured events with tags, people, and locations, held in a **review queue** with approve / edit / reject.
+- **Person suggestions** — extraction captures per-person details (relationship, context); the review queue flags each mentioned person as *new*, *known*, or *update details* with one-click apply into the contact book.
 
 ### Discover
 - **Search** — full-text and **faceted** search across events, tags, people, locations, and eras, with debounced suggestions and saved searches.
@@ -62,6 +63,8 @@ Every hop persists its state, so a failure at any stage is recoverable and visib
 - **Analytics** — category distribution, timeline density, tag cloud, people network, and activity summaries, with real empty-states.
 
 ### Organize & manage
+- **People** — a full contact book: nickname, relationship, email, phone, birthday, company, notes, favorites, and tinted initials avatars, with per-person event history, duplicate detection, and merge. Events link to one or more persons via a picker in the event editor, and search filters by person.
+- **Drafts** — save events, eras, and persons as drafts from their editors and resume them later from a Drafts tab on the Review page.
 - **Eras** — define and color life periods that frame the timeline.
 - **Export / Import** — JSON, CSV, and Markdown export; JSON import with duplicate handling and an optional pre-import database backup.
 - **Settings** — API keys, LLM provider/model, default zoom, and theme, all persisted to the local database and applied without a restart.

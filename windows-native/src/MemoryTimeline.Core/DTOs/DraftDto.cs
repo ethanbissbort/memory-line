@@ -182,6 +182,9 @@ public sealed class EraDraftPayload
     /// <summary>Era color as a hex string.</summary>
     public string? ColorCode { get; set; }
 
+    /// <summary>Optional per-era color override as a hex string.</summary>
+    public string? ColorOverride { get; set; }
+
     /// <summary>Era description.</summary>
     public string? Description { get; set; }
 
