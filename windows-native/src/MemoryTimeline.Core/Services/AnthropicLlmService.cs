@@ -214,7 +214,9 @@ public class AnthropicLlmService : ILlmService
         _logger.LogInformation("Sending completion request to Claude API ({Length} chars)", combinedPrompt.Length);
 
         ct.ThrowIfCancellationRequested();
-        var response = await _client.Messages.GetClaudeMessageAsync(parameters);
+        // Forward the token so cancelling actually aborts the in-flight HTTP
+        // request instead of only checking at the call boundaries.
+        var response = await _client.Messages.GetClaudeMessageAsync(parameters, ct);
         ct.ThrowIfCancellationRequested();
 
         var textContent = response?.Message?.Content?

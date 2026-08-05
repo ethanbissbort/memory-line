@@ -191,7 +191,7 @@ public class MemoryQueryService : IMemoryQueryService
         var eventById = retrieved.ToDictionary(e => e.EventId, StringComparer.Ordinal);
         var citations = citationOrder
             .Select(id => eventById[id])
-            .Select(e => new CitedEvent(e.EventId, e.Title, e.StartDate, BuildSnippet(e)))
+            .Select(e => new CitedEvent(e.EventId, e.Title, e.StartDate, BuildSnippet(e), e.DatePrecision))
             .ToList();
 
         _logger.LogInformation(

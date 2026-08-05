@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using MemoryTimeline.Core.Models;
 using MemoryTimeline.Core.Services;
 using MemoryTimeline.Data.Repositories;
 using MemoryTimeline.Services;
@@ -219,7 +220,9 @@ public partial class AskViewModel : ObservableObject, IDisposable
                     var chip = new AskCitationDto
                     {
                         EventId = citation.EventId,
-                        Label = $"{citation.StartDate:dd MMM yyyy} — {citation.Title}"
+                        // Precision-honest display: a Year-precision memory reads
+                        // "1998 — ..." here, never a fabricated exact day.
+                        Label = $"{DateDisplay.FormatPrecise(citation.StartDate, citation.DatePrecision)} — {citation.Title}"
                     };
                     chip.OpenCommand = new RelayCommand(() => OpenCitation(chip.EventId));
                     exchange.Citations.Add(chip);

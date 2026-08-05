@@ -744,13 +744,18 @@ public sealed partial class TimelineControl : UserControl
 
     /// <summary>
     /// Shows the precision-honest human form of the chosen date ("Summer 1998")
-    /// while the precision is coarser than Day; hidden otherwise.
+    /// while the precision is coarser than Day; hidden otherwise. The MMDDYY
+    /// fast-entry box is disabled at coarse precisions — the calendar picker
+    /// stays enabled because it is how the anchor month/season/year is chosen.
     /// </summary>
     private void UpdatePrecisionPreview()
     {
         var precision = GetSelectedPrecision();
+        var isDayGranular = precision <= DatePrecision.Day;
 
-        if (precision <= DatePrecision.Day || !EventDatePicker.Date.HasValue)
+        EventDateTextBox.IsEnabled = isDayGranular;
+
+        if (isDayGranular || !EventDatePicker.Date.HasValue)
         {
             EventPrecisionPreview.Visibility = Visibility.Collapsed;
             return;

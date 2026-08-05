@@ -1,3 +1,5 @@
+using MemoryTimeline.Data.Models;
+
 namespace MemoryTimeline.Core.Services;
 
 /// <summary>
@@ -75,4 +77,9 @@ public class MemoryAnswer
 /// <summary>
 /// A single cited event supporting the answer.
 /// </summary>
-public sealed record CitedEvent(string EventId, string Title, DateTime StartDate, string Snippet);
+public sealed record CitedEvent(
+    string EventId,
+    string Title,
+    DateTime StartDate,
+    string Snippet,
+    DatePrecision DatePrecision = DatePrecision.Day);
