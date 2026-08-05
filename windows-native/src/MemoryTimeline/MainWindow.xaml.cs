@@ -131,6 +131,18 @@ public sealed partial class MainWindow : Window
         args.Handled = true;
     }
 
+    private void PasteCapture_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        // Sync the nav selection FIRST: programmatic selection raises
+        // SelectionChanged, which performs a plain parameterless "Queue"
+        // navigation. The parameterized navigation below must come last so
+        // the "paste" parameter reaches QueuePage.OnNavigatedTo and opens
+        // the paste-capture dialog.
+        SelectNavigationItem("Queue");
+        _navigationService.NavigateTo("Queue", "paste");
+        args.Handled = true;
+    }
+
     private void Refresh_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
         // On the timeline, refresh the data in place: re-navigating the Frame

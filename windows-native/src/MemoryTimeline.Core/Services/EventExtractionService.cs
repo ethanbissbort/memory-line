@@ -46,19 +46,20 @@ public class EventExtractionService : IEventExtractionService
     }
 
     /// <summary>
-    /// Processes a recording: transcribe audio and extract events.
+    /// Processes a queue source: resolve its transcript (inline text for
+    /// Text/Imported sources, speech-to-text for Audio sources) and extract events.
     /// </summary>
     public async Task<int> ProcessRecordingAsync(string queueId, IProgress<(int, string)>? progress = null)
     {
         try
         {
-            _logger.LogInformation("Processing recording {QueueId}", queueId);
+            _logger.LogInformation("Processing queue source {QueueId}", queueId);
 
             // API-key pre-flight BEFORE any work (transcription is wasted effort
             // if extraction can never run). ConfigurationException is non-retryable.
             await EnsureLlmConfiguredAsync();
 
-            progress?.Report((10, "Loading recording..."));
+            progress?.Report((10, "Loading source..."));
 
             var queueItem = await _queueRepository.GetByIdAsync(queueId);
             if (queueItem == null)
@@ -66,23 +67,66 @@ public class EventExtractionService : IEventExtractionService
                 throw new Exception($"Queue item {queueId} not found");
             }
 
-            // Step 1: Transcribe audio
-            progress?.Report((20, "Transcribing audio..."));
-            _logger.LogInformation("Transcribing audio file: {FilePath}", queueItem.AudioFilePath);
-
-            var transcriptionResult = await _sttService.TranscribeAsync(queueItem.AudioFilePath);
-
-            if (!transcriptionResult.Success || string.IsNullOrWhiteSpace(transcriptionResult.Text))
+            // Step 1: resolve the transcript. Text/Imported sources carry their
+            // content inline and never run speech-to-text; Audio sources are
+            // transcribed ONCE and the transcript is persisted on the queue row
+            // so retries (e.g. after a flaky LLM call) skip Whisper entirely.
+            string transcript;
+            if (queueItem.SourceType != QueueSourceType.Audio)
             {
-                throw new Exception($"Transcription failed: {transcriptionResult.ErrorMessage}");
-            }
+                if (string.IsNullOrWhiteSpace(queueItem.Transcript))
+                {
+                    throw new Exception($"Queue item {queueId} is a text source but has no stored text");
+                }
 
-            _logger.LogInformation("Transcription completed: {Length} characters", transcriptionResult.Text.Length);
+                progress?.Report((20, "Using saved text..."));
+                transcript = queueItem.Transcript;
+                _logger.LogInformation("Using stored text for {QueueId}: {Length} characters",
+                    queueId, transcript.Length);
+            }
+            else if (!string.IsNullOrWhiteSpace(queueItem.Transcript))
+            {
+                progress?.Report((20, "Using saved transcript..."));
+                transcript = queueItem.Transcript;
+                _logger.LogInformation("Reusing persisted transcript for {QueueId}: {Length} characters",
+                    queueId, transcript.Length);
+            }
+            else
+            {
+                progress?.Report((20, "Transcribing audio..."));
+                _logger.LogInformation("Transcribing audio file: {FilePath}", queueItem.AudioFilePath);
+
+                var transcriptionResult = await _sttService.TranscribeAsync(queueItem.AudioFilePath);
+
+                if (!transcriptionResult.Success || string.IsNullOrWhiteSpace(transcriptionResult.Text))
+                {
+                    throw new Exception($"Transcription failed: {transcriptionResult.ErrorMessage}");
+                }
+
+                transcript = transcriptionResult.Text;
+                _logger.LogInformation("Transcription completed: {Length} characters", transcript.Length);
+
+                // Persist the transcript on the queue row BEFORE extraction so a
+                // failed LLM call (and the queue's retry loop, which re-enters
+                // this method) reuses it instead of re-running Whisper.
+                try
+                {
+                    queueItem.Transcript = transcript;
+                    await _queueRepository.UpdateAsync(queueItem);
+                }
+                catch (Exception persistEx)
+                {
+                    // Non-fatal by design: extraction proceeds with the in-memory
+                    // transcript; only the retry optimization is lost.
+                    _logger.LogWarning(persistEx,
+                        "Failed to persist transcript for {QueueId}; a retry may re-transcribe", queueId);
+                }
+            }
 
             // Step 2: Extract events using LLM (transcript + audio path are persisted
             // on every pending event so nothing lives only in memory)
             progress?.Report((50, "Extracting events..."));
-            var pendingEvents = await ExtractAndCreatePendingEventsAsync(queueId, transcriptionResult.Text);
+            var pendingEvents = await ExtractAndCreatePendingEventsAsync(queueId, transcript);
 
             progress?.Report((100, $"Extracted {pendingEvents.Count} events"));
             _logger.LogInformation("Successfully extracted {Count} events from recording {QueueId}",
@@ -107,9 +151,14 @@ public class EventExtractionService : IEventExtractionService
         {
             _logger.LogInformation("Extracting events from transcript for queue {QueueId}", queueId);
 
-            // Resolve the source audio file path so it can be persisted with each pending event
+            // Resolve the source audio file path so it can be persisted with each
+            // pending event. Text sources store string.Empty in the NOT NULL
+            // audio_file_path column (see RecordingQueue.AudioFilePath); map that
+            // to null so pending/approved events never claim a phantom audio file.
             var queueItem = await _queueRepository.GetByIdAsync(queueId);
-            var audioFilePath = queueItem?.AudioFilePath;
+            var audioFilePath = string.IsNullOrEmpty(queueItem?.AudioFilePath)
+                ? null
+                : queueItem!.AudioFilePath;
 
             // Build extraction context
             var context = await BuildExtractionContextAsync();

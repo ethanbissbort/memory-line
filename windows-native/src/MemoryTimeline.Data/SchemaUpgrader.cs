@@ -237,6 +237,20 @@ public static class SchemaUpgrader
                 ("updated_at",     "\"updated_at\" TEXT NOT NULL DEFAULT '2025-01-21 00:00:00'"),
             });
 
+            // Text/paste capture columns on recording_queue (2026-08 text-source
+            // feature): source_type discriminator (INTEGER enum, 0 = Audio, so
+            // every pre-existing row stays an audio source), optional label and
+            // the persisted transcript (pasted text for Text/Imported sources,
+            // cached Whisper output for Audio sources). NOT NULL added columns
+            // must carry constant defaults - SQLite's ALTER TABLE ADD COLUMN
+            // requirement.
+            await EnsureColumnsAsync(connection, existingTables, "recording_queue", logger, new[]
+            {
+                ("source_type",  "\"source_type\" INTEGER NOT NULL DEFAULT 0"),
+                ("source_label", "\"source_label\" TEXT NULL"),
+                ("transcript",   "\"transcript\" TEXT NULL"),
+            });
+
             // Index on the (possibly just-added) eras.category_id column,
             // mirroring OnModelCreating's HasIndex(e => e.CategoryId).
             if (existingTables.Contains("eras"))

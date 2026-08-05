@@ -11,6 +11,8 @@
         <Grid.KeyboardAccelerators>
             <!-- Ctrl+R refreshes the current page in place (timeline refresh, not renavigation) -->
             <KeyboardAccelerator Key="R" Modifiers="Control" Invoked="Refresh_Invoked"/>
+            <!-- Ctrl+Shift+V opens the paste-text capture dialog on the Queue page -->
+            <KeyboardAccelerator Key="V" Modifiers="Control,Shift" Invoked="PasteCapture_Invoked"/>
         </Grid.KeyboardAccelerators>
         <NavigationView
             x:Name="NavigationView"

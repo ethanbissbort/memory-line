@@ -455,6 +455,37 @@ public partial class QueueViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// Enqueues pasted text as a Text source (no audio, no speech-to-text).
+    /// Returns null on success, or a user-facing error message on failure —
+    /// the paste dialog keeps itself open and shows the message in its InfoBar.
+    /// Errors are logged here; the caller only displays them.
+    /// </summary>
+    public async Task<string?> EnqueuePastedTextAsync(string? text, string? label)
+    {
+        try
+        {
+            var queueId = await _queueService.EnqueueTextAsync(text ?? string.Empty, label);
+            await RefreshQueueAsync();
+            StatusText = "Text added to queue";
+
+            _logger.LogInformation("Pasted text enqueued as {QueueId}", queueId);
+            return null;
+        }
+        catch (ArgumentException ex)
+        {
+            // Validation rejection (empty/whitespace text) — expected user error.
+            _logger.LogWarning(ex, "Rejected pasted text");
+            return ex.Message;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error adding pasted text to queue");
+            StatusText = "Error adding text to queue";
+            return $"Could not add text to the queue: {ex.Message}";
+        }
+    }
+
     #endregion
 
     #region Playback Commands
@@ -462,7 +493,9 @@ public partial class QueueViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task PlayItemAsync(AudioRecordingDto? item)
     {
-        if (item == null) return;
+        // Text sources have no audio file (AudioFilePath is string.Empty by
+        // convention); the play button is hidden for them, but guard anyway.
+        if (item == null || !item.IsAudioSource) return;
 
         try
         {
