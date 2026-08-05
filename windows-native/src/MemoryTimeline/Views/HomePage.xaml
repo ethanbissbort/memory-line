@@ -145,6 +145,34 @@
                                Command="{x:Bind ViewModel.ReviewNowCommand}"/>
                     </Grid>
 
+                    <!-- Guided recall: one question generated from archive gaps;
+                         Answer opens the Queue page focused on this prompt. -->
+                    <Grid Visibility="{x:Bind ViewModel.HasRecallPrompt, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}"
+                         Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                         BorderThickness="1"
+                         CornerRadius="8"
+                         Padding="16"
+                         ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="4" VerticalAlignment="Center">
+                            <TextBlock Text="Help fill a gap"
+                                      Style="{StaticResource BodyStrongTextBlockStyle}"/>
+                            <TextBlock Text="{x:Bind ViewModel.RecallQuestion, Mode=OneWay}"
+                                      Style="{StaticResource BodyTextBlockStyle}"
+                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                      TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <Button Grid.Column="1"
+                               Content="Answer"
+                               Style="{StaticResource AccentButtonStyle}"
+                               VerticalAlignment="Center"
+                               Command="{x:Bind ViewModel.AnswerRecallPromptCommand}"/>
+                    </Grid>
+
                     <!-- (b) Random memory -->
                     <StackPanel Spacing="12">
                         <Grid>

@@ -2,6 +2,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MemoryTimeline.Core.Models;
 using MemoryTimeline.Core.Services;
+using MemoryTimeline.Data.Models;
 using MemoryTimeline.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
@@ -12,8 +13,8 @@ namespace MemoryTimeline.ViewModels;
 /// <summary>
 /// ViewModel for the Home page: On This Day memories, a (neglected-biased)
 /// random memory, recent additions, the pending-review count, the weekly
-/// digest, and upcoming anniversaries - plus the first-run empty state when
-/// the archive has no events yet.
+/// digest, upcoming anniversaries, and a guided-recall card - plus the
+/// first-run empty state when the archive has no events yet.
 /// </summary>
 public partial class HomeViewModel : ObservableObject
 {
@@ -21,8 +22,12 @@ public partial class HomeViewModel : ObservableObject
     private readonly IEventService _eventService;
     private readonly IEventExtractionService _eventExtractionService;
     private readonly ISettingsService _settingsService;
+    private readonly IRecallPromptService _recallPromptService;
     private readonly INavigationService _navigationService;
     private readonly ILogger<HomeViewModel> _logger;
+
+    /// <summary>The prompt shown on the recall card (for the Answer deep link).</summary>
+    private string? _recallPromptId;
 
     // Captured on construction (UI thread) so any background completion can
     // marshal observable mutations back onto the dispatcher.
@@ -82,11 +87,19 @@ public partial class HomeViewModel : ObservableObject
     [ObservableProperty]
     private bool _hasUpcomingAnniversaries;
 
+    /// <summary>Guided-recall card: the question inviting the user to fill a gap.</summary>
+    [ObservableProperty]
+    private string? _recallQuestion;
+
+    [ObservableProperty]
+    private bool _hasRecallPrompt;
+
     public HomeViewModel(
         IResurfacingService resurfacingService,
         IEventService eventService,
         IEventExtractionService eventExtractionService,
         ISettingsService settingsService,
+        IRecallPromptService recallPromptService,
         INavigationService navigationService,
         ILogger<HomeViewModel> logger)
     {
@@ -94,6 +107,7 @@ public partial class HomeViewModel : ObservableObject
         _eventService = eventService;
         _eventExtractionService = eventExtractionService;
         _settingsService = settingsService;
+        _recallPromptService = recallPromptService;
         _navigationService = navigationService;
         _logger = logger;
 
@@ -156,9 +170,32 @@ public partial class HomeViewModel : ObservableObject
             var digestEnabled = !string.Equals(digestEnabledSetting?.Trim(), "false", StringComparison.OrdinalIgnoreCase);
             var digest = digestEnabled ? await _resurfacingService.GetWeeklyDigestAsync() : null;
 
+            // Guided recall: one question generated from archive gaps. A recall
+            // failure is surfaced in the error bar but never blocks the rest of
+            // the home page from rendering.
+            RecallPrompt? recallPrompt = null;
+            string? recallError = null;
+            try
+            {
+                recallPrompt = (await _recallPromptService.GetPromptsAsync(1)).FirstOrDefault();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to load a recall prompt for the home page");
+                recallError = ex.Message;
+            }
+
             RunOnUi(() =>
             {
                 IsArchiveEmpty = false;
+
+                _recallPromptId = recallPrompt?.PromptId;
+                RecallQuestion = recallPrompt?.Question;
+                HasRecallPrompt = recallPrompt != null;
+                if (recallError != null)
+                {
+                    ErrorMessage = $"Could not load a memory prompt: {recallError}";
+                }
 
                 OnThisDayMemories.Clear();
                 foreach (var memory in onThisDay)
@@ -267,6 +304,21 @@ public partial class HomeViewModel : ObservableObject
     private void ReviewNow()
     {
         _navigationService.NavigateTo("Review");
+    }
+
+    /// <summary>
+    /// Recall card: open the Queue page focused on this prompt.
+    /// QueuePage.OnNavigatedTo handles the "recall:&lt;promptId&gt;" parameter.
+    /// </summary>
+    [RelayCommand]
+    private void AnswerRecallPrompt()
+    {
+        if (_recallPromptId == null)
+        {
+            return;
+        }
+
+        _navigationService.NavigateTo("Queue", $"recall:{_recallPromptId}");
     }
 
     /// <summary>

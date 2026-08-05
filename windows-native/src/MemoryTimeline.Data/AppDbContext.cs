@@ -30,6 +30,7 @@ public class AppDbContext : DbContext
     public DbSet<AppSetting> AppSettings { get; set; } = null!;
     public DbSet<SavedSearch> SavedSearches { get; set; } = null!;
     public DbSet<Draft> Drafts { get; set; } = null!;
+    public DbSet<RecallPrompt> RecallPrompts { get; set; } = null!;
 
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
     {
@@ -345,6 +346,16 @@ public class AppDbContext : DbContext
             entity.HasIndex(d => d.UpdatedAt);
         });
 
+        // Configure RecallPrompt entity
+        modelBuilder.Entity<RecallPrompt>(entity =>
+        {
+            entity.HasKey(p => p.PromptId);
+            entity.HasIndex(p => p.Status);
+            // Dedupe lookup: has this gap (of this kind, about this entity)
+            // ever been asked about, in any status?
+            entity.HasIndex(p => new { p.Kind, p.EntityId });
+        });
+
         // Seed default settings
         SeedDefaultSettings(modelBuilder);
     }
@@ -456,6 +467,10 @@ public class AppDbContext : DbContext
             else if (entry.Entity is Draft draft)
             {
                 draft.UpdatedAt = DateTime.UtcNow;
+            }
+            else if (entry.Entity is RecallPrompt recallPrompt)
+            {
+                recallPrompt.UpdatedAt = DateTime.UtcNow;
             }
         }
     }

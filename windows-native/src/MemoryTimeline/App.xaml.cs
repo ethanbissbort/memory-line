@@ -105,6 +105,7 @@ public partial class App : Application
                     services.AddSingleton<IPendingEventRepository, PendingEventRepository>();
                     services.AddSingleton<IDraftRepository, DraftRepository>();
                     services.AddSingleton<IEventMediaRepository, EventMediaRepository>();
+                    services.AddSingleton<IRecallPromptRepository, RecallPromptRepository>();
 
                     // Register core services (stateless over the factory/repositories)
                     services.AddSingleton<ISettingsService, SettingsService>();
@@ -139,6 +140,8 @@ public partial class App : Application
                     services.AddSingleton<IResurfacingService, ResurfacingService>();
                     // Narrative generation: readable prose chapters from timeline scopes
                     services.AddSingleton<INarrativeService, NarrativeService>();
+                    // Guided recall: prompts generated from archive gaps (F6)
+                    services.AddSingleton<IRecallPromptService, RecallPromptService>();
 
                     // Phase 6: Export/Import & Windows Integration services
                     services.AddSingleton<IExportService, ExportService>();

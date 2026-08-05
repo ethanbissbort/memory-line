@@ -206,6 +206,33 @@ public static class SchemaUpgrader
                 CREATE INDEX IF NOT EXISTS "IX_event_media_content_hash" ON "event_media" ("content_hash");
                 """);
 
+            // Guided recall prompts (2026-08 F6). kind/status/dismiss_reason
+            // are INTEGER enums (RecallPromptKind / RecallPromptStatus /
+            // DismissReason); the (kind, entity_id) index backs the dedupe
+            // lookup that keeps the app from ever re-asking a question.
+            await EnsureTableAsync(connection, existingTables, "recall_prompts", logger,
+                """
+                CREATE TABLE IF NOT EXISTS "recall_prompts" (
+                    "prompt_id" TEXT NOT NULL CONSTRAINT "PK_recall_prompts" PRIMARY KEY,
+                    "kind" INTEGER NOT NULL,
+                    "question" TEXT NOT NULL,
+                    "anchor_start" TEXT NULL,
+                    "anchor_end" TEXT NULL,
+                    "entity_id" TEXT NULL,
+                    "entity_name" TEXT NULL,
+                    "status" INTEGER NOT NULL,
+                    "dismiss_reason" INTEGER NOT NULL,
+                    "snoozed_until" TEXT NULL,
+                    "queue_id" TEXT NULL,
+                    "created_at" TEXT NOT NULL,
+                    "updated_at" TEXT NOT NULL
+                );
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS "IX_recall_prompts_status" ON "recall_prompts" ("status");
+                CREATE INDEX IF NOT EXISTS "IX_recall_prompts_kind_entity_id" ON "recall_prompts" ("kind", "entity_id");
+                """);
+
             // ---- Missing columns on pre-existing tables ----
             // Note: SQLite's ALTER TABLE ADD COLUMN cannot add foreign key
             // constraints, so eras.category_id is added without one; the FK is

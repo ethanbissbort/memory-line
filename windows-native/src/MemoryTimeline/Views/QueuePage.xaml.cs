@@ -16,6 +16,13 @@ public sealed partial class QueuePage : Page
 
     private bool _isPasteDialogOpen;
 
+    /// <summary>
+    /// True while the paste dialog is answering the recall card's prompt:
+    /// the label is the prompt question and submit routes through
+    /// <see cref="QueueViewModel.EnqueueRecallAnswerAsync"/>.
+    /// </summary>
+    private bool _isRecallAnswerMode;
+
     public QueueViewModel ViewModel { get; }
 
     public QueuePage()
@@ -30,10 +37,24 @@ public sealed partial class QueuePage : Page
 
         // Ctrl+Shift+V (MainWindow accelerator) navigates here with the "paste"
         // parameter so the paste-capture dialog opens on arrival.
-        var openPasteDialog = e.Parameter is string parameter &&
-            string.Equals(parameter, "paste", StringComparison.OrdinalIgnoreCase);
+        var parameter = e.Parameter as string;
+        var openPasteDialog = string.Equals(parameter, "paste", StringComparison.OrdinalIgnoreCase);
+
+        // The Home page's recall card navigates here with "recall:<promptId>"
+        // so the queue's recall card focuses that prompt.
+        string? focusRecallPromptId = null;
+        if (parameter != null &&
+            parameter.StartsWith("recall:", StringComparison.OrdinalIgnoreCase))
+        {
+            focusRecallPromptId = parameter["recall:".Length..];
+        }
 
         await ViewModel.InitializeAsync();
+
+        if (!string.IsNullOrEmpty(focusRecallPromptId))
+        {
+            ViewModel.FocusRecallPrompt(focusRecallPromptId);
+        }
 
         if (openPasteDialog)
         {
@@ -54,6 +75,11 @@ public sealed partial class QueuePage : Page
     private void PasteTextButton_Click(object sender, RoutedEventArgs e)
     {
         _ = ShowPasteDialogAsync();
+    }
+
+    private void TypeRecallAnswerButton_Click(object sender, RoutedEventArgs e)
+    {
+        _ = ShowPasteDialogAsync(recallAnswerMode: true);
     }
 
     /// <summary>
@@ -86,7 +112,7 @@ public sealed partial class QueuePage : Page
         Loaded += loadedHandler;
     }
 
-    private async Task ShowPasteDialogAsync()
+    private async Task ShowPasteDialogAsync(bool recallAnswerMode = false)
     {
         // ContentDialog throws if shown while another instance is open.
         if (_isPasteDialogOpen)
@@ -97,10 +123,15 @@ public sealed partial class QueuePage : Page
         try
         {
             _isPasteDialogOpen = true;
+            _isRecallAnswerMode = recallAnswerMode;
 
-            // Fresh dialog state per open
+            // Fresh dialog state per open. In recall-answer mode the label IS
+            // the prompt question (stamped server-side by the recall service),
+            // so the box shows it read-only instead of accepting a custom one.
             PasteTextBox.Text = string.Empty;
-            PasteLabelBox.Text = string.Empty;
+            PasteLabelBox.Text = recallAnswerMode ? ViewModel.RecallQuestion ?? string.Empty : string.Empty;
+            PasteLabelBox.IsEnabled = !recallAnswerMode;
+            PasteTextDialog.Title = recallAnswerMode ? "Answer the prompt" : "Paste Text";
             PasteDialogErrorBar.IsOpen = false;
             UpdatePasteCharCount();
 
@@ -116,6 +147,7 @@ public sealed partial class QueuePage : Page
         finally
         {
             _isPasteDialogOpen = false;
+            _isRecallAnswerMode = false;
         }
     }
 
@@ -136,7 +168,12 @@ public sealed partial class QueuePage : Page
         var deferral = args.GetDeferral();
         try
         {
-            var errorMessage = await ViewModel.EnqueuePastedTextAsync(PasteTextBox.Text, PasteLabelBox.Text);
+            // Recall answers route through the recall service (labels the queue
+            // row with the question and marks the prompt Answered); plain
+            // pastes keep the original enqueue path.
+            var errorMessage = _isRecallAnswerMode
+                ? await ViewModel.EnqueueRecallAnswerAsync(PasteTextBox.Text)
+                : await ViewModel.EnqueuePastedTextAsync(PasteTextBox.Text, PasteLabelBox.Text);
             if (errorMessage != null)
             {
                 // Keep the dialog open (and the pasted text intact) and show
