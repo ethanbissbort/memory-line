@@ -143,5 +143,49 @@ public class PersonRepository : IPersonRepository
             .CountAsync(ep => ep.PersonId == personId);
     }
 
+    public async Task<IEnumerable<Person>> GetFavoritesAsync()
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.People
+            .AsNoTracking()
+            .Where(p => p.IsFavorite)
+            .OrderBy(p => p.Name)
+            .ToListAsync();
+    }
+
+    public async Task<Dictionary<string, int>> GetEventCountsAsync()
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.EventPeople
+            .AsNoTracking()
+            .GroupBy(ep => ep.PersonId)
+            .Select(g => new { PersonId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.PersonId, x => x.Count);
+    }
+
+    public async Task<Dictionary<string, (DateTime First, DateTime Last)>> GetEventDateRangesAsync()
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        // Tuples cannot be materialized server-side; project into an anonymous
+        // type (Min/Max translate to SQL) and build the tuple dictionary on the
+        // client.
+        var ranges = await context.EventPeople
+            .AsNoTracking()
+            .Join(context.Events,
+                ep => ep.EventId,
+                e => e.EventId,
+                (ep, e) => new { ep.PersonId, e.StartDate })
+            .GroupBy(x => x.PersonId)
+            .Select(g => new
+            {
+                PersonId = g.Key,
+                First = g.Min(x => x.StartDate),
+                Last = g.Max(x => x.StartDate)
+            })
+            .ToListAsync();
+
+        return ranges.ToDictionary(r => r.PersonId, r => (r.First, r.Last));
+    }
+
     #endregion
 }
