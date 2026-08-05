@@ -492,6 +492,14 @@
                 </AppBarButton.Icon>
             </AppBarButton>
 
+            <AppBarButton Label="Generate Story"
+                         Click="GenerateStoryButton_Click"
+                         ToolTipService.ToolTip="Generate a readable story of the visible date range">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE8A5;"/>
+                </AppBarButton.Icon>
+            </AppBarButton>
+
             <AppBarSeparator/>
 
             <CommandBar.Content>

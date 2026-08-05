@@ -137,6 +137,8 @@ public partial class App : Application
                     services.AddSingleton<IMemoryQueryService, MemoryQueryService>();
                     // On This Day / random-memory resurfacing (Home page + daily toast)
                     services.AddSingleton<IResurfacingService, ResurfacingService>();
+                    // Narrative generation: readable prose chapters from timeline scopes
+                    services.AddSingleton<INarrativeService, NarrativeService>();
 
                     // Phase 6: Export/Import & Windows Integration services
                     services.AddSingleton<IExportService, ExportService>();
@@ -167,6 +169,7 @@ public partial class App : Application
                     services.AddTransient<ErasViewModel>();
                     services.AddTransient<ContactsViewModel>();
                     services.AddTransient<AskViewModel>();
+                    services.AddTransient<NarrativeDialogViewModel>();
 
                     // Register Views. Pages are NOT registered: Frame.Navigate creates them
                     // via Activator, so page registrations were dead code; each page pulls

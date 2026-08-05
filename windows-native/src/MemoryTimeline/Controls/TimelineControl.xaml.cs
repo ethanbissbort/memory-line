@@ -1676,4 +1676,38 @@ public sealed partial class TimelineControl : UserControl
     }
 
     #endregion
+
+    #region Narrative Generation
+
+    /// <summary>
+    /// Opens the shared narrative-generation dialog scoped to the CURRENT
+    /// viewport date range ("tell the story of what I'm looking at"). The
+    /// dialog owns its own ViewModel, progress, and cancel-on-close state.
+    /// </summary>
+    private async void GenerateStoryButton_Click(object sender, RoutedEventArgs e)
+    {
+        var viewport = _viewModel?.Viewport;
+        if (viewport == null)
+        {
+            return;
+        }
+
+        var request = new Core.Services.NarrativeRequest
+        {
+            Scope = Core.Services.NarrativeScope.DateRange,
+            From = viewport.StartDate,
+            To = viewport.EndDate
+        };
+
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        var label = $"{viewport.StartDate.ToString("d MMM yyyy", culture)} – {viewport.EndDate.ToString("d MMM yyyy", culture)}";
+
+        var dialog = new NarrativeDialog(request, label)
+        {
+            XamlRoot = XamlRoot
+        };
+        await dialog.ShowAsync();
+    }
+
+    #endregion
 }

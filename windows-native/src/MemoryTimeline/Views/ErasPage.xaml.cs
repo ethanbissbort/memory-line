@@ -5,7 +5,9 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
+using MemoryTimeline.Controls;
 using MemoryTimeline.Core.DTOs;
+using MemoryTimeline.Core.Services;
 using MemoryTimeline.Data.Models;
 using MemoryTimeline.ViewModels;
 using Windows.UI;
@@ -149,6 +151,31 @@ public sealed partial class ErasPage : Page
             _eraToDelete = ViewModel.SelectedEra;
             await DeleteConfirmDialog.ShowAsync();
         }
+    }
+
+    /// <summary>
+    /// Opens the narrative-generation dialog scoped to the selected era.
+    /// The dialog owns its own ViewModel, progress, and cancellation state.
+    /// </summary>
+    private async void GenerateEraStory_Click(object sender, RoutedEventArgs e)
+    {
+        var era = ViewModel.SelectedEra;
+        if (era == null)
+        {
+            return;
+        }
+
+        var request = new NarrativeRequest
+        {
+            Scope = NarrativeScope.Era,
+            ScopeId = era.EraId
+        };
+
+        var dialog = new NarrativeDialog(request, era.Name)
+        {
+            XamlRoot = XamlRoot
+        };
+        await dialog.ShowAsync();
     }
 
     /// <summary>
