@@ -162,6 +162,22 @@ public static class SchemaUpgrader
                 CREATE INDEX IF NOT EXISTS "IX_saved_searches_last_used_at" ON "saved_searches" ("last_used_at");
                 """);
 
+            await EnsureTableAsync(connection, existingTables, "drafts", logger,
+                """
+                CREATE TABLE IF NOT EXISTS "drafts" (
+                    "draft_id" TEXT NOT NULL CONSTRAINT "PK_drafts" PRIMARY KEY,
+                    "draft_type" TEXT NOT NULL,
+                    "title" TEXT NOT NULL,
+                    "payload_json" TEXT NOT NULL,
+                    "created_at" TEXT NOT NULL,
+                    "updated_at" TEXT NOT NULL
+                );
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS "IX_drafts_draft_type" ON "drafts" ("draft_type");
+                CREATE INDEX IF NOT EXISTS "IX_drafts_updated_at" ON "drafts" ("updated_at");
+                """);
+
             // ---- Missing columns on pre-existing tables ----
             // Note: SQLite's ALTER TABLE ADD COLUMN cannot add foreign key
             // constraints, so eras.category_id is added without one; the FK is
@@ -188,12 +204,39 @@ public static class SchemaUpgrader
                 ("color", "\"color\" TEXT NULL"),
             });
 
+            // Contact-book columns on people (2026-08 people feature). NOT NULL
+            // columns must carry constant defaults - SQLite's ALTER TABLE ADD
+            // COLUMN requirement.
+            await EnsureColumnsAsync(connection, existingTables, "people", logger, new[]
+            {
+                ("nickname",       "\"nickname\" TEXT NULL"),
+                ("relationship",   "\"relationship\" TEXT NULL"),
+                ("email",          "\"email\" TEXT NULL"),
+                ("phone",          "\"phone\" TEXT NULL"),
+                ("birthday",       "\"birthday\" TEXT NULL"),
+                ("company",        "\"company\" TEXT NULL"),
+                ("notes",          "\"notes\" TEXT NULL"),
+                ("photo_path",     "\"photo_path\" TEXT NULL"),
+                ("avatar_color",   "\"avatar_color\" TEXT NULL"),
+                ("is_favorite",    "\"is_favorite\" INTEGER NOT NULL DEFAULT 0"),
+                ("first_met_date", "\"first_met_date\" TEXT NULL"),
+                ("updated_at",     "\"updated_at\" TEXT NOT NULL DEFAULT '2025-01-21 00:00:00'"),
+            });
+
             // Index on the (possibly just-added) eras.category_id column,
             // mirroring OnModelCreating's HasIndex(e => e.CategoryId).
             if (existingTables.Contains("eras"))
             {
                 await ExecuteAsync(connection,
                     "CREATE INDEX IF NOT EXISTS \"IX_eras_category_id\" ON \"eras\" (\"category_id\");");
+            }
+
+            // Index on the (possibly just-added) people.is_favorite column,
+            // mirroring OnModelCreating's HasIndex(p => p.IsFavorite).
+            if (existingTables.Contains("people"))
+            {
+                await ExecuteAsync(connection,
+                    "CREATE INDEX IF NOT EXISTS \"IX_people_is_favorite\" ON \"people\" (\"is_favorite\");");
             }
         }
         finally

@@ -31,4 +31,21 @@ public interface IPersonRepository : IRepository<Person>
     /// Gets the count of events associated with a person.
     /// </summary>
     Task<int> GetEventCountForPersonAsync(string personId);
+
+    /// <summary>
+    /// Gets all people marked as favorites, ordered by name.
+    /// </summary>
+    Task<IEnumerable<Person>> GetFavoritesAsync();
+
+    /// <summary>
+    /// Gets the event count for every person that has at least one linked
+    /// event, keyed by person id.
+    /// </summary>
+    Task<Dictionary<string, int>> GetEventCountsAsync();
+
+    /// <summary>
+    /// Gets the first and last event start dates for every person that has at
+    /// least one linked event, keyed by person id.
+    /// </summary>
+    Task<Dictionary<string, (DateTime First, DateTime Last)>> GetEventDateRangesAsync();
 }

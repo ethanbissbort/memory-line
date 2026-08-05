@@ -27,6 +27,7 @@ public class AppDbContext : DbContext
     public DbSet<EventEmbedding> EventEmbeddings { get; set; } = null!;
     public DbSet<AppSetting> AppSettings { get; set; } = null!;
     public DbSet<SavedSearch> SavedSearches { get; set; } = null!;
+    public DbSet<Draft> Drafts { get; set; } = null!;
 
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
     {
@@ -208,6 +209,7 @@ public class AppDbContext : DbContext
         {
             entity.HasKey(p => p.PersonId);
             entity.HasIndex(p => p.Name).IsUnique();
+            entity.HasIndex(p => p.IsFavorite);
         });
 
         // Configure EventPerson junction entity
@@ -295,6 +297,14 @@ public class AppDbContext : DbContext
             entity.HasIndex(s => s.Name);
             entity.HasIndex(s => s.IsFavorite);
             entity.HasIndex(s => s.LastUsedAt);
+        });
+
+        // Configure Draft entity
+        modelBuilder.Entity<Draft>(entity =>
+        {
+            entity.HasKey(d => d.DraftId);
+            entity.HasIndex(d => d.DraftType);
+            entity.HasIndex(d => d.UpdatedAt);
         });
 
         // Seed default settings
@@ -393,6 +403,14 @@ public class AppDbContext : DbContext
             else if (entry.Entity is AppSetting setting)
             {
                 setting.UpdatedAt = DateTime.UtcNow;
+            }
+            else if (entry.Entity is Person person)
+            {
+                person.UpdatedAt = DateTime.UtcNow;
+            }
+            else if (entry.Entity is Draft draft)
+            {
+                draft.UpdatedAt = DateTime.UtcNow;
             }
         }
     }
