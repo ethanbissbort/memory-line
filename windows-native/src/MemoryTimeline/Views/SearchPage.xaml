@@ -6,6 +6,8 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="using:MemoryTimeline.Data.Models"
     xmlns:core="using:MemoryTimeline.Core.Models"
+    xmlns:dtos="using:MemoryTimeline.Core.DTOs"
+    xmlns:views="using:MemoryTimeline.Views"
     mc:Ignorable="d"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
     Loaded="Page_Loaded">
@@ -135,6 +137,23 @@
                             <CheckBox Content="Era" Tag="era" Checked="Category_Checked" Unchecked="Category_Unchecked"/>
                             <CheckBox Content="Other" Tag="other" Checked="Category_Checked" Unchecked="Category_Unchecked"/>
                         </StackPanel>
+                    </Expander>
+
+                    <!-- People -->
+                    <Expander Header="People" IsExpanded="True" HorizontalAlignment="Stretch"
+                              HorizontalContentAlignment="Stretch">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="200">
+                            <ItemsControl ItemsSource="{x:Bind ViewModel.PeopleFilterOptions, Mode=OneWay}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="dtos:PersonDto">
+                                        <CheckBox Content="{x:Bind DisplayName, Mode=OneWay}"
+                                                  IsChecked="{x:Bind IsSelected, Mode=OneWay}"
+                                                  Checked="PersonFilter_Checked"
+                                                  Unchecked="PersonFilter_Unchecked"/>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
                     </Expander>
 
                     <!-- Date Range -->
@@ -274,6 +293,17 @@
                                         <TextBlock Text="{x:Bind StartDate, Converter={StaticResource DateFormatConverter}}"
                                                    FontSize="12"/>
                                     </StackPanel>
+                                    <!-- Linked people (EventPeople is Include-loaded by the search service) -->
+                                    <StackPanel Orientation="Horizontal" Spacing="4"
+                                                Visibility="{x:Bind views:SearchPage.GetPeopleVisibility(EventPeople)}">
+                                        <FontIcon Glyph="&#xE716;" FontSize="12"
+                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        <TextBlock Text="{x:Bind views:SearchPage.GetPeopleDisplay(EventPeople)}"
+                                                   FontSize="12"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   MaxWidth="360"/>
+                                    </StackPanel>
                                 </StackPanel>
                             </Grid>
                         </DataTemplate>
@@ -356,6 +386,11 @@
                            x:Name="EventDetailLocationPanel" Visibility="Collapsed">
                     <FontIcon Glyph="&#xE81D;" FontSize="14"/>
                     <TextBlock x:Name="EventDetailLocation"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="8"
+                           x:Name="EventDetailPeoplePanel" Visibility="Collapsed">
+                    <FontIcon Glyph="&#xE716;" FontSize="14"/>
+                    <TextBlock x:Name="EventDetailPeople" TextWrapping="Wrap"/>
                 </StackPanel>
             </StackPanel>
         </ContentDialog>

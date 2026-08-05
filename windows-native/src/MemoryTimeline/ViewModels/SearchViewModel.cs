@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
+using MemoryTimeline.Core.DTOs;
 using MemoryTimeline.Core.Models;
 using MemoryTimeline.Core.Services;
 using MemoryTimeline.Data.Models;
@@ -18,6 +19,7 @@ public partial class SearchViewModel : ObservableObject
     private readonly IAdvancedSearchService _searchService;
     private readonly IEventService _eventService;
     private readonly ILogger<SearchViewModel> _logger;
+    private readonly IPersonService _personService;
 
     /// <summary>
     /// Serializes all VM-initiated service calls (search, autocomplete, facets,
@@ -162,6 +164,14 @@ public partial class SearchViewModel : ObservableObject
     [ObservableProperty]
     private ObservableCollection<string> _selectedPersonIds = new();
 
+    /// <summary>
+    /// All contacts, offered as checkable People filter options. Each option's
+    /// <see cref="PersonDto.IsSelected"/> mirrors membership of its person id
+    /// in <see cref="SelectedPersonIds"/>.
+    /// </summary>
+    [ObservableProperty]
+    private ObservableCollection<PersonDto> _peopleFilterOptions = new();
+
     [ObservableProperty]
     private ObservableCollection<string> _selectedLocationIds = new();
 
@@ -228,11 +238,13 @@ public partial class SearchViewModel : ObservableObject
     public SearchViewModel(
         IAdvancedSearchService searchService,
         IEventService eventService,
-        ILogger<SearchViewModel> logger)
+        ILogger<SearchViewModel> logger,
+        IPersonService personService)
     {
         _searchService = searchService;
         _eventService = eventService;
         _logger = logger;
+        _personService = personService;
     }
 
     /// <summary>
@@ -247,6 +259,9 @@ public partial class SearchViewModel : ObservableObject
 
             // Load facets for empty filter
             Facets = await RunSerializedAsync(() => _searchService.GetFacetsAsync());
+
+            // Load the People filter options
+            await LoadPeopleFilterOptionsAsync();
 
             // Load saved searches
             await LoadSavedSearchesAsync();
@@ -334,6 +349,7 @@ public partial class SearchViewModel : ObservableObject
         MinConfidence = null;
         CurrentPage = 1;
 
+        SyncPeopleSelectionFlags();
         OnPropertyChanged(nameof(HasFilters));
 
         await SearchAsync();
@@ -425,6 +441,38 @@ public partial class SearchViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Set a person filter to an explicit state. Idempotent like
+    /// <see cref="SetCategoryFilterAsync"/>: checking an already-selected
+    /// person (or unchecking an unselected one) is a no-op, so checkbox events
+    /// fired by programmatic <see cref="PersonDto.IsSelected"/> changes can
+    /// never invert the filter state or re-run the search.
+    /// </summary>
+    public async Task SetPersonFilterAsync(string personId, bool isSelected)
+    {
+        if (isSelected)
+        {
+            if (SelectedPersonIds.Contains(personId))
+                return;
+            SelectedPersonIds.Add(personId);
+        }
+        else
+        {
+            if (!SelectedPersonIds.Remove(personId))
+                return;
+        }
+
+        var option = PeopleFilterOptions.FirstOrDefault(p => p.PersonId == personId);
+        if (option != null)
+        {
+            option.IsSelected = isSelected;
+        }
+
+        CurrentPage = 1;
+        OnPropertyChanged(nameof(HasFilters));
+        await SearchAsync();
+    }
+
+    /// <summary>
     /// Toggle tag filter.
     /// </summary>
     [RelayCommand]
@@ -451,6 +499,7 @@ public partial class SearchViewModel : ObservableObject
         else
             SelectedPersonIds.Add(personId);
 
+        SyncPeopleSelectionFlags();
         CurrentPage = 1;
         OnPropertyChanged(nameof(HasFilters));
         await SearchAsync();
@@ -530,6 +579,7 @@ public partial class SearchViewModel : ObservableObject
                 break;
         }
 
+        SyncPeopleSelectionFlags();
         OnPropertyChanged(nameof(HasFilters));
         await SearchAsync();
     }
@@ -779,6 +829,42 @@ public partial class SearchViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Loads all contacts as People filter options and marks the ones whose
+    /// ids are currently selected. Best-effort: a failure leaves the People
+    /// filter section empty without breaking the page.
+    /// </summary>
+    private async Task LoadPeopleFilterOptionsAsync()
+    {
+        try
+        {
+            var persons = await RunSerializedAsync(() => _personService.GetAllPersonsAsync());
+
+            PeopleFilterOptions.Clear();
+            foreach (var person in persons)
+            {
+                person.IsSelected = SelectedPersonIds.Contains(person.PersonId);
+                PeopleFilterOptions.Add(person);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading people filter options");
+        }
+    }
+
+    /// <summary>
+    /// Mirrors <see cref="SelectedPersonIds"/> into the
+    /// <see cref="PersonDto.IsSelected"/> flags of the filter options.
+    /// </summary>
+    private void SyncPeopleSelectionFlags()
+    {
+        foreach (var person in PeopleFilterOptions)
+        {
+            person.IsSelected = SelectedPersonIds.Contains(person.PersonId);
+        }
+    }
+
     private async Task LoadSavedSearchesAsync()
     {
         try
@@ -857,6 +943,7 @@ public partial class SearchViewModel : ObservableObject
         PageSize = filter.PageSize;
         CurrentPage = 1;
 
+        SyncPeopleSelectionFlags();
         OnPropertyChanged(nameof(HasFilters));
     }
 

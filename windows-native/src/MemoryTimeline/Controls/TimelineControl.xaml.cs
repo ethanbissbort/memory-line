@@ -714,19 +714,69 @@ public sealed partial class TimelineControl : UserControl
         _editingEventId = null;
         EventDialog.Title = "Add Event";
 
+        // Reset dialog state (chips, era choices, draft id) in the ViewModel.
+        if (_viewModel != null)
+        {
+            await _viewModel.PrepareEventDialogAsync(null);
+        }
+
         // Clear and set defaults
         EventTitleBox.Text = "";
         _isSyncingDateFields = true;
         EventDateTextBox.Text = defaultDate.ToString("MMddyy");
         EventDatePicker.Date = new DateTimeOffset(defaultDate);
         _isSyncingDateFields = false;
+        EventEndDatePicker.Date = null;
         EventDescriptionBox.Text = "";
         // Pre-select the canonical default category instead of leaving the field
         // unselected (an unselected combo used to silently fall back to an invalid
         // capitalized literal and fail validation - see FEATURE-AUDIT Bug 1).
         SelectCategoryComboItem(EventCategory.Other);
+        SelectEraComboItem(null);
         EventLocationBox.Text = "";
+        ResetChipEditors();
         EventDialogErrorBar.IsOpen = false;
+
+        EventDialog.XamlRoot = XamlRoot;
+        await EventDialog.ShowAsync();
+    }
+
+    /// <summary>
+    /// Opens the create-event dialog prefilled from a saved event draft
+    /// (navigation parameter "draft:&lt;draftId&gt;"). The draft's id is kept so
+    /// "Save as Draft" updates it and a successful real save deletes it.
+    /// </summary>
+    public async Task ShowEventDialogFromDraftAsync(string draftId)
+    {
+        if (_viewModel == null)
+            return;
+
+        _editingEventId = null;
+        EventDialog.Title = "Add Event";
+
+        await _viewModel.PrepareEventDialogAsync(null);
+        var payload = await _viewModel.LoadEventDraftAsync(draftId);
+
+        var startDate = payload?.StartDate ?? DateTime.Now;
+        EventTitleBox.Text = payload?.Title ?? "";
+        _isSyncingDateFields = true;
+        EventDateTextBox.Text = startDate.ToString("MMddyy");
+        EventDatePicker.Date = new DateTimeOffset(startDate);
+        _isSyncingDateFields = false;
+        EventEndDatePicker.Date = payload?.EndDate is DateTime draftEnd
+            ? new DateTimeOffset(draftEnd)
+            : null;
+        EventDescriptionBox.Text = payload?.Description ?? "";
+        SelectCategoryComboItem(payload?.Category ?? EventCategory.Other);
+        SelectEraComboItem(payload?.EraId);
+        EventLocationBox.Text = payload?.Location ?? "";
+        ResetChipEditors();
+        EventDialogErrorBar.IsOpen = false;
+
+        if (payload == null)
+        {
+            ShowEventDialogError("The draft could not be loaded. Starting a blank event instead.");
+        }
 
         EventDialog.XamlRoot = XamlRoot;
         await EventDialog.ShowAsync();
@@ -761,12 +811,22 @@ public sealed partial class TimelineControl : UserControl
         _editingEventId = eventDto.EventId;
         EventDialog.Title = "Edit Event";
 
+        // Reset dialog state and load the event's current people/tags into
+        // chips (also captures the original link sets for the save-time diff).
+        if (_viewModel != null)
+        {
+            await _viewModel.PrepareEventDialogAsync(eventDto.EventId);
+        }
+
         // Populate with existing values
         EventTitleBox.Text = eventDto.Title ?? "";
         _isSyncingDateFields = true;
         EventDateTextBox.Text = eventDto.StartDate.ToString("MMddyy");
         EventDatePicker.Date = new DateTimeOffset(eventDto.StartDate);
         _isSyncingDateFields = false;
+        EventEndDatePicker.Date = eventDto.EndDate is DateTime endDate
+            ? new DateTimeOffset(endDate)
+            : null;
         EventDescriptionBox.Text = eventDto.Description ?? "";
         EventLocationBox.Text = eventDto.Location ?? "";
 
@@ -774,10 +834,42 @@ public sealed partial class TimelineControl : UserControl
         // stored category isn't in the list, so the Edit path can never save an
         // invalid category or silently keep a stale selection).
         SelectCategoryComboItem(eventDto.Category ?? EventCategory.Other);
+        SelectEraComboItem(eventDto.EraId);
+        ResetChipEditors();
         EventDialogErrorBar.IsOpen = false;
 
         EventDialog.XamlRoot = XamlRoot;
         await EventDialog.ShowAsync();
+    }
+
+    /// <summary>
+    /// Selects the era combo item matching <paramref name="eraId"/>; null (or an
+    /// unknown id) selects the "None" option.
+    /// </summary>
+    private void SelectEraComboItem(string? eraId)
+    {
+        var choices = _viewModel?.DialogEraChoices;
+        if (choices == null || choices.Count == 0)
+        {
+            EventEraCombo.SelectedIndex = -1;
+            return;
+        }
+
+        var match = choices.FirstOrDefault(c => string.Equals(c.EraId, eraId, StringComparison.Ordinal))
+            ?? choices[0];
+        EventEraCombo.SelectedItem = match;
+    }
+
+    /// <summary>
+    /// Clears the people/tag AutoSuggestBoxes (chip collections themselves live
+    /// in the ViewModel and are reset by PrepareEventDialogAsync).
+    /// </summary>
+    private void ResetChipEditors()
+    {
+        PersonSuggestBox.Text = "";
+        PersonSuggestBox.ItemsSource = null;
+        TagSuggestBox.Text = "";
+        TagSuggestBox.ItemsSource = null;
     }
 
     /// <summary>
@@ -843,19 +935,31 @@ public sealed partial class TimelineControl : UserControl
         var deferral = args.GetDeferral();
         try
         {
-            // Validate input - keep the dialog open and say why instead of
-            // silently cancelling the close.
+            // Validate input - keep the dialog open and show a summary of every
+            // problem instead of silently cancelling the close.
+            var validationErrors = new List<string>();
+
             if (string.IsNullOrWhiteSpace(EventTitleBox.Text))
             {
-                args.Cancel = true;
-                ShowEventDialogError("Please enter a title for the event.");
-                return;
+                validationErrors.Add("Enter a title for the event.");
             }
 
             if (!EventDatePicker.Date.HasValue)
             {
+                validationErrors.Add("Select a start date for the event.");
+            }
+
+            var endDate = EventEndDatePicker.Date?.DateTime;
+            if (endDate.HasValue && EventDatePicker.Date.HasValue &&
+                endDate.Value.Date < EventDatePicker.Date.Value.DateTime.Date)
+            {
+                validationErrors.Add("The end date cannot be before the start date.");
+            }
+
+            if (validationErrors.Count > 0)
+            {
                 args.Cancel = true;
-                ShowEventDialogError("Please select a date for the event.");
+                ShowEventDialogError(string.Join(Environment.NewLine, validationErrors));
                 return;
             }
 
@@ -877,28 +981,34 @@ public sealed partial class TimelineControl : UserControl
                     ?? EventCategory.Other;
             }
 
+            var eraId = (EventEraCombo.SelectedItem as EventEraChoiceDto)?.EraId;
+
             EventDialogErrorBar.IsOpen = false;
 
             if (_editingEventId == null)
             {
-                // Create new event
+                // Create new event (the ViewModel links people/tags afterwards)
                 await _viewModel.CreateEventAsync(
                     EventTitleBox.Text,
-                    EventDatePicker.Date.Value.DateTime,
+                    EventDatePicker.Date!.Value.DateTime,
+                    endDate,
                     EventDescriptionBox.Text,
                     category,
-                    EventLocationBox.Text);
+                    EventLocationBox.Text,
+                    eraId);
             }
             else
             {
-                // Update existing event
+                // Update existing event (the ViewModel reconciles people/tags)
                 await _viewModel.UpdateEventAsync(
                     _editingEventId,
                     EventTitleBox.Text,
-                    EventDatePicker.Date.Value.DateTime,
+                    EventDatePicker.Date!.Value.DateTime,
+                    endDate,
                     EventDescriptionBox.Text,
                     category,
-                    EventLocationBox.Text);
+                    EventLocationBox.Text,
+                    eraId);
             }
         }
         catch (Exception ex)
@@ -915,12 +1025,201 @@ public sealed partial class TimelineControl : UserControl
     }
 
     /// <summary>
+    /// "Save as Draft": serializes the dialog state (including people/tag
+    /// chips) through the ViewModel and closes the dialog on success. Failures
+    /// keep the dialog open with the reason shown in-dialog.
+    /// </summary>
+    private async void EventDialog_SecondaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
+    {
+        var deferral = args.GetDeferral();
+        try
+        {
+            if (_viewModel == null)
+            {
+                args.Cancel = true;
+                ShowEventDialogError("The timeline is still loading. Please try again.");
+                return;
+            }
+
+            string? category = null;
+            if (EventCategoryCombo.SelectedItem is ComboBoxItem selectedCategory)
+            {
+                category = selectedCategory.Tag?.ToString()?.ToLowerInvariant();
+            }
+
+            var eraId = (EventEraCombo.SelectedItem as EventEraChoiceDto)?.EraId;
+
+            await _viewModel.SaveEventDraftAsync(
+                EventTitleBox.Text,
+                EventDescriptionBox.Text,
+                EventDatePicker.Date?.DateTime,
+                EventEndDatePicker.Date?.DateTime,
+                category,
+                eraId,
+                EventLocationBox.Text);
+        }
+        catch (Exception ex)
+        {
+            args.Cancel = true;
+            ShowEventDialogError($"Could not save the draft: {ex.Message}");
+        }
+        finally
+        {
+            deferral.Complete();
+        }
+    }
+
+    /// <summary>
     /// Shows an error message inside the Add/Edit Event dialog.
     /// </summary>
     private void ShowEventDialogError(string message)
     {
         EventDialogErrorBar.Message = message;
         EventDialogErrorBar.IsOpen = true;
+    }
+
+    /// <summary>Clears the optional end date in the event dialog.</summary>
+    private void ClearEndDateButton_Click(object sender, RoutedEventArgs e)
+    {
+        EventEndDatePicker.Date = null;
+    }
+
+    #endregion
+
+    #region Event Dialog People/Tag Pickers
+
+    /// <summary>
+    /// Queries person suggestions as the user types in the people picker.
+    /// </summary>
+    private async void PersonSuggestBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+    {
+        if (args.Reason != AutoSuggestionBoxTextChangeReason.UserInput || _viewModel == null)
+            return;
+
+        var term = sender.Text?.Trim() ?? "";
+        if (term.Length == 0)
+        {
+            sender.ItemsSource = null;
+            return;
+        }
+
+        var suggestions = await _viewModel.SearchDialogPeopleAsync(term);
+
+        // The user may have kept typing while the query ran; only apply results
+        // that still match the current text.
+        if (string.Equals(sender.Text?.Trim(), term, StringComparison.Ordinal))
+        {
+            sender.ItemsSource = suggestions;
+        }
+    }
+
+    /// <summary>
+    /// Keeps the box text readable while navigating suggestions (the chip is
+    /// added by the QuerySubmitted handler that follows).
+    /// </summary>
+    private void PersonSuggestBox_SuggestionChosen(AutoSuggestBox sender, AutoSuggestBoxSuggestionChosenEventArgs args)
+    {
+        if (args.SelectedItem is PersonDto person)
+        {
+            sender.Text = person.Name;
+        }
+    }
+
+    /// <summary>
+    /// Adds a person chip: a chosen suggestion links that person; free text
+    /// matching an existing contact (case-insensitive) links it, and free text
+    /// matching nothing adds a pending "new" person chip created on save.
+    /// </summary>
+    private async void PersonSuggestBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+    {
+        if (_viewModel == null)
+            return;
+
+        if (args.ChosenSuggestion is PersonDto person)
+        {
+            _viewModel.AddPersonChip(person);
+        }
+        else
+        {
+            var text = args.QueryText?.Trim() ?? "";
+            if (text.Length == 0)
+                return;
+
+            var matches = await _viewModel.SearchDialogPeopleAsync(text);
+            var exact = matches.FirstOrDefault(p =>
+                string.Equals(p.Name, text, StringComparison.OrdinalIgnoreCase));
+            if (exact != null)
+            {
+                _viewModel.AddPersonChip(exact);
+            }
+            else
+            {
+                _viewModel.AddNewPersonChip(text);
+            }
+        }
+
+        sender.Text = "";
+        sender.ItemsSource = null;
+    }
+
+    /// <summary>Removes the clicked person chip.</summary>
+    private void PersonChip_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: EventPersonChipDto chip })
+        {
+            _viewModel?.RemovePersonChip(chip);
+        }
+    }
+
+    /// <summary>
+    /// Queries existing-tag suggestions as the user types in the tag editor.
+    /// </summary>
+    private async void TagSuggestBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+    {
+        if (args.Reason != AutoSuggestionBoxTextChangeReason.UserInput || _viewModel == null)
+            return;
+
+        var term = sender.Text?.Trim() ?? "";
+        var suggestions = await _viewModel.SearchDialogTagsAsync(term);
+
+        if (string.Equals(sender.Text?.Trim(), term, StringComparison.Ordinal))
+        {
+            sender.ItemsSource = suggestions;
+        }
+    }
+
+    /// <summary>Shows the chosen tag name in the box before submission.</summary>
+    private void TagSuggestBox_SuggestionChosen(AutoSuggestBox sender, AutoSuggestBoxSuggestionChosenEventArgs args)
+    {
+        if (args.SelectedItem is string tagName)
+        {
+            sender.Text = tagName;
+        }
+    }
+
+    /// <summary>Adds a tag chip (existing suggestion or free text).</summary>
+    private void TagSuggestBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+    {
+        if (_viewModel == null)
+            return;
+
+        var name = args.ChosenSuggestion as string ?? args.QueryText;
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            _viewModel.AddTagChip(name);
+        }
+
+        sender.Text = "";
+        sender.ItemsSource = null;
+    }
+
+    /// <summary>Removes the clicked tag chip.</summary>
+    private void TagChip_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: EventTagChipDto chip })
+        {
+            _viewModel?.RemoveTagChip(chip);
+        }
     }
 
     #endregion

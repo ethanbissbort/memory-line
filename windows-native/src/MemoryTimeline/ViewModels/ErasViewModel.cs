@@ -1,17 +1,22 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MemoryTimeline.Core.DTOs;
 using MemoryTimeline.Core.Models;
+using MemoryTimeline.Core.Services;
+using MemoryTimeline.Data;
 using MemoryTimeline.Data.Models;
 using MemoryTimeline.Data.Repositories;
 using System.Collections.ObjectModel;
+using System.Text.Json;
 
 namespace MemoryTimeline.ViewModels;
 
 /// <summary>
 /// ViewModel for the Eras management page with Gantt-style visualization.
-/// Provides CRUD operations for eras, categories, and milestones.
+/// Provides CRUD operations for eras, categories, and milestones, plus
+/// save-as-draft / resume-draft support for the era editor.
 /// </summary>
 public partial class ErasViewModel : ObservableObject
 {
@@ -19,6 +24,8 @@ public partial class ErasViewModel : ObservableObject
     private readonly IEraCategoryRepository _categoryRepository;
     private readonly IMilestoneRepository _milestoneRepository;
     private readonly ILogger<ErasViewModel> _logger;
+    private readonly IDraftService _draftService;
+    private readonly IDbContextFactory<AppDbContext> _contextFactory;
 
     // Data collections
     [ObservableProperty]
@@ -131,6 +138,12 @@ public partial class ErasViewModel : ObservableObject
     [ObservableProperty]
     private string _editColorCode = "#4169E1";
 
+    /// <summary>
+    /// Optional per-era color override (hex). Empty string means no override.
+    /// </summary>
+    [ObservableProperty]
+    private string _editColorOverride = string.Empty;
+
     [ObservableProperty]
     private string? _editCategoryId;
 
@@ -139,6 +152,12 @@ public partial class ErasViewModel : ObservableObject
 
     [ObservableProperty]
     private string _editNotes = string.Empty;
+
+    /// <summary>
+    /// Tags attached to the era being edited (era_tags junction rows).
+    /// </summary>
+    [ObservableProperty]
+    private ObservableCollection<string> _editTags = new();
 
     [ObservableProperty]
     private bool _isEditMode;
@@ -168,6 +187,13 @@ public partial class ErasViewModel : ObservableObject
     private string? _editingEraId;
     private string? _editingMilestoneId;
 
+    /// <summary>
+    /// Id of the era draft the editor was resumed from (or last saved to);
+    /// null when the editor session is not backed by a draft. The draft is
+    /// deleted after the era is really saved.
+    /// </summary>
+    private string? _currentEraDraftId;
+
     // Predefined color palette for eras
     public static readonly List<string> ColorPalette = new()
     {
@@ -180,12 +206,16 @@ public partial class ErasViewModel : ObservableObject
         IEraRepository eraRepository,
         IEraCategoryRepository categoryRepository,
         IMilestoneRepository milestoneRepository,
-        ILogger<ErasViewModel> logger)
+        ILogger<ErasViewModel> logger,
+        IDraftService draftService,
+        IDbContextFactory<AppDbContext> contextFactory)
     {
         _eraRepository = eraRepository;
         _categoryRepository = categoryRepository;
         _milestoneRepository = milestoneRepository;
         _logger = logger;
+        _draftService = draftService;
+        _contextFactory = contextFactory;
 
         // Initialize viewport to show last 10 years
         var now = DateTime.Now;
@@ -575,15 +605,18 @@ public partial class ErasViewModel : ObservableObject
     public void PrepareAddEra()
     {
         _editingEraId = null;
+        _currentEraDraftId = null;
         IsEditMode = false;
         EditName = string.Empty;
         EditSubtitle = string.Empty;
         EditStartDate = DateTime.Now;
         EditEndDate = null;
         EditColorCode = ColorPalette[Eras.Count % ColorPalette.Count];
+        EditColorOverride = string.Empty;
         EditCategoryId = Categories.FirstOrDefault()?.CategoryId;
         EditDescription = string.Empty;
         EditNotes = string.Empty;
+        EditTags.Clear();
     }
 
     /// <summary>
@@ -595,15 +628,51 @@ public partial class ErasViewModel : ObservableObject
         if (era == null) return;
 
         _editingEraId = era.EraId;
+        _currentEraDraftId = null;
         IsEditMode = true;
         EditName = era.Name;
         EditSubtitle = era.Subtitle ?? string.Empty;
         EditStartDate = era.StartDate;
         EditEndDate = era.EndDate;
         EditColorCode = era.ColorCode;
+        EditColorOverride = era.ColorOverride ?? string.Empty;
         EditCategoryId = era.CategoryId;
         EditDescription = era.Description ?? string.Empty;
         EditNotes = era.Notes ?? string.Empty;
+
+        EditTags.Clear();
+        foreach (var tag in era.EraTags.Select(et => et.Tag).OrderBy(t => t, StringComparer.OrdinalIgnoreCase))
+        {
+            EditTags.Add(tag);
+        }
+    }
+
+    /// <summary>
+    /// Adds a tag to the era being edited (trimmed; case-insensitive de-dupe).
+    /// </summary>
+    public void AddEditTag(string? tag)
+    {
+        var trimmed = tag?.Trim();
+        if (string.IsNullOrEmpty(trimmed)) return;
+
+        if (!EditTags.Any(t => string.Equals(t, trimmed, StringComparison.OrdinalIgnoreCase)))
+        {
+            EditTags.Add(trimmed);
+        }
+    }
+
+    /// <summary>
+    /// Removes a tag from the era being edited.
+    /// </summary>
+    public void RemoveEditTag(string? tag)
+    {
+        if (string.IsNullOrEmpty(tag)) return;
+
+        var match = EditTags.FirstOrDefault(t => string.Equals(t, tag, StringComparison.OrdinalIgnoreCase));
+        if (match != null)
+        {
+            EditTags.Remove(match);
+        }
     }
 
     /// <summary>
@@ -622,6 +691,7 @@ public partial class ErasViewModel : ObservableObject
         {
             IsLoading = true;
 
+            string savedEraId;
             if (_editingEraId == null)
             {
                 var newEra = new Era
@@ -631,12 +701,14 @@ public partial class ErasViewModel : ObservableObject
                     StartDate = EditStartDate,
                     EndDate = EditEndDate,
                     ColorCode = EditColorCode,
+                    ColorOverride = string.IsNullOrWhiteSpace(EditColorOverride) ? null : EditColorOverride.Trim(),
                     CategoryId = EditCategoryId,
                     Description = string.IsNullOrWhiteSpace(EditDescription) ? null : EditDescription.Trim(),
                     Notes = string.IsNullOrWhiteSpace(EditNotes) ? null : EditNotes.Trim()
                 };
 
                 await _eraRepository.AddAsync(newEra);
+                savedEraId = newEra.EraId;
                 StatusMessage = $"Created era: {newEra.Name}";
                 _logger.LogInformation("Created era: {Name}", newEra.Name);
             }
@@ -654,15 +726,20 @@ public partial class ErasViewModel : ObservableObject
                 existingEra.StartDate = EditStartDate;
                 existingEra.EndDate = EditEndDate;
                 existingEra.ColorCode = EditColorCode;
+                existingEra.ColorOverride = string.IsNullOrWhiteSpace(EditColorOverride) ? null : EditColorOverride.Trim();
                 existingEra.CategoryId = EditCategoryId;
                 existingEra.Description = string.IsNullOrWhiteSpace(EditDescription) ? null : EditDescription.Trim();
                 existingEra.Notes = string.IsNullOrWhiteSpace(EditNotes) ? null : EditNotes.Trim();
                 existingEra.UpdatedAt = DateTime.UtcNow;
 
                 await _eraRepository.UpdateAsync(existingEra);
+                savedEraId = existingEra.EraId;
                 StatusMessage = $"Updated era: {existingEra.Name}";
                 _logger.LogInformation("Updated era: {EraId} - {Name}", existingEra.EraId, existingEra.Name);
             }
+
+            await ReplaceEraTagsAsync(savedEraId, EditTags.ToList());
+            await DeleteResumedDraftAsync();
 
             await LoadErasAsync();
             CalculateViewport();
@@ -676,6 +753,154 @@ public partial class ErasViewModel : ObservableObject
         finally
         {
             IsLoading = false;
+        }
+    }
+
+    /// <summary>
+    /// Replaces the era_tags rows for an era with the given tag set (trimmed,
+    /// case-insensitively de-duplicated). Uses a short-lived context because
+    /// the era repository's detached-graph Update cannot add or remove
+    /// junction rows.
+    /// </summary>
+    private async Task ReplaceEraTagsAsync(string eraId, IReadOnlyCollection<string> tags)
+    {
+        var desired = tags
+            .Select(t => t.Trim())
+            .Where(t => t.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        await using var context = await _contextFactory.CreateDbContextAsync();
+
+        var existing = await context.EraTags
+            .Where(et => et.EraId == eraId)
+            .ToListAsync();
+
+        var desiredSet = new HashSet<string>(desired, StringComparer.OrdinalIgnoreCase);
+        foreach (var row in existing.Where(et => !desiredSet.Contains(et.Tag)))
+        {
+            context.EraTags.Remove(row);
+        }
+
+        var existingSet = new HashSet<string>(existing.Select(et => et.Tag), StringComparer.OrdinalIgnoreCase);
+        foreach (var tag in desired.Where(t => !existingSet.Contains(t)))
+        {
+            context.EraTags.Add(new EraTag { EraId = eraId, Tag = tag });
+        }
+
+        await context.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Deletes the draft this editor session was resumed from (if any) after a
+    /// successful real save. A draft-delete failure must not fail the save.
+    /// </summary>
+    private async Task DeleteResumedDraftAsync()
+    {
+        if (_currentEraDraftId == null) return;
+
+        var draftId = _currentEraDraftId;
+        _currentEraDraftId = null;
+        try
+        {
+            await _draftService.DeleteDraftAsync(draftId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error deleting era draft after save: {DraftId}", draftId);
+        }
+    }
+
+    /// <summary>
+    /// Saves the current era editor state as a draft (upsert: when the editor
+    /// was resumed from a draft, or a draft was already saved this session,
+    /// that draft is updated in place).
+    /// </summary>
+    [RelayCommand]
+    public async Task SaveEraDraftAsync()
+    {
+        try
+        {
+            var payload = new EraDraftPayload
+            {
+                Name = EditName.Trim(),
+                Subtitle = string.IsNullOrWhiteSpace(EditSubtitle) ? null : EditSubtitle.Trim(),
+                StartDate = EditStartDate,
+                EndDate = EditEndDate,
+                CategoryId = EditCategoryId,
+                ColorCode = EditColorCode,
+                Description = string.IsNullOrWhiteSpace(EditDescription) ? null : EditDescription.Trim(),
+                Notes = string.IsNullOrWhiteSpace(EditNotes) ? null : EditNotes.Trim(),
+                Tags = EditTags.ToList()
+            };
+
+            var json = JsonSerializer.Serialize(payload);
+            var draft = await _draftService.SaveDraftAsync(DraftTypes.Era, payload.Name, json, _currentEraDraftId);
+            _currentEraDraftId = draft.DraftId;
+
+            StatusMessage = $"Draft saved: {draft.Title}";
+            _logger.LogInformation("Saved era draft: {DraftId} - {Title}", draft.DraftId, draft.Title);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving era draft");
+            StatusMessage = "Error saving draft";
+        }
+    }
+
+    /// <summary>
+    /// Loads an era draft and prefills the era editor fields from its payload.
+    /// Returns true when the draft was found and readable, so the page can
+    /// open the editor dialog.
+    /// </summary>
+    public async Task<bool> LoadEraDraftAsync(string draftId)
+    {
+        try
+        {
+            var draft = await _draftService.GetDraftAsync(draftId);
+            if (draft == null || draft.DraftType != DraftTypes.Era)
+            {
+                StatusMessage = "Draft not found";
+                return false;
+            }
+
+            var payload = draft.GetPayload<EraDraftPayload>();
+            if (payload == null)
+            {
+                StatusMessage = "Draft could not be read";
+                _logger.LogWarning("Era draft payload malformed: {DraftId}", draftId);
+                return false;
+            }
+
+            _editingEraId = null;
+            IsEditMode = false;
+            EditName = payload.Name;
+            EditSubtitle = payload.Subtitle ?? string.Empty;
+            EditStartDate = payload.StartDate ?? DateTime.Now;
+            EditEndDate = payload.EndDate;
+            EditColorCode = string.IsNullOrWhiteSpace(payload.ColorCode)
+                ? ColorPalette[Eras.Count % ColorPalette.Count]
+                : payload.ColorCode;
+            EditColorOverride = string.Empty;
+            EditCategoryId = payload.CategoryId ?? Categories.FirstOrDefault()?.CategoryId;
+            EditDescription = payload.Description ?? string.Empty;
+            EditNotes = payload.Notes ?? string.Empty;
+
+            EditTags.Clear();
+            foreach (var tag in payload.Tags.Select(t => t.Trim()).Where(t => t.Length > 0))
+            {
+                AddEditTag(tag);
+            }
+
+            _currentEraDraftId = draftId;
+            StatusMessage = $"Resumed draft: {draft.Title}";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading era draft: {DraftId}", draftId);
+            StatusMessage = "Error loading draft";
+            return false;
         }
     }
 

@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using MemoryTimeline.Core.DTOs;
 using MemoryTimeline.Core.Models;
 using MemoryTimeline.Data.Models;
 using MemoryTimeline.ViewModels;
@@ -61,6 +62,13 @@ public sealed partial class SearchPage : Page
                 {
                     checkBox.IsChecked = ViewModel.SelectedCategories.Contains(category);
                 }
+            }
+
+            // People options carry their checked state on the DTO itself
+            // (the checkbox binds IsChecked one-way to IsSelected).
+            foreach (var person in ViewModel.PeopleFilterOptions)
+            {
+                person.IsSelected = ViewModel.SelectedPersonIds.Contains(person.PersonId);
             }
 
             // Unchecked means "no filter" (null), not false.
@@ -143,6 +151,26 @@ public sealed partial class SearchPage : Page
         if (sender is CheckBox checkBox && checkBox.Tag is string category)
         {
             await ViewModel.SetCategoryFilterAsync(category, false);
+        }
+    }
+
+    private async void PersonFilter_Checked(object sender, RoutedEventArgs e)
+    {
+        if (_syncingFilters) return;
+        if (sender is CheckBox checkBox && checkBox.DataContext is PersonDto person)
+        {
+            // Explicit, idempotent add — mirrors the category checkbox pattern,
+            // so a checkbox event can never invert the ViewModel's filter state.
+            await ViewModel.SetPersonFilterAsync(person.PersonId, true);
+        }
+    }
+
+    private async void PersonFilter_Unchecked(object sender, RoutedEventArgs e)
+    {
+        if (_syncingFilters) return;
+        if (sender is CheckBox checkBox && checkBox.DataContext is PersonDto person)
+        {
+            await ViewModel.SetPersonFilterAsync(person.PersonId, false);
         }
     }
 
@@ -253,6 +281,34 @@ public sealed partial class SearchPage : Page
             args.Cancel = true;
         }
     }
+
+    #region People Display Helpers (x:Bind functions)
+
+    /// <summary>
+    /// Comma-separated names of the people linked to an event, ordered by
+    /// name. Used via x:Bind from the search result item template (the search
+    /// service Include-loads EventPeople with Person).
+    /// </summary>
+    public static string GetPeopleDisplay(ICollection<EventPerson> eventPeople)
+    {
+        return string.Join(", ", eventPeople
+            .Where(ep => ep.Person != null && !string.IsNullOrWhiteSpace(ep.Person.Name))
+            .Select(ep => ep.Person.Name)
+            .OrderBy(name => name, StringComparer.CurrentCultureIgnoreCase));
+    }
+
+    /// <summary>
+    /// Visible when the event has at least one linked person; used via x:Bind
+    /// from the search result item template.
+    /// </summary>
+    public static Visibility GetPeopleVisibility(ICollection<EventPerson> eventPeople)
+    {
+        return eventPeople.Any(ep => ep.Person != null && !string.IsNullOrWhiteSpace(ep.Person.Name))
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    #endregion
 
     #region Search Result Event Handlers
 

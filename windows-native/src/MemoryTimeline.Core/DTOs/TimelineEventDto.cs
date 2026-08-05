@@ -1,3 +1,4 @@
+using CommunityToolkit.Mvvm.ComponentModel;
 using MemoryTimeline.Data.Models;
 using Microsoft.UI;
 using Microsoft.UI.Xaml.Media;
@@ -8,7 +9,7 @@ namespace MemoryTimeline.Core.DTOs;
 /// <summary>
 /// DTO for timeline event display.
 /// </summary>
-public class TimelineEventDto
+public partial class TimelineEventDto : ObservableObject
 {
     public string EventId { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
@@ -30,6 +31,26 @@ public class TimelineEventDto
     public bool IsDurationEvent => EndDate.HasValue;
 
     /// <summary>
+    /// Names of the persons linked to this event, ordered by name. Populated
+    /// from the EventPeople navigation when it is loaded, or later by the UI
+    /// (e.g. when the event is selected).
+    /// </summary>
+    [ObservableProperty]
+    private List<string> _peopleNames = new();
+
+    /// <summary>True when at least one person is linked to this event.</summary>
+    public bool HasPeople => PeopleNames.Count > 0;
+
+    /// <summary>Comma-separated list of linked person names for display.</summary>
+    public string PeopleDisplay => string.Join(", ", PeopleNames);
+
+    partial void OnPeopleNamesChanged(List<string> value)
+    {
+        OnPropertyChanged(nameof(HasPeople));
+        OnPropertyChanged(nameof(PeopleDisplay));
+    }
+
+    /// <summary>
     /// Creates a DTO from an Event entity.
     /// </summary>
     public static TimelineEventDto FromEvent(Event evt)
@@ -45,7 +66,13 @@ public class TimelineEventDto
             Location = evt.Location,
             EraId = evt.EraId,
             EraName = evt.Era?.Name,
-            EraColor = evt.Era?.ColorCode
+            EraColor = evt.Era?.ColorCode,
+            PeopleNames = evt.EventPeople
+                .Select(ep => ep.Person?.Name)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Select(name => name!)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .ToList()
         };
     }
 
