@@ -141,8 +141,36 @@ public class NotificationService : INotificationService, IDisposable
         await ShowSuccessAsync(title, message);
     }
 
+    /// <summary>
+    /// Shows a toast carrying an "event" deep-link argument; tapping the toast
+    /// body navigates to that event on the timeline (see OnNotificationInvoked).
+    /// </summary>
+    public async Task ShowEventNotificationAsync(string title, string message, string eventId)
+    {
+        await Task.Run(() =>
+        {
+            var builder = new AppNotificationBuilder()
+                .AddText(title)
+                .AddText(message)
+                .AddArgument("event", eventId);
+
+            ShowNotification(builder.BuildNotification());
+        });
+    }
+
     private void OnNotificationInvoked(AppNotificationManager sender, AppNotificationActivatedEventArgs args)
     {
+        // Toast-body deep link: an "event" argument navigates to the event on
+        // the timeline. This fires on a background thread, so route through
+        // App.OnRedirectedActivation - the same path redirected activations
+        // use - which marshals to the UI thread, restores/foregrounds the
+        // window, and hands the "event:{id}" token to HandleActivationAction.
+        if (args.Arguments.TryGetValue("event", out var eventId) && !string.IsNullOrWhiteSpace(eventId))
+        {
+            App.OnRedirectedActivation($"event:{eventId}");
+            return;
+        }
+
         // Handle notification actions. This fires on a background thread.
         if (args.Arguments.TryGetValue("action", out var actionId))
         {

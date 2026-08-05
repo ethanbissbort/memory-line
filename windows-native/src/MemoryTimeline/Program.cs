@@ -91,9 +91,20 @@ public static class Program
     }
 
     /// <summary>
-    /// Scans startup arguments for a Jump List style action token ("action:...")
-    /// and stores it in <see cref="LaunchAction"/>. Safe to call multiple times;
-    /// the first token found wins.
+    /// True for the activation tokens this app understands: Jump List quick
+    /// actions ("action:...") and event deep links ("event:{id}", emitted by
+    /// JumpListService recent-event entries and toast deep links).
+    /// </summary>
+    private static bool IsActivationToken(string arg)
+    {
+        return arg.StartsWith("action:", StringComparison.OrdinalIgnoreCase)
+            || arg.StartsWith("event:", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Scans startup arguments for an activation token ("action:..." or
+    /// "event:{id}") and stores it in <see cref="LaunchAction"/>. Safe to call
+    /// multiple times; the first token found wins.
     /// </summary>
     private static void CaptureLaunchAction(IEnumerable<string>? args)
     {
@@ -104,8 +115,7 @@ public static class Program
 
         foreach (var arg in args)
         {
-            if (!string.IsNullOrWhiteSpace(arg) &&
-                arg.StartsWith("action:", StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(arg) && IsActivationToken(arg))
             {
                 LaunchAction = arg;
                 Log($"Captured launch action: {arg}");
@@ -115,7 +125,7 @@ public static class Program
     }
 
     /// <summary>
-    /// Extracts a Jump List style "action:" token from an activation's payload,
+    /// Extracts an "action:" or "event:" token from an activation's payload,
     /// or returns null when the activation carries none. Used for both the
     /// cold-start activation (DecideRedirection) and redirected activations
     /// received while running (OnRedirectedActivation), so both paths parse
@@ -131,7 +141,7 @@ public static class Program
             {
                 foreach (var arg in launchData.Arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries))
                 {
-                    if (arg.StartsWith("action:", StringComparison.OrdinalIgnoreCase))
+                    if (IsActivationToken(arg))
                     {
                         return arg;
                     }

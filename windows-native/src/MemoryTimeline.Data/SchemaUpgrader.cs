@@ -230,6 +230,11 @@ public static class SchemaUpgrader
                 ("date_precision",    "\"date_precision\" INTEGER NOT NULL DEFAULT 1"),
                 ("earliest_possible", "\"earliest_possible\" TEXT NULL"),
                 ("latest_possible",   "\"latest_possible\" TEXT NULL"),
+                // On This Day resurfacing (2026-08): view tracking for the
+                // neglected-memory random bias. DEFAULT 0 keeps every
+                // pre-existing row "never viewed".
+                ("last_viewed_at",    "\"last_viewed_at\" TEXT NULL"),
+                ("view_count",        "\"view_count\" INTEGER NOT NULL DEFAULT 0"),
             });
 
             // Date precision & uncertainty on pending events (2026-08), mirroring
@@ -324,8 +329,14 @@ public static class SchemaUpgrader
                         ('send_transcripts_only',    'true',                     '2025-01-21 00:00:00'),
                         ('require_confirmation',     'true',                     '2025-01-21 00:00:00'),
                         ('ask_top_k',                '12',                       '2025-01-21 00:00:00'),
-                        ('ask_include_transcripts',  'false',                    '2025-01-21 00:00:00');
+                        ('ask_include_transcripts',  'false',                    '2025-01-21 00:00:00'),
+                        ('home_is_default_page',     'true',                     '2025-01-21 00:00:00'),
+                        ('daily_toast_enabled',      'true',                     '2025-01-21 00:00:00'),
+                        ('weekly_digest_enabled',    'true',                     '2025-01-21 00:00:00');
                     """);
+                // Note: last_toast_date is deliberately NOT seeded (here or in
+                // AppDbContext.SeedDefaultSettings) - an absent row means "the
+                // On This Day toast has never been shown".
             }
         }
         finally

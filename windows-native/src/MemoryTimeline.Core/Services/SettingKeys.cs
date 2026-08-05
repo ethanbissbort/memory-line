@@ -18,4 +18,8 @@ public static class SettingKeys
     public const string Theme = "theme";                       // matches DB seed
     public const string AskTopK = "ask_top_k";                 // matches DB seed
     public const string AskIncludeTranscripts = "ask_include_transcripts"; // matches DB seed
+    public const string HomeIsDefaultPage = "home_is_default_page"; // matches DB seed
+    public const string DailyToastEnabled = "daily_toast_enabled";  // matches DB seed
+    public const string WeeklyDigestEnabled = "weekly_digest_enabled"; // matches DB seed
+    public const string LastToastDate = "last_toast_date";     // NOT seeded: absent = toast never shown
 }

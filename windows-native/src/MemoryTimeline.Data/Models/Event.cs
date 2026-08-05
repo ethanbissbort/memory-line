@@ -75,6 +75,21 @@ public class Event
     [Column("latest_possible")]
     public DateTime? LatestPossible { get; set; }
 
+    /// <summary>
+    /// When this event was last opened from a resurfacing surface (On This Day,
+    /// random memory). Null means never viewed; used by the neglected-memory
+    /// random bias to prefer events you have not revisited recently.
+    /// </summary>
+    [Column("last_viewed_at")]
+    public DateTime? LastViewedAt { get; set; }
+
+    /// <summary>
+    /// How many times this event has been opened from a resurfacing surface.
+    /// Defaults to 0, matching all pre-existing rows.
+    /// </summary>
+    [Column("view_count")]
+    public int ViewCount { get; set; } = 0;
+
     [Column("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

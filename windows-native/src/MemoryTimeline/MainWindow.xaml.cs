@@ -1,7 +1,9 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using MemoryTimeline.Core.Services;
 using MemoryTimeline.Services;
 using MemoryTimeline.Views;
 using MemoryTimeline.ViewModels;
@@ -29,13 +31,46 @@ public sealed partial class MainWindow : Window
         _navigationService.Frame = ContentFrame;
         RegisterPages();
 
-        // Navigate to Timeline page by default and select the item
-        _navigationService.NavigateTo("Timeline");
-        SelectNavigationItem("Timeline");
+        // Land on Home immediately (no blank frame while settings load), then
+        // asynchronously honor home_is_default_page: when the user has turned
+        // the Home landing off, flip to Timeline - but only if nothing else
+        // (deep link, activation action) has navigated away in the meantime.
+        _navigationService.NavigateTo("Home");
+        SelectNavigationItem("Home");
+        _ = ApplyDefaultLandingPreferenceAsync();
+    }
+
+    /// <summary>
+    /// Reads home_is_default_page (seeded "true") and, when it is explicitly
+    /// "false", moves the initial navigation from Home to Timeline. Runs
+    /// fire-and-forget from the constructor: awaits resume on the UI thread
+    /// (the constructor runs under the DispatcherQueueSynchronizationContext),
+    /// so touching ContentFrame afterwards is safe. Failures leave the app on
+    /// Home - a fully functional fallback - and are logged.
+    /// </summary>
+    private async Task ApplyDefaultLandingPreferenceAsync()
+    {
+        try
+        {
+            var settingsService = App.Current.Services.GetRequiredService<ISettingsService>();
+            var homeIsDefault = await settingsService.GetSettingAsync<string>(SettingKeys.HomeIsDefaultPage, "true");
+
+            if (string.Equals(homeIsDefault?.Trim(), "false", StringComparison.OrdinalIgnoreCase) &&
+                ContentFrame.CurrentSourcePageType == typeof(HomePage))
+            {
+                NavigateTo("Timeline");
+            }
+        }
+        catch (Exception ex)
+        {
+            var logger = App.Current.Services.GetRequiredService<ILogger<MainWindow>>();
+            logger.LogWarning(ex, "Could not read the default landing page setting; staying on Home");
+        }
     }
 
     private void RegisterPages()
     {
+        _navigationService.RegisterPage("Home", typeof(HomePage));
         _navigationService.RegisterPage("Timeline", typeof(TimelinePage));
         _navigationService.RegisterPage("Ask", typeof(AskPage));
         _navigationService.RegisterPage("Queue", typeof(QueuePage));

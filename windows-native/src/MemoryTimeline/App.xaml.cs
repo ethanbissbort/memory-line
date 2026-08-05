@@ -135,6 +135,8 @@ public partial class App : Application
                     services.AddSingleton<IRagService, RagService>();
                     // Ask your timeline: conversational retrieval over the archive
                     services.AddSingleton<IMemoryQueryService, MemoryQueryService>();
+                    // On This Day / random-memory resurfacing (Home page + daily toast)
+                    services.AddSingleton<IResurfacingService, ResurfacingService>();
 
                     // Phase 6: Export/Import & Windows Integration services
                     services.AddSingleton<IExportService, ExportService>();
@@ -154,6 +156,7 @@ public partial class App : Application
 
                     // Register ViewModels
                     services.AddTransient<MainViewModel>();
+                    services.AddTransient<HomeViewModel>();
                     services.AddSingleton<TimelineViewModel>(); // Singleton to preserve state across navigation
                     services.AddTransient<SettingsViewModel>();
                     services.AddTransient<QueueViewModel>();
@@ -316,15 +319,31 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Routes a Jump List / command-line "action:" token to the matching page.
-    /// Shared by OnLaunched (cold start) and OnRedirectedActivation (activation
-    /// redirected from a secondary instance). Must run on the UI thread.
-    /// Unknown tokens are ignored; navigation failures are logged, never thrown.
+    /// Routes an activation token to the matching page: "action:" quick
+    /// actions navigate to their page, and "event:{id}" deep links (Jump List
+    /// recent events, toast taps) open the event on the timeline. Shared by
+    /// OnLaunched (cold start), OnRedirectedActivation (activation redirected
+    /// from a secondary instance), and toast invocation. Must run on the UI
+    /// thread. Unknown tokens are ignored; navigation failures are logged,
+    /// never thrown.
     /// </summary>
     internal void HandleActivationAction(string actionToken)
     {
         try
         {
+            if (actionToken.StartsWith("event:", StringComparison.OrdinalIgnoreCase))
+            {
+                var eventId = actionToken.Substring("event:".Length).Trim();
+                if (!string.IsNullOrEmpty(eventId))
+                {
+                    // TimelinePage.OnNavigatedTo accepts an event id parameter
+                    // and moves the viewport to that event.
+                    var eventNavigationService = Services.GetRequiredService<INavigationService>();
+                    eventNavigationService.NavigateTo("Timeline", eventId);
+                }
+                return;
+            }
+
             var target = actionToken.ToLowerInvariant() switch
             {
                 "action:new-event" or "action:view-timeline" => "Timeline",
@@ -343,6 +362,46 @@ public partial class App : Application
         {
             LogException("Activation action navigation failed", ex);
         }
+    }
+
+    /// <summary>
+    /// Shows the daily "On This Day" toast: at most once per calendar day
+    /// (guarded by the last_toast_date setting), only while daily_toast_enabled,
+    /// and only when at least one memory matches today. The guard date is
+    /// stamped BEFORE showing so a Show failure cannot cause repeat toasts.
+    /// Local dates throughout - "today" is the day the user is living in.
+    /// </summary>
+    private async Task ShowDailyOnThisDayToastAsync()
+    {
+        var settingsService = Services.GetRequiredService<ISettingsService>();
+        var enabledSetting = await settingsService.GetSettingAsync<string>(SettingKeys.DailyToastEnabled, "true");
+        var lastToastDate = await settingsService.GetSettingAsync<string>(SettingKeys.LastToastDate, string.Empty);
+        // Invariant culture: the stored guard value must be a stable Gregorian
+        // yyyy-MM-dd regardless of the user's culture/calendar.
+        var today = DateTime.Today.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+
+        if (!ResurfacingService.ShouldShowToast(lastToastDate, today, enabledSetting))
+        {
+            return;
+        }
+
+        var resurfacingService = Services.GetRequiredService<IResurfacingService>();
+        var memories = await resurfacingService.GetOnThisDayAsync();
+        if (memories.Count == 0)
+        {
+            return;
+        }
+
+        // Stamp before showing: even if Show fails, we do not retry until tomorrow.
+        await settingsService.SetSettingAsync(SettingKeys.LastToastDate, today);
+
+        var top = memories[0];
+        var yearsText = top.YearsAgo == 1 ? "1 year ago" : $"{top.YearsAgo} years ago";
+        var notificationService = Services.GetRequiredService<INotificationService>();
+        await notificationService.ShowEventNotificationAsync(
+            "On This Day",
+            $"{top.Title}, {yearsText}",
+            top.EventId);
     }
 
     /// <summary>
@@ -421,6 +480,17 @@ public partial class App : Application
             if (!string.IsNullOrEmpty(pendingAction))
             {
                 HandleActivationAction(pendingAction);
+            }
+
+            // Daily "On This Day" toast (at most once per calendar day). Its
+            // own try/catch: a toast failure must never affect startup.
+            try
+            {
+                await ShowDailyOnThisDayToastAsync();
+            }
+            catch (Exception toastEx)
+            {
+                LogException("On This Day launch toast failed", toastEx);
             }
         }
         catch (Exception ex)

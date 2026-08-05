@@ -40,6 +40,15 @@ public interface INotificationService
     /// <param name="recordingCount">Number of recordings processed</param>
     /// <param name="eventCount">Number of events extracted</param>
     Task ShowProcessingCompleteAsync(int recordingCount, int eventCount);
+
+    /// <summary>
+    /// Shows a toast that deep-links to a timeline event: tapping the toast
+    /// (while the app runs) navigates to the event on the timeline.
+    /// </summary>
+    /// <param name="title">Notification title</param>
+    /// <param name="message">Notification message</param>
+    /// <param name="eventId">The event to open when the toast is tapped</param>
+    Task ShowEventNotificationAsync(string title, string message, string eventId);
 }
 
 /// <summary>

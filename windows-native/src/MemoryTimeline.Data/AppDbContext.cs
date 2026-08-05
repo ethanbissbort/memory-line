@@ -378,7 +378,12 @@ public class AppDbContext : DbContext
             new AppSetting { SettingKey = "send_transcripts_only", SettingValue = "true", UpdatedAt = SeedTimestamp },
             new AppSetting { SettingKey = "require_confirmation", SettingValue = "true", UpdatedAt = SeedTimestamp },
             new AppSetting { SettingKey = "ask_top_k", SettingValue = "12", UpdatedAt = SeedTimestamp },
-            new AppSetting { SettingKey = "ask_include_transcripts", SettingValue = "false", UpdatedAt = SeedTimestamp }
+            new AppSetting { SettingKey = "ask_include_transcripts", SettingValue = "false", UpdatedAt = SeedTimestamp },
+            // Home / resurfacing (2026-08). last_toast_date is deliberately not
+            // seeded: an absent row means "the daily toast has never been shown".
+            new AppSetting { SettingKey = "home_is_default_page", SettingValue = "true", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "daily_toast_enabled", SettingValue = "true", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "weekly_digest_enabled", SettingValue = "true", UpdatedAt = SeedTimestamp }
         );
 
         // Seed default era categories

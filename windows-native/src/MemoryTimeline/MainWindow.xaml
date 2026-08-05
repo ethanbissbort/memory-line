@@ -23,6 +23,11 @@
             SelectionChanged="NavigationView_SelectionChanged">
 
             <NavigationView.MenuItems>
+                <NavigationViewItem Content="Home" Tag="Home">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE80F;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Content="Timeline" Tag="Timeline" Icon="Calendar"/>
                 <NavigationViewItem Content="Ask" Tag="Ask">
                     <NavigationViewItem.Icon>
