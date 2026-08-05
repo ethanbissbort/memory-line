@@ -24,6 +24,11 @@
                 <NavigationViewItem Content="Timeline" Tag="Timeline" Icon="Calendar"/>
                 <NavigationViewItem Content="Queue" Tag="Queue" Icon="Microphone"/>
                 <NavigationViewItem Content="Review" Tag="Review" Icon="Accept"/>
+                <NavigationViewItem Content="People" Tag="People">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE716;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Content="Connections" Tag="Connections">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE71B;"/>

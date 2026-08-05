@@ -103,11 +103,14 @@ public partial class App : Application
                     services.AddSingleton<IEventEmbeddingRepository, EventEmbeddingRepository>();
                     services.AddSingleton<IAppSettingRepository, AppSettingRepository>();
                     services.AddSingleton<IPendingEventRepository, PendingEventRepository>();
+                    services.AddSingleton<IDraftRepository, DraftRepository>();
 
                     // Register core services (stateless over the factory/repositories)
                     services.AddSingleton<ISettingsService, SettingsService>();
                     services.AddSingleton<IEventService, EventService>();
                     services.AddSingleton<ITimelineService, TimelineService>();
+                    services.AddSingleton<IPersonService, PersonService>();
+                    services.AddSingleton<IDraftService, DraftService>();
 
                     // Phase 3: Audio & Queue services
                     services.AddSingleton<IAudioRecordingService, AudioRecordingService>();
@@ -151,6 +154,7 @@ public partial class App : Application
                     services.AddTransient<SearchViewModel>();
                     services.AddTransient<AnalyticsViewModel>();
                     services.AddTransient<ErasViewModel>();
+                    services.AddTransient<ContactsViewModel>();
 
                     // Register Views. Pages are NOT registered: Frame.Navigate creates them
                     // via Activator, so page registrations were dead code; each page pulls
