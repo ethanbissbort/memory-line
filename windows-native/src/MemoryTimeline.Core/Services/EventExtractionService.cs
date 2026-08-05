@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.Logging;
+using MemoryTimeline.Core.DTOs;
 using MemoryTimeline.Data.Models;
 using MemoryTimeline.Data.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -18,6 +19,7 @@ public class EventExtractionService : IEventExtractionService
     private readonly IEventService _eventService;
     private readonly ISettingsService _settingsService;
     private readonly IRecordingQueueRepository _queueRepository;
+    private readonly IPersonService _personService;
     private readonly IDbContextFactory<Data.AppDbContext> _contextFactory;
     private readonly ILogger<EventExtractionService> _logger;
 
@@ -29,6 +31,7 @@ public class EventExtractionService : IEventExtractionService
         IEventService eventService,
         ISettingsService settingsService,
         IRecordingQueueRepository queueRepository,
+        IPersonService personService,
         IDbContextFactory<Data.AppDbContext> contextFactory,
         ILogger<EventExtractionService> logger)
     {
@@ -37,6 +40,7 @@ public class EventExtractionService : IEventExtractionService
         _eventService = eventService;
         _settingsService = settingsService;
         _queueRepository = queueRepository;
+        _personService = personService;
         _contextFactory = contextFactory;
         _logger = logger;
     }
@@ -392,6 +396,186 @@ public class EventExtractionService : IEventExtractionService
         return await query.CountAsync();
     }
 
+    /// <summary>
+    /// Computes create/update suggestions for the people mentioned in a pending
+    /// event. Names are sourced from the extraction payload's PeopleDetails
+    /// (falling back to the flat People list) and matched against existing
+    /// contacts via <see cref="IPersonService.FindBestMatchAsync"/>.
+    /// </summary>
+    public async Task<List<PersonSuggestionDto>> GetPersonSuggestionsAsync(string pendingEventId)
+    {
+        try
+        {
+            await using var dbContext = await _contextFactory.CreateDbContextAsync();
+
+            var pendingEvent = await dbContext.PendingEvents
+                .AsNoTracking()
+                .FirstOrDefaultAsync(pe => pe.PendingId == pendingEventId);
+
+            if (pendingEvent == null)
+            {
+                throw new Exception($"Pending event {pendingEventId} not found");
+            }
+
+            var extracted = TryDeserializeExtractedData(pendingEvent.ExtractedData);
+            if (extracted == null)
+            {
+                return new List<PersonSuggestionDto>();
+            }
+
+            // Source names from PeopleDetails, falling back to the flat People list
+            var detailNames = DistinctNames(extracted.PeopleDetails?.Select(d => d.Name)).ToList();
+            var names = detailNames.Count > 0
+                ? detailNames
+                : DistinctNames(extracted.People).ToList();
+
+            var suggestions = new List<PersonSuggestionDto>();
+
+            foreach (var name in names)
+            {
+                var detail = FindPersonDetail(extracted.PeopleDetails, name);
+
+                var suggestion = new PersonSuggestionDto
+                {
+                    PendingEventId = pendingEventId,
+                    Name = name,
+                    SuggestedRelationship = NullIfWhiteSpace(detail?.Relationship),
+                    SuggestedDetails = NullIfWhiteSpace(detail?.Details)
+                };
+
+                var match = await _personService.FindBestMatchAsync(name);
+
+                if (match == null)
+                {
+                    suggestion.Kind = PersonSuggestionKind.NewPerson;
+                }
+                else
+                {
+                    suggestion.MatchedPersonId = match.Person.PersonId;
+                    suggestion.MatchedPersonName = match.Person.Name;
+
+                    var addsRelationship = !string.IsNullOrWhiteSpace(suggestion.SuggestedRelationship)
+                        && string.IsNullOrWhiteSpace(match.Person.Relationship);
+                    var addsDetails = !string.IsNullOrWhiteSpace(suggestion.SuggestedDetails)
+                        && string.IsNullOrWhiteSpace(match.Person.Notes);
+
+                    suggestion.Kind = addsRelationship || addsDetails
+                        ? PersonSuggestionKind.UpdateDetails
+                        : PersonSuggestionKind.KnownPerson;
+                }
+
+                suggestions.Add(suggestion);
+            }
+
+            _logger.LogInformation("Computed {Count} person suggestions for pending event {PendingEventId}",
+                suggestions.Count, pendingEventId);
+
+            return suggestions;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error computing person suggestions for pending event {PendingEventId}", pendingEventId);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Applies one person suggestion: creates the person (NewPerson), fills only
+    /// the missing fields on the matched person (UpdateDetails), or does nothing
+    /// (KnownPerson). Duplicate-create races resolve to the existing person.
+    /// Always returns the suggestion with IsApplied set to true.
+    /// </summary>
+    public async Task<PersonSuggestionDto> ApplyPersonSuggestionAsync(PersonSuggestionDto suggestion)
+    {
+        ArgumentNullException.ThrowIfNull(suggestion);
+
+        try
+        {
+            switch (suggestion.Kind)
+            {
+                case PersonSuggestionKind.NewPerson:
+                    try
+                    {
+                        var created = await _personService.CreatePersonAsync(new PersonDto
+                        {
+                            Name = suggestion.Name,
+                            Relationship = suggestion.SuggestedRelationship,
+                            Notes = suggestion.SuggestedDetails
+                        });
+
+                        suggestion.MatchedPersonId = created.PersonId;
+                        suggestion.MatchedPersonName = created.Name;
+
+                        _logger.LogInformation("Created person '{Name}' from suggestion", created.Name);
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // Duplicate-create race: another caller created the person
+                        // first — resolve to the existing contact.
+                        _logger.LogInformation("Person '{Name}' already exists; resolving suggestion to existing contact",
+                            suggestion.Name);
+
+                        var existing = await _personService.FindBestMatchAsync(suggestion.Name);
+                        if (existing != null)
+                        {
+                            suggestion.MatchedPersonId = existing.Person.PersonId;
+                            suggestion.MatchedPersonName = existing.Person.Name;
+                        }
+                    }
+                    break;
+
+                case PersonSuggestionKind.UpdateDetails:
+                    if (!string.IsNullOrWhiteSpace(suggestion.MatchedPersonId))
+                    {
+                        var person = await _personService.GetPersonAsync(suggestion.MatchedPersonId);
+                        if (person != null)
+                        {
+                            var changed = false;
+
+                            // Fill ONLY missing fields; never overwrite existing data
+                            if (string.IsNullOrWhiteSpace(person.Relationship)
+                                && !string.IsNullOrWhiteSpace(suggestion.SuggestedRelationship))
+                            {
+                                person.Relationship = suggestion.SuggestedRelationship;
+                                changed = true;
+                            }
+
+                            if (string.IsNullOrWhiteSpace(person.Notes)
+                                && !string.IsNullOrWhiteSpace(suggestion.SuggestedDetails))
+                            {
+                                person.Notes = suggestion.SuggestedDetails;
+                                changed = true;
+                            }
+
+                            if (changed)
+                            {
+                                await _personService.UpdatePersonAsync(person);
+                                _logger.LogInformation("Updated person '{Name}' with suggested details", person.Name);
+                            }
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Matched person {PersonId} no longer exists; suggestion not applied",
+                                suggestion.MatchedPersonId);
+                        }
+                    }
+                    break;
+
+                case PersonSuggestionKind.KnownPerson:
+                    // Nothing to apply — the contact already exists with no new details
+                    break;
+            }
+
+            suggestion.IsApplied = true;
+            return suggestion;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error applying person suggestion for '{Name}'", suggestion.Name);
+            throw;
+        }
+    }
+
     #region Private Methods
 
     /// <summary>
@@ -480,10 +664,15 @@ public class EventExtractionService : IEventExtractionService
 
             if (person == null)
             {
+                // Enrich brand-new person rows from the per-person extraction details
+                var detail = FindPersonDetail(extracted.PeopleDetails, rawPerson);
+
                 person = new Person
                 {
                     PersonId = Guid.NewGuid().ToString(),
                     Name = rawPerson,
+                    Relationship = NullIfWhiteSpace(detail?.Relationship),
+                    Notes = NullIfWhiteSpace(detail?.Details),
                     CreatedAt = DateTime.UtcNow
                 };
                 dbContext.People.Add(person);
@@ -538,6 +727,22 @@ public class EventExtractionService : IEventExtractionService
     }
 
     /// <summary>
+    /// Finds the extracted per-person detail matching a name (OrdinalIgnoreCase, trimmed).
+    /// </summary>
+    private static ExtractedPersonDetail? FindPersonDetail(
+        IEnumerable<ExtractedPersonDetail>? details, string name)
+    {
+        return details?.FirstOrDefault(d =>
+            !string.IsNullOrWhiteSpace(d.Name) &&
+            string.Equals(d.Name.Trim(), name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string? NullIfWhiteSpace(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    /// <summary>
     /// Builds extraction context from existing data.
     /// </summary>
     private async Task<ExtractionContext> BuildExtractionContextAsync()
@@ -553,8 +758,13 @@ public class EventExtractionService : IEventExtractionService
             var recentEvents = await _eventService.GetRecentEventsAsync(20);
             context.RecentEvents = recentEvents.Select(e => e.Title).ToList();
 
-            // TODO: Get available tags, people, locations from database
-            // This would require additional repository methods
+            // Known people so extraction reuses canonical spellings (best-effort)
+            var persons = await _personService.GetAllPersonsAsync(PersonSortOption.MostEvents);
+            context.KnownPeople = persons
+                .Select(p => p.DisplayName)
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Take(100)
+                .ToList();
 
             return context;
         }

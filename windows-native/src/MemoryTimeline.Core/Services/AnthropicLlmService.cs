@@ -242,6 +242,7 @@ public class AnthropicLlmService : ILlmService
    - Category (Milestone, Work, Education, Health, Travel, Social, Personal, Family, or Other)
    - Tags (relevant keywords)
    - People involved (names mentioned)
+   - People details (for each person: their name, their relationship to the speaker if stated, and any other noteworthy details mentioned about them)
    - Locations mentioned
    - Confidence score (0.0 to 1.0 based on clarity of information)
    - Source text (the exact portion of transcript about this event)
@@ -267,6 +268,11 @@ public class AnthropicLlmService : ILlmService
             prompt += "\n\nAvailable tags: " + string.Join(", ", context.AvailableTags.Take(20));
         }
 
+        if (context?.KnownPeople != null && context.KnownPeople.Any())
+        {
+            prompt += "\n\nKnown people (use these canonical spellings when they match): " + string.Join(", ", context.KnownPeople.Take(100));
+        }
+
         prompt += $@"
 
 # Transcript:
@@ -284,6 +290,7 @@ Return a JSON object with this exact structure (no markdown, just raw JSON):
       ""category"": ""Work"",
       ""tags"": [""tag1"", ""tag2""],
       ""people"": [""Person Name""],
+      ""peopleDetails"": [{{ ""name"": ""Person Name"", ""relationship"": ""sister"", ""details"": ""noteworthy details mentioned"" }}],
       ""locations"": [""Location Name""],
       ""confidence"": 0.95,
       ""sourceText"": ""relevant portion of transcript"",
@@ -292,6 +299,8 @@ Return a JSON object with this exact structure (no markdown, just raw JSON):
   ],
   ""overallConfidence"": 0.85
 }}
+
+Notes on people fields: ""people"" must remain the flat list of person names. ""peopleDetails"" has one entry per person with the same name plus ""relationship"" and ""details"" set to null when not mentioned.
 
 Now analyze the transcript and extract events:";
 

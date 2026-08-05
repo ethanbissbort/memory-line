@@ -1,3 +1,4 @@
+using MemoryTimeline.Core.DTOs;
 using MemoryTimeline.Data.Models;
 
 namespace MemoryTimeline.Core.Services;
@@ -62,4 +63,14 @@ public interface IEventExtractionService
     /// <param name="isApproved">Approval status</param>
     /// <returns>Count</returns>
     Task<int> GetPendingEventCountAsync(bool? isApproved = null);
+
+    /// <summary>Computes create/update suggestions for the people mentioned in a pending event.</summary>
+    /// <param name="pendingEventId">Pending event ID</param>
+    /// <returns>One suggestion per distinct person name found in the extraction payload</returns>
+    Task<List<PersonSuggestionDto>> GetPersonSuggestionsAsync(string pendingEventId);
+
+    /// <summary>Applies one suggestion (creates the person or merges suggested details). Returns the updated suggestion (IsApplied=true).</summary>
+    /// <param name="suggestion">The suggestion to apply</param>
+    /// <returns>The same suggestion instance with IsApplied set to true</returns>
+    Task<PersonSuggestionDto> ApplyPersonSuggestionAsync(PersonSuggestionDto suggestion);
 }

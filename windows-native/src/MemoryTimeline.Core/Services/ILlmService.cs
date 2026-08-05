@@ -144,6 +144,13 @@ public class ExtractedEvent
     public List<string> People { get; set; } = new();
 
     /// <summary>
+    /// Per-person details (relationship, extra context) for the people involved.
+    /// Optional richer companion to the flat <see cref="People"/> list, which is
+    /// kept for compatibility.
+    /// </summary>
+    public List<ExtractedPersonDetail>? PeopleDetails { get; set; }
+
+    /// <summary>
     /// Locations mentioned.
     /// </summary>
     public List<string> Locations { get; set; } = new();
@@ -162,6 +169,27 @@ public class ExtractedEvent
     /// Reasoning for extraction (for debugging/review).
     /// </summary>
     public string? Reasoning { get; set; }
+}
+
+/// <summary>
+/// Per-person detail extracted from a transcript alongside the flat people list.
+/// </summary>
+public class ExtractedPersonDetail
+{
+    /// <summary>
+    /// Person name as mentioned in the transcript.
+    /// </summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Relationship to the speaker (e.g. "sister", "coworker"), when stated.
+    /// </summary>
+    public string? Relationship { get; set; }
+
+    /// <summary>
+    /// Other noteworthy details mentioned about the person.
+    /// </summary>
+    public string? Details { get; set; }
 }
 
 /// <summary>

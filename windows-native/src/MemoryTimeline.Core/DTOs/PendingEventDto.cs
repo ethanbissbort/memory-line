@@ -1,7 +1,9 @@
+using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI;
 using Microsoft.UI.Xaml.Media;
+using MemoryTimeline.Core.Services;
 using MemoryTimeline.Data.Models;
 
 namespace MemoryTimeline.Core.DTOs;
@@ -118,6 +120,19 @@ public partial class PendingEventDto : ObservableObject
     public bool HasTranscript => !string.IsNullOrWhiteSpace(Transcript);
 
     /// <summary>
+    /// Names of people mentioned in the extracted event, parsed from the
+    /// extraction payload (PeopleDetails names, falling back to the flat
+    /// People list). Empty when the payload is missing or malformed.
+    /// </summary>
+    public List<string> PeopleNames { get; private set; } = new();
+
+    /// <summary>True when at least one person was extracted for this event.</summary>
+    public bool HasPeople => PeopleNames.Count > 0;
+
+    /// <summary>Comma-separated people names for display.</summary>
+    public string PeopleDisplay => string.Join(", ", PeopleNames);
+
+    /// <summary>
     /// DateTimeOffset bridge over <see cref="StartDate"/> for CalendarDatePicker.Date bindings.
     /// Date-only semantics: the time component is discarded on write.
     /// </summary>
@@ -198,8 +213,54 @@ public partial class PendingEventDto : ObservableObject
             CreatedAt = pendingEvent.CreatedAt,
             ExtractedData = pendingEvent.ExtractedData,
             Transcript = pendingEvent.Transcript,
-            AudioFilePath = pendingEvent.AudioFilePath
+            AudioFilePath = pendingEvent.AudioFilePath,
+            PeopleNames = ParsePeopleNames(pendingEvent.ExtractedData)
         };
+    }
+
+    // Reused across parses; building JsonSerializerOptions per call is expensive.
+    private static readonly JsonSerializerOptions ExtractedDataJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
+    /// <summary>
+    /// Parses distinct, trimmed people names out of the extraction payload.
+    /// Returns an empty list when the payload is null, empty, or malformed.
+    /// </summary>
+    private static List<string> ParsePeopleNames(string? extractedData)
+    {
+        if (string.IsNullOrWhiteSpace(extractedData))
+        {
+            return new List<string>();
+        }
+
+        try
+        {
+            var extracted = JsonSerializer.Deserialize<ExtractedEvent>(extractedData, ExtractedDataJsonOptions);
+            if (extracted == null)
+            {
+                return new List<string>();
+            }
+
+            var detailNames = DistinctPeopleNames(extracted.PeopleDetails?.Select(d => d.Name));
+            return detailNames.Count > 0
+                ? detailNames
+                : DistinctPeopleNames(extracted.People);
+        }
+        catch (JsonException)
+        {
+            return new List<string>();
+        }
+    }
+
+    private static List<string> DistinctPeopleNames(IEnumerable<string>? names)
+    {
+        return (names ?? Enumerable.Empty<string>())
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Select(n => n.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     /// <summary>
