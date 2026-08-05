@@ -336,7 +336,8 @@
 
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <FontIcon Glyph="&#xE787;" FontSize="14"/>
-                            <TextBlock Text="{x:Bind ViewModel.SelectedEvent.StartDate, Mode=OneWay, FallbackValue=''}"
+                            <!-- Precision-honest date ("Summer 1998"), not a raw DateTime -->
+                            <TextBlock Text="{x:Bind ViewModel.SelectedEvent.DisplayDate, Mode=OneWay, FallbackValue=''}"
                                       FontSize="14"
                                       Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
                         </StackPanel>
@@ -490,6 +491,28 @@
                                                PlaceholderText="Select date"
                                                DateFormat="{}{month.full} {day.integer}, {year.full}"
                                                DateChanged="EventDatePicker_DateChanged"/>
+                        </StackPanel>
+                        <!-- Date precision: how much of the start date to believe.
+                             Coarser than Day shows a live human-form preview. -->
+                        <TextBlock Text="Date precision" FontWeight="SemiBold"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <ComboBox x:Name="EventPrecisionCombo"
+                                     Width="150"
+                                     AutomationProperties.Name="Date precision"
+                                     SelectionChanged="EventPrecisionCombo_SelectionChanged">
+                                <ComboBoxItem Content="Exact time" Tag="exact"/>
+                                <ComboBoxItem Content="Day" Tag="day"/>
+                                <ComboBoxItem Content="Month" Tag="month"/>
+                                <ComboBoxItem Content="Season" Tag="season"/>
+                                <ComboBoxItem Content="Year" Tag="year"/>
+                                <ComboBoxItem Content="Decade" Tag="decade"/>
+                                <ComboBoxItem Content="Unknown" Tag="unknown"/>
+                            </ComboBox>
+                            <TextBlock x:Name="EventPrecisionPreview"
+                                      VerticalAlignment="Center"
+                                      FontStyle="Italic"
+                                      Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                                      Visibility="Collapsed"/>
                         </StackPanel>
                         <TextBlock Text="End date (optional)" FontWeight="SemiBold"/>
                         <StackPanel Orientation="Horizontal" Spacing="8">

@@ -140,6 +140,12 @@ public sealed class EventDraftPayload
     /// <summary>Event end date.</summary>
     public DateTime? EndDate { get; set; }
 
+    /// <summary>
+    /// Date precision of the start date. Older drafts without this property
+    /// keep the initializer default (Day).
+    /// </summary>
+    public DatePrecision DatePrecision { get; set; } = DatePrecision.Day;
+
     /// <summary>Event category.</summary>
     public string? Category { get; set; }
 

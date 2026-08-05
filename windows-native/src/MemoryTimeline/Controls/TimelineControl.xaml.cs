@@ -680,6 +680,10 @@ public sealed partial class TimelineControl : UserControl
             _isSyncingDateFields = true;
             EventDatePicker.Date = new DateTimeOffset(date.Value);
             _isSyncingDateFields = false;
+
+            // The guarded picker update above suppresses DateChanged, so keep
+            // the precision preview current here.
+            UpdatePrecisionPreview();
         }
     }
 
@@ -691,6 +695,69 @@ public sealed partial class TimelineControl : UserControl
         _isSyncingDateFields = true;
         EventDateTextBox.Text = args.NewDate.Value.ToString("MMddyy");
         _isSyncingDateFields = false;
+
+        UpdatePrecisionPreview();
+    }
+
+    /// <summary>
+    /// Returns the precision selected in the event dialog's precision combo,
+    /// defaulting to Day when nothing is selected.
+    /// </summary>
+    private DatePrecision GetSelectedPrecision()
+    {
+        if (EventPrecisionCombo.SelectedItem is ComboBoxItem item)
+        {
+            return DatePrecisionParser.Parse(item.Tag?.ToString());
+        }
+
+        return DatePrecision.Day;
+    }
+
+    /// <summary>
+    /// Selects the precision combo item matching <paramref name="precision"/>
+    /// (falls back to Day for safety).
+    /// </summary>
+    private void SelectPrecisionComboItem(DatePrecision precision)
+    {
+        var value = DatePrecisionParser.ToStringValue(precision);
+        int fallbackIndex = 1; // "Day"
+
+        for (int i = 0; i < EventPrecisionCombo.Items.Count; i++)
+        {
+            if (EventPrecisionCombo.Items[i] is not ComboBoxItem item)
+                continue;
+
+            if (string.Equals(item.Tag?.ToString(), value, StringComparison.OrdinalIgnoreCase))
+            {
+                EventPrecisionCombo.SelectedIndex = i;
+                return;
+            }
+        }
+
+        EventPrecisionCombo.SelectedIndex = fallbackIndex;
+    }
+
+    private void EventPrecisionCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        UpdatePrecisionPreview();
+    }
+
+    /// <summary>
+    /// Shows the precision-honest human form of the chosen date ("Summer 1998")
+    /// while the precision is coarser than Day; hidden otherwise.
+    /// </summary>
+    private void UpdatePrecisionPreview()
+    {
+        var precision = GetSelectedPrecision();
+
+        if (precision <= DatePrecision.Day || !EventDatePicker.Date.HasValue)
+        {
+            EventPrecisionPreview.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        EventPrecisionPreview.Text = DateDisplay.FormatPrecise(EventDatePicker.Date.Value.DateTime, precision);
+        EventPrecisionPreview.Visibility = Visibility.Visible;
     }
 
     private async void AddEventButton_Click(object sender, RoutedEventArgs e)
@@ -726,6 +793,8 @@ public sealed partial class TimelineControl : UserControl
         EventDateTextBox.Text = defaultDate.ToString("MMddyy");
         EventDatePicker.Date = new DateTimeOffset(defaultDate);
         _isSyncingDateFields = false;
+        SelectPrecisionComboItem(DatePrecision.Day);
+        UpdatePrecisionPreview();
         EventEndDatePicker.Date = null;
         EventDescriptionBox.Text = "";
         // Pre-select the canonical default category instead of leaving the field
@@ -763,6 +832,8 @@ public sealed partial class TimelineControl : UserControl
         EventDateTextBox.Text = startDate.ToString("MMddyy");
         EventDatePicker.Date = new DateTimeOffset(startDate);
         _isSyncingDateFields = false;
+        SelectPrecisionComboItem(payload?.DatePrecision ?? DatePrecision.Day);
+        UpdatePrecisionPreview();
         EventEndDatePicker.Date = payload?.EndDate is DateTime draftEnd
             ? new DateTimeOffset(draftEnd)
             : null;
@@ -824,6 +895,8 @@ public sealed partial class TimelineControl : UserControl
         EventDateTextBox.Text = eventDto.StartDate.ToString("MMddyy");
         EventDatePicker.Date = new DateTimeOffset(eventDto.StartDate);
         _isSyncingDateFields = false;
+        SelectPrecisionComboItem(eventDto.DatePrecision);
+        UpdatePrecisionPreview();
         EventEndDatePicker.Date = eventDto.EndDate is DateTime endDate
             ? new DateTimeOffset(endDate)
             : null;
@@ -982,6 +1055,7 @@ public sealed partial class TimelineControl : UserControl
             }
 
             var eraId = (EventEraCombo.SelectedItem as EventEraChoiceDto)?.EraId;
+            var datePrecision = GetSelectedPrecision();
 
             EventDialogErrorBar.IsOpen = false;
 
@@ -995,7 +1069,8 @@ public sealed partial class TimelineControl : UserControl
                     EventDescriptionBox.Text,
                     category,
                     EventLocationBox.Text,
-                    eraId);
+                    eraId,
+                    datePrecision);
             }
             else
             {
@@ -1008,7 +1083,8 @@ public sealed partial class TimelineControl : UserControl
                     EventDescriptionBox.Text,
                     category,
                     EventLocationBox.Text,
-                    eraId);
+                    eraId,
+                    datePrecision);
             }
         }
         catch (Exception ex)
@@ -1056,7 +1132,8 @@ public sealed partial class TimelineControl : UserControl
                 EventEndDatePicker.Date?.DateTime,
                 category,
                 eraId,
-                EventLocationBox.Text);
+                EventLocationBox.Text,
+                GetSelectedPrecision());
         }
         catch (Exception ex)
         {

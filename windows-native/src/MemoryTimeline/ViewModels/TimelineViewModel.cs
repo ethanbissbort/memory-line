@@ -141,6 +141,19 @@ public partial class TimelineViewModel : ObservableObject
         {
             ((TimelineViewModel)recipient).OnEventCreated(message);
         });
+
+        // React to edits/deletes made elsewhere (e.g. the Search page) so the
+        // timeline never shows stale or ghost events. Our own CRUD paths run
+        // with IsLoading set and reload themselves, so the handlers skip them.
+        WeakReferenceMessenger.Default.Register<EventUpdatedMessage>(this, static (recipient, message) =>
+        {
+            ((TimelineViewModel)recipient).OnEventUpdated(message);
+        });
+
+        WeakReferenceMessenger.Default.Register<EventDeletedMessage>(this, static (recipient, message) =>
+        {
+            ((TimelineViewModel)recipient).OnEventDeleted(message);
+        });
     }
 
     /// <summary>
@@ -192,6 +205,101 @@ public partial class TimelineViewModel : ObservableObject
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error refreshing timeline after event created: {EventId}", message.EventId);
+        }
+    }
+
+    /// <summary>
+    /// Handles an <see cref="EventUpdatedMessage"/> from any thread by marshalling
+    /// the viewport reload onto the UI thread.
+    /// </summary>
+    private void OnEventUpdated(EventUpdatedMessage message)
+    {
+        void Handle() => _ = HandleEventUpdatedAsync(message);
+
+        if (_dispatcherQueue == null || _dispatcherQueue.HasThreadAccess)
+        {
+            Handle();
+        }
+        else
+        {
+            _dispatcherQueue.TryEnqueue(Handle);
+        }
+    }
+
+    /// <summary>
+    /// Reloads the viewport after an event was edited elsewhere in the app
+    /// (e.g. the Search page) so the timeline reflects the change without
+    /// renavigation. Our own UpdateEventAsync publishes while IsLoading is set
+    /// and reloads itself, so it is skipped here.
+    /// </summary>
+    private async Task HandleEventUpdatedAsync(EventUpdatedMessage message)
+    {
+        if (IsLoading || Viewport == null)
+            return;
+
+        try
+        {
+            await LoadEventsForViewportAsync();
+
+            if (SelectedEvent?.EventId == message.EventId)
+            {
+                // Re-point the details panel at the reloaded DTO (null when the
+                // edit moved the event outside the current viewport).
+                SelectedEvent = Events.FirstOrDefault(e => e.EventId == message.EventId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error refreshing timeline after event updated: {EventId}", message.EventId);
+        }
+    }
+
+    /// <summary>
+    /// Handles an <see cref="EventDeletedMessage"/> from any thread by marshalling
+    /// the removal onto the UI thread.
+    /// </summary>
+    private void OnEventDeleted(EventDeletedMessage message)
+    {
+        void Handle() => _ = HandleEventDeletedAsync(message);
+
+        if (_dispatcherQueue == null || _dispatcherQueue.HasThreadAccess)
+        {
+            Handle();
+        }
+        else
+        {
+            _dispatcherQueue.TryEnqueue(Handle);
+        }
+    }
+
+    /// <summary>
+    /// Removes an event deleted elsewhere in the app (e.g. the Search page)
+    /// from the timeline. Our own DeleteEventAsync runs with IsLoading set and
+    /// reloads itself, so it is skipped here.
+    /// </summary>
+    private async Task HandleEventDeletedAsync(EventDeletedMessage message)
+    {
+        if (IsLoading)
+            return;
+
+        try
+        {
+            var dto = Events.FirstOrDefault(e => e.EventId == message.EventId);
+            if (dto != null)
+            {
+                Events.Remove(dto);
+            }
+
+            if (SelectedEvent?.EventId == message.EventId)
+            {
+                SelectedEvent = null;
+            }
+
+            TotalEventCount = await _eventService.GetTotalEventCountAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating timeline after event deleted: {EventId}", message.EventId);
         }
     }
 
@@ -900,7 +1008,8 @@ public partial class TimelineViewModel : ObservableObject
         string? description,
         string? category,
         string? location,
-        string? eraId)
+        string? eraId,
+        DatePrecision datePrecision = DatePrecision.Day)
     {
         // Don't silently return when busy: the Add Event dialog awaits this call
         // and would close as if the save succeeded. Throw so it stays open.
@@ -918,6 +1027,7 @@ public partial class TimelineViewModel : ObservableObject
                 Title = title,
                 StartDate = date,
                 EndDate = endDate,
+                DatePrecision = datePrecision,
                 Description = description,
                 // Categories are canonically lowercase (EventCategory constants).
                 Category = category?.ToLowerInvariant() ?? EventCategory.Other,
@@ -984,7 +1094,8 @@ public partial class TimelineViewModel : ObservableObject
         string? description,
         string? category,
         string? location,
-        string? eraId)
+        string? eraId,
+        DatePrecision datePrecision = DatePrecision.Day)
     {
         if (string.IsNullOrEmpty(eventId)) return;
 
@@ -1009,6 +1120,7 @@ public partial class TimelineViewModel : ObservableObject
             existingEvent.Title = title;
             existingEvent.StartDate = date;
             existingEvent.EndDate = endDate;
+            existingEvent.DatePrecision = datePrecision;
             existingEvent.Description = description;
             // Categories are canonically lowercase (EventCategory constants).
             existingEvent.Category = category?.ToLowerInvariant() ?? EventCategory.Other;
@@ -1027,7 +1139,7 @@ public partial class TimelineViewModel : ObservableObject
             // Notify other views; a subscriber failure must not fail the save.
             try
             {
-                WeakReferenceMessenger.Default.Send(new EventUpdatedMessage(eventId));
+                WeakReferenceMessenger.Default.Send(new EventUpdatedMessage(eventId, date));
             }
             catch (Exception messengerEx)
             {
@@ -1262,7 +1374,8 @@ public partial class TimelineViewModel : ObservableObject
         DateTime? endDate,
         string? category,
         string? eraId,
-        string? location)
+        string? location,
+        DatePrecision datePrecision = DatePrecision.Day)
     {
         try
         {
@@ -1272,6 +1385,7 @@ public partial class TimelineViewModel : ObservableObject
                 Description = string.IsNullOrWhiteSpace(description) ? null : description,
                 StartDate = startDate,
                 EndDate = endDate,
+                DatePrecision = datePrecision,
                 Category = category,
                 EraId = string.IsNullOrWhiteSpace(eraId) ? null : eraId,
                 Location = string.IsNullOrWhiteSpace(location) ? null : location,

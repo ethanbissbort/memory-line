@@ -49,6 +49,12 @@ public sealed partial class EventBubble : UserControl
     /// </summary>
     public string CategoryGlyph => Event?.GetCategoryIcon() ?? "\uE707"; // Default pin icon
 
+    /// <summary>
+    /// Pin opacity: approximate dates (precision coarser than Month) render
+    /// slightly faded as a subtle uncertainty cue.
+    /// </summary>
+    public double PinOpacity => Event?.IsApproximate == true ? 0.55 : 1.0;
+
     public EventBubble()
     {
         InitializeComponent();
@@ -60,12 +66,14 @@ public sealed partial class EventBubble : UserControl
         {
             bubble.OnPropertyChanged(nameof(CategoryBrush));
             bubble.OnPropertyChanged(nameof(CategoryGlyph));
+            bubble.OnPropertyChanged(nameof(PinOpacity));
             bubble.UpdateToolTip();
         }
     }
 
     /// <summary>
-    /// Sets a hover tooltip with the event's title, dates, and linked people
+    /// Sets a hover tooltip with the event's title, precision-honest date
+    /// ("Summer 1998" rather than a fabricated exact day), and linked people
     /// (the people line appears only when person names have been loaded).
     /// </summary>
     private void UpdateToolTip()
@@ -76,7 +84,7 @@ public sealed partial class EventBubble : UserControl
             return;
         }
 
-        var text = $"{Event.Title}\n{FormatDate(Event.StartDate)}{FormatEndDate(Event.EndDate)}";
+        var text = $"{Event.Title}\n{Event.DisplayDate}";
         if (Event.HasPeople)
         {
             text += $"\nWith: {Event.PeopleDisplay}";
@@ -117,16 +125,6 @@ public sealed partial class EventBubble : UserControl
             CenterX = 15,
             CenterY = 40
         };
-    }
-
-    public string FormatDate(DateTime date)
-    {
-        return date.ToString("MMM d, yyyy");
-    }
-
-    public string FormatEndDate(DateTime? date)
-    {
-        return date.HasValue ? $" - {date.Value:MMM d, yyyy}" : string.Empty;
     }
 
     private Color ConvertHexToColor(string hex)

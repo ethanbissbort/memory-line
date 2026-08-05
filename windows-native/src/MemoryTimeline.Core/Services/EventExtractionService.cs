@@ -140,6 +140,8 @@ public class EventExtractionService : IEventExtractionService
                     Description = extracted.Description,
                     StartDate = extracted.StartDate,
                     EndDate = extracted.EndDate,
+                    // Defensive parse: null/garbage precision strings fall back to Day.
+                    DatePrecision = DatePrecisionParser.Parse(extracted.DatePrecision),
                     Category = ParseCategory(extracted.Category),
                     ConfidenceScore = extracted.Confidence,
                     ExtractedData = System.Text.Json.JsonSerializer.Serialize(extracted),
@@ -221,6 +223,9 @@ public class EventExtractionService : IEventExtractionService
                 Description = pendingEvent.Description,
                 StartDate = pendingEvent.StartDate,
                 EndDate = pendingEvent.EndDate,
+                DatePrecision = pendingEvent.DatePrecision,
+                EarliestPossible = pendingEvent.EarliestPossible,
+                LatestPossible = pendingEvent.LatestPossible,
                 Category = NormalizeCategory(pendingEvent.Category),
                 Confidence = pendingEvent.ConfidenceScore,
                 AudioFilePath = pendingEvent.AudioFilePath,
@@ -309,6 +314,9 @@ public class EventExtractionService : IEventExtractionService
             tracked.Description = pendingEvent.Description;
             tracked.StartDate = pendingEvent.StartDate;
             tracked.EndDate = pendingEvent.EndDate;
+            tracked.DatePrecision = pendingEvent.DatePrecision;
+            tracked.EarliestPossible = pendingEvent.EarliestPossible;
+            tracked.LatestPossible = pendingEvent.LatestPossible;
             tracked.Category = pendingEvent.Category;
             tracked.ConfidenceScore = pendingEvent.ConfidenceScore;
 

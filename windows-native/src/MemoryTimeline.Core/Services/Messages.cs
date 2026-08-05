@@ -39,6 +39,15 @@ public sealed record DraftsChangedMessage;
 
 /// <summary>
 /// Published via <c>WeakReferenceMessenger.Default</c> after an existing event
-/// is successfully updated.
+/// is successfully updated. Carries the (possibly changed) start date so
+/// subscribers can decide whether the event is inside their viewport without
+/// a lookup.
 /// </summary>
-public sealed record EventUpdatedMessage(string EventId);
+public sealed record EventUpdatedMessage(string EventId, DateTime StartDate);
+
+/// <summary>
+/// Published via <c>WeakReferenceMessenger.Default</c> after an event is
+/// successfully deleted, so views holding the event (timeline, search) can
+/// drop it without renavigation.
+/// </summary>
+public sealed record EventDeletedMessage(string EventId);

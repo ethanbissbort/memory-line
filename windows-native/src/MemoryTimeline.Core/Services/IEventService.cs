@@ -198,6 +198,17 @@ public class EventService : IEventService
 
             await _eventRepository.DeleteAsync(eventToDelete);
             _logger.LogInformation("Event deleted: {EventId}", eventId);
+
+            // Notify subscribers (e.g. TimelineViewModel) that the event is gone.
+            // A subscriber failure must not turn a successful delete into an error.
+            try
+            {
+                WeakReferenceMessenger.Default.Send(new EventDeletedMessage(eventId));
+            }
+            catch (Exception messengerEx)
+            {
+                _logger.LogWarning(messengerEx, "Error publishing EventDeletedMessage for event {EventId}", eventId);
+            }
         }
         catch (Exception ex)
         {

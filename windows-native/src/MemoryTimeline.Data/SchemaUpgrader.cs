@@ -197,6 +197,20 @@ public static class SchemaUpgrader
             {
                 ("location",   "\"location\" TEXT NULL"),
                 ("confidence", "\"confidence\" REAL NULL"),
+                // Date precision & uncertainty (2026-08). DEFAULT 1 = DatePrecision.Day
+                // preserves the meaning of every pre-existing row.
+                ("date_precision",    "\"date_precision\" INTEGER NOT NULL DEFAULT 1"),
+                ("earliest_possible", "\"earliest_possible\" TEXT NULL"),
+                ("latest_possible",   "\"latest_possible\" TEXT NULL"),
+            });
+
+            // Date precision & uncertainty on pending events (2026-08), mirroring
+            // the events columns so approval can copy them straight across.
+            await EnsureColumnsAsync(connection, existingTables, "pending_events", logger, new[]
+            {
+                ("date_precision",    "\"date_precision\" INTEGER NOT NULL DEFAULT 1"),
+                ("earliest_possible", "\"earliest_possible\" TEXT NULL"),
+                ("latest_possible",   "\"latest_possible\" TEXT NULL"),
             });
 
             await EnsureColumnsAsync(connection, existingTables, "tags", logger, new[]

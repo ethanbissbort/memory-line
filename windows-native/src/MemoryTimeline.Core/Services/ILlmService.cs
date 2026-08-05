@@ -129,6 +129,14 @@ public class ExtractedEvent
     public DateTime? EndDate { get; set; }
 
     /// <summary>
+    /// Raw date-precision string from the model
+    /// (exact|day|month|season|year|decade|unknown). Null on payloads from
+    /// older prompts; parse defensively with
+    /// <c>MemoryTimeline.Data.Models.DatePrecisionParser.Parse</c>.
+    /// </summary>
+    public string? DatePrecision { get; set; }
+
+    /// <summary>
     /// Event category.
     /// </summary>
     public string? Category { get; set; }

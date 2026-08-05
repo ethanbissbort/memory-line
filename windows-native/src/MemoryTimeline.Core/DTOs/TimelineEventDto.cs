@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using MemoryTimeline.Core.Models;
 using MemoryTimeline.Data.Models;
 using Microsoft.UI;
 using Microsoft.UI.Xaml.Media;
@@ -21,6 +22,21 @@ public partial class TimelineEventDto : ObservableObject
     public string? EraId { get; set; }
     public string? EraName { get; set; }
     public string? EraColor { get; set; }
+
+    /// <summary>How much of <see cref="StartDate"/> to believe.</summary>
+    public DatePrecision DatePrecision { get; set; } = DatePrecision.Day;
+
+    /// <summary>
+    /// Precision-honest date text for tooltips/details (e.g. "Summer 1998"
+    /// instead of a fabricated exact day).
+    /// </summary>
+    public string DisplayDate => DateDisplay.FormatPrecise(StartDate, DatePrecision, EndDate);
+
+    /// <summary>
+    /// True when the precision is coarser than Month (Season/Year/Decade/Unknown);
+    /// drives the subtle visual cue on the timeline pin.
+    /// </summary>
+    public bool IsApproximate => DatePrecision >= DatePrecision.Season;
 
     // Display properties
     public double PixelX { get; set; }
@@ -67,6 +83,7 @@ public partial class TimelineEventDto : ObservableObject
             EraId = evt.EraId,
             EraName = evt.Era?.Name,
             EraColor = evt.Era?.ColorCode,
+            DatePrecision = evt.DatePrecision,
             PeopleNames = evt.EventPeople
                 .Select(ep => ep.Person?.Name)
                 .Where(name => !string.IsNullOrWhiteSpace(name))

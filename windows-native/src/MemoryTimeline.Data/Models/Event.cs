@@ -51,6 +51,30 @@ public class Event
     [Column("confidence")]
     public double? Confidence { get; set; }
 
+    /// <summary>
+    /// How much of <see cref="StartDate"/> to believe. StartDate stays the
+    /// canonical anchor (midpoint/start of the precision window) so ordering
+    /// and range queries keep working; this says how coarse that anchor is.
+    /// Defaults to Day, matching all pre-existing rows.
+    /// </summary>
+    [Column("date_precision")]
+    public DatePrecision DatePrecision { get; set; } = DatePrecision.Day;
+
+    /// <summary>
+    /// Optional explicit lower bound for when the event could have happened.
+    /// When null, derive the window from StartDate + DatePrecision via
+    /// <see cref="DatePrecisionExtensions.GetWindow"/>.
+    /// </summary>
+    [Column("earliest_possible")]
+    public DateTime? EarliestPossible { get; set; }
+
+    /// <summary>
+    /// Optional explicit upper bound for when the event could have happened.
+    /// When null, derive the window from StartDate + DatePrecision.
+    /// </summary>
+    [Column("latest_possible")]
+    public DateTime? LatestPossible { get; set; }
+
     [Column("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

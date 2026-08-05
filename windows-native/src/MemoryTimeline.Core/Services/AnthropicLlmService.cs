@@ -1,6 +1,7 @@
 using Anthropic.SDK;
 using Anthropic.SDK.Constants;
 using Anthropic.SDK.Messaging;
+using MemoryTimeline.Data.Models;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using System.Diagnostics;
@@ -230,6 +231,10 @@ public class AnthropicLlmService : ILlmService
     {
         var referenceDate = context?.ReferenceDate ?? DateTime.Now;
 
+        // Offer the REAL canonical category list (EventCategory.AllCategories);
+        // a hardcoded list here previously drifted from the stored values.
+        var categoryList = string.Join(", ", EventCategory.AllCategories);
+
         var prompt = $@"You are an expert at extracting structured event information from transcribed speech. Your task is to analyze the following transcript and extract all mentioned events with their details.
 
 # Instructions:
@@ -239,7 +244,8 @@ public class AnthropicLlmService : ILlmService
    - Description (detailed information from the transcript)
    - Start date (parse relative dates like 'yesterday', 'last week', 'two months ago')
    - End date (if the event has duration)
-   - Category (Milestone, Work, Education, Health, Travel, Social, Personal, Family, or Other)
+   - Date precision (one of: exact, day, month, season, year, decade, unknown)
+   - Category (one of: {categoryList})
    - Tags (relevant keywords)
    - People involved (names mentioned)
    - People details (for each person: their name, their relationship to the speaker if stated, and any other noteworthy details mentioned about them)
@@ -255,6 +261,14 @@ public class AnthropicLlmService : ILlmService
    - 0.7-0.9: Clear event with approximate dates
    - 0.5-0.7: Event is clear but dates are vague
    - Below 0.5: Uncertain or ambiguous
+6. Set datePrecision to the COARSEST unit actually justified by the transcript. NEVER guess a specific day when the speaker was vague:
+   - exact: an explicit date AND time of day were stated
+   - day: a specific calendar day is known
+   - month: only the month and year are known (""in March 2019"") - set startDate to the 15th of that month
+   - season: only a season is known (""that summer"") - set startDate to the middle of the season
+   - year: only the year is known (""sometime in 2011"") - set startDate to July 1 of that year
+   - decade: only the decade is known (""back in the 90s"") - set startDate to the middle year of the decade
+   - unknown: no usable date information at all
 
 # Context:";
 
@@ -287,7 +301,8 @@ Return a JSON object with this exact structure (no markdown, just raw JSON):
       ""description"": ""Detailed description"",
       ""startDate"": ""2024-01-15T10:00:00Z"",
       ""endDate"": ""2024-01-15T12:00:00Z"",
-      ""category"": ""Work"",
+      ""datePrecision"": ""day"",
+      ""category"": ""work"",
       ""tags"": [""tag1"", ""tag2""],
       ""people"": [""Person Name""],
       ""peopleDetails"": [{{ ""name"": ""Person Name"", ""relationship"": ""sister"", ""details"": ""noteworthy details mentioned"" }}],
