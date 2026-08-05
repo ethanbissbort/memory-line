@@ -74,6 +74,8 @@ public partial class TimelineViewModel : ObservableObject
         OnPropertyChanged(nameof(IsWeekZoom));
         OnPropertyChanged(nameof(IsDayZoom));
         OnPropertyChanged(nameof(CurrentZoomLevelDisplay));
+        OnPropertyChanged(nameof(CanZoomIn));
+        OnPropertyChanged(nameof(CanZoomOut));
     }
 
     [ObservableProperty]

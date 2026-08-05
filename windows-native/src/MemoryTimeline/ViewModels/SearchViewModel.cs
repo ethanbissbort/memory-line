@@ -290,6 +290,7 @@ public partial class SearchViewModel : ObservableObject
         try
         {
             IsLoading = true;
+            _lastSearchedPage = CurrentPage;
             ShowAutocompleteSuggestions = false;
             CancelPendingSuggestions();
             StatusMessage = "Searching...";
@@ -384,10 +385,17 @@ public partial class SearchViewModel : ObservableObject
     /// <summary>
     /// Go to specific page.
     /// </summary>
+    /// <summary>
+    /// Page whose results are currently loaded; lets GoToPageAsync ignore the
+    /// echo ValueChanged the page NumberBox raises after a programmatic
+    /// CurrentPage update (Next/Previous already searched that page).
+    /// </summary>
+    private int _lastSearchedPage;
+
     [RelayCommand]
     public async Task GoToPageAsync(int page)
     {
-        if (page >= 1 && page <= TotalPages)
+        if (page >= 1 && page <= TotalPages && page != _lastSearchedPage)
         {
             CurrentPage = page;
             await SearchAsync();
