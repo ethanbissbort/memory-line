@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using MemoryTimeline.Data.Models;
@@ -65,10 +66,33 @@ public class AppDbContext : DbContext
         private const string PragmaSql =
             "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;";
 
+        // journal_mode=WAL rewrites the database header, which fails with
+        // "attempt to write a readonly database" (SQLITE_READONLY) on the
+        // Mode=ReadOnly connections EF opens for existence probes
+        // (SqliteDatabaseCreator.Exists) when the file is still in the default
+        // DELETE journal mode. busy_timeout and foreign_keys are
+        // connection-local and safe everywhere.
+        private const string ReadOnlyPragmaSql =
+            "PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;";
+
+        private static string GetPragmaSql(DbConnection connection)
+        {
+            try
+            {
+                var builder = new SqliteConnectionStringBuilder(connection.ConnectionString);
+                return builder.Mode == SqliteOpenMode.ReadOnly ? ReadOnlyPragmaSql : PragmaSql;
+            }
+            catch (ArgumentException)
+            {
+                // Unparseable connection string: fall back to the full pragma set.
+                return PragmaSql;
+            }
+        }
+
         public override void ConnectionOpened(DbConnection connection, ConnectionEndEventData eventData)
         {
             using var command = connection.CreateCommand();
-            command.CommandText = PragmaSql;
+            command.CommandText = GetPragmaSql(connection);
             command.ExecuteNonQuery();
         }
 
@@ -78,7 +102,7 @@ public class AppDbContext : DbContext
             CancellationToken cancellationToken = default)
         {
             using var command = connection.CreateCommand();
-            command.CommandText = PragmaSql;
+            command.CommandText = GetPragmaSql(connection);
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
     }
