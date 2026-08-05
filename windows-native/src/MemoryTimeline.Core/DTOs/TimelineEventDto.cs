@@ -67,6 +67,22 @@ public partial class TimelineEventDto : ObservableObject
     }
 
     /// <summary>
+    /// Number of media attachments; drives the pin's photo-count badge.
+    /// Populated in the timeline load path via one batched count query, and
+    /// kept live by the ViewModel when attachments change.
+    /// </summary>
+    [ObservableProperty]
+    private int _mediaCount;
+
+    /// <summary>True when the event has at least one media attachment.</summary>
+    public bool HasMedia => MediaCount > 0;
+
+    partial void OnMediaCountChanged(int value)
+    {
+        OnPropertyChanged(nameof(HasMedia));
+    }
+
+    /// <summary>
     /// Creates a DTO from an Event entity.
     /// </summary>
     public static TimelineEventDto FromEvent(Event evt)

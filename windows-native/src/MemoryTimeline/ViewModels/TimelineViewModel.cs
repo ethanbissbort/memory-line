@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using MemoryTimeline.Core.DTOs;
 using MemoryTimeline.Core.Models;
 using MemoryTimeline.Core.Services;
@@ -24,6 +25,7 @@ public partial class TimelineViewModel : ObservableObject
     private readonly IEventService _eventService;
     private readonly IPersonService _personService;
     private readonly IDraftService _draftService;
+    private readonly IMediaService _mediaService;
     private readonly IEraRepository _eraRepository;
     private readonly ITagRepository _tagRepository;
     private readonly ILogger<TimelineViewModel> _logger;
@@ -98,6 +100,25 @@ public partial class TimelineViewModel : ObservableObject
     [ObservableProperty]
     private TimelineEventDto? _selectedEvent;
 
+    /// <summary>
+    /// Media attachments of the selected event, shown as the details-panel
+    /// photo strip (ordered by sort order). Loaded lazily on selection.
+    /// </summary>
+    public ObservableCollection<EventMediaThumbDto> SelectedEventMedia { get; } = new();
+
+    /// <summary>Header text for the details-panel photo strip ("Photos (3)").</summary>
+    [ObservableProperty]
+    private string _selectedEventMediaHeader = "Photos";
+
+    partial void OnSelectedEventChanged(TimelineEventDto? value)
+    {
+        if (value == null)
+        {
+            SelectedEventMedia.Clear();
+            SelectedEventMediaHeader = "Photos";
+        }
+    }
+
     // Viewport dimensions
     [ObservableProperty]
     private int _viewportWidth = 1000;
@@ -119,6 +140,7 @@ public partial class TimelineViewModel : ObservableObject
         IEventService eventService,
         IPersonService personService,
         IDraftService draftService,
+        IMediaService mediaService,
         IEraRepository eraRepository,
         ITagRepository tagRepository,
         ILogger<TimelineViewModel> logger)
@@ -127,6 +149,7 @@ public partial class TimelineViewModel : ObservableObject
         _eventService = eventService;
         _personService = personService;
         _draftService = draftService;
+        _mediaService = mediaService;
         _eraRepository = eraRepository;
         _tagRepository = tagRepository;
         _logger = logger;
@@ -154,6 +177,60 @@ public partial class TimelineViewModel : ObservableObject
         {
             ((TimelineViewModel)recipient).OnEventDeleted(message);
         });
+
+        // React to media attachments made anywhere in the app so the pin's
+        // photo-count badge and the details-panel strip stay current.
+        WeakReferenceMessenger.Default.Register<MediaAttachedMessage>(this, static (recipient, message) =>
+        {
+            ((TimelineViewModel)recipient).OnMediaAttached(message);
+        });
+    }
+
+    /// <summary>
+    /// Handles a <see cref="MediaAttachedMessage"/> from any thread by
+    /// marshalling the refresh onto the UI thread.
+    /// </summary>
+    private void OnMediaAttached(MediaAttachedMessage message)
+    {
+        void Handle() => _ = HandleMediaAttachedAsync(message);
+
+        if (_dispatcherQueue == null || _dispatcherQueue.HasThreadAccess)
+        {
+            Handle();
+        }
+        else
+        {
+            _dispatcherQueue.TryEnqueue(Handle);
+        }
+    }
+
+    /// <summary>
+    /// Refreshes the media count badge for the event a file was just attached
+    /// to and, when that event is selected, rebuilds the details-panel strip.
+    /// Re-queries the exact count instead of incrementing so overlapping
+    /// notifications converge on the true value.
+    /// </summary>
+    private async Task HandleMediaAttachedAsync(MediaAttachedMessage message)
+    {
+        try
+        {
+            var media = await _mediaService.GetForEventAsync(message.EventId);
+
+            var dto = Events.FirstOrDefault(e => e.EventId == message.EventId);
+            if (dto != null)
+            {
+                dto.MediaCount = media.Count;
+            }
+
+            if (SelectedEvent?.EventId == message.EventId)
+            {
+                ApplySelectedEventMedia(media);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error refreshing media for event {EventId} after attach", message.EventId);
+        }
     }
 
     /// <summary>
@@ -926,7 +1003,10 @@ public partial class TimelineViewModel : ObservableObject
 
         if (eventDto != null && !string.IsNullOrEmpty(eventDto.EventId))
         {
+            SelectedEventMedia.Clear();
+            SelectedEventMediaHeader = "Photos";
             _ = LoadPeopleForEventAsync(eventDto);
+            _ = LoadMediaForSelectedEventAsync(eventDto);
         }
     }
 
@@ -961,6 +1041,220 @@ public partial class TimelineViewModel : ObservableObject
             _logger.LogDebug(ex, "Could not load people for event: {EventId}", eventDto.EventId);
         }
     }
+
+    #region Media Attachments (details-panel strip, lightbox, dialog staging)
+
+    /// <summary>
+    /// Loads the media attachments for the selected event (best-effort) and
+    /// applies them on the UI thread so the details-panel strip updates.
+    /// </summary>
+    private async Task LoadMediaForSelectedEventAsync(TimelineEventDto eventDto)
+    {
+        try
+        {
+            var media = await _mediaService.GetForEventAsync(eventDto.EventId);
+
+            void Apply()
+            {
+                // The selection may have moved on while the query ran.
+                if (SelectedEvent?.EventId != eventDto.EventId)
+                    return;
+
+                ApplySelectedEventMedia(media);
+                eventDto.MediaCount = media.Count;
+            }
+
+            if (_dispatcherQueue == null || _dispatcherQueue.HasThreadAccess)
+            {
+                Apply();
+            }
+            else
+            {
+                _dispatcherQueue.TryEnqueue(Apply);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not load media for event: {EventId}", eventDto.EventId);
+        }
+    }
+
+    /// <summary>
+    /// Replaces the details-panel strip contents. Must run on the UI thread.
+    /// </summary>
+    private void ApplySelectedEventMedia(List<EventMedia> media)
+    {
+        SelectedEventMedia.Clear();
+        foreach (var item in media)
+        {
+            SelectedEventMedia.Add(EventMediaThumbDto.FromMedia(item, _mediaService));
+        }
+
+        SelectedEventMediaHeader = media.Count == 0 ? "Photos" : $"Photos ({media.Count})";
+    }
+
+    /// <summary>
+    /// Attaches files to the selected event, reporting progress in the status
+    /// bar. Failures surface in the timeline error InfoBar; successes refresh
+    /// the strip via <see cref="MediaAttachedMessage"/>.
+    /// </summary>
+    public async Task AttachMediaToSelectedEventAsync(IReadOnlyList<string> paths)
+    {
+        var target = SelectedEvent;
+        if (target == null || paths.Count == 0)
+            return;
+
+        try
+        {
+            ErrorMessage = null;
+            var progress = new Progress<(int done, int total)>(p =>
+                StatusText = $"Attaching photos... {p.done}/{p.total}");
+
+            var attached = await _mediaService.AttachManyAsync(target.EventId, paths, progress);
+
+            StatusText = attached.Count == 1
+                ? "1 photo attached"
+                : $"{attached.Count} photos attached";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error attaching media to event {EventId}", target.EventId);
+            StatusText = "Error attaching photos";
+            ErrorMessage = $"Could not attach photos: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Attaches files to an event and THROWS on failure - used by the
+    /// Add/Edit dialog, which shows the error in its own in-dialog InfoBar.
+    /// (Files that did attach before a partial failure remain attached.)
+    /// </summary>
+    public Task<List<EventMedia>> AttachMediaAsync(string eventId, IReadOnlyList<string> paths)
+    {
+        var progress = new Progress<(int done, int total)>(p =>
+            StatusText = $"Attaching photos... {p.done}/{p.total}");
+        return _mediaService.AttachManyAsync(eventId, paths, progress);
+    }
+
+    /// <summary>
+    /// Removes a media attachment (row + managed file + thumbnail) and updates
+    /// the strip and badge. Throws on failure so the lightbox can show the
+    /// reason and stay open.
+    /// </summary>
+    public async Task RemoveMediaAsync(EventMediaThumbDto media)
+    {
+        try
+        {
+            await _mediaService.RemoveAsync(media.MediaId, deleteFile: true);
+
+            SelectedEventMedia.Remove(media);
+            SelectedEventMediaHeader = SelectedEventMedia.Count == 0
+                ? "Photos"
+                : $"Photos ({SelectedEventMedia.Count})";
+
+            var dto = Events.FirstOrDefault(e => e.EventId == media.EventId);
+            if (dto != null && dto.MediaCount > 0)
+            {
+                dto.MediaCount--;
+            }
+
+            StatusText = "Photo removed";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error removing media {MediaId}", media.MediaId);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Updates a media attachment's caption. Throws on failure so the lightbox
+    /// can show the reason.
+    /// </summary>
+    public async Task UpdateMediaCaptionAsync(EventMediaThumbDto media, string? caption)
+    {
+        try
+        {
+            await _mediaService.UpdateCaptionAsync(media.MediaId, caption);
+            media.Caption = string.IsNullOrWhiteSpace(caption) ? null : caption.Trim();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating caption for media {MediaId}", media.MediaId);
+            throw;
+        }
+    }
+
+    // Photos picked/dropped in the Add Event dialog BEFORE the event exists;
+    // attached right after the save creates the event id.
+    private readonly List<string> _dialogPendingPhotoPaths = new();
+
+    /// <summary>Pending-photos label shown in the event dialog's photo row.</summary>
+    [ObservableProperty]
+    private string _dialogPendingPhotosLabel = "";
+
+    /// <summary>
+    /// Stages photo paths for a NEW event (attached after save). Duplicate
+    /// paths are ignored.
+    /// </summary>
+    public void AddDialogPendingPhotos(IEnumerable<string> paths)
+    {
+        foreach (var path in paths)
+        {
+            if (!string.IsNullOrWhiteSpace(path) &&
+                !_dialogPendingPhotoPaths.Contains(path, StringComparer.OrdinalIgnoreCase))
+            {
+                _dialogPendingPhotoPaths.Add(path);
+            }
+        }
+
+        UpdateDialogPendingPhotosLabel();
+    }
+
+    /// <summary>Clears the staged photos (dialog reset).</summary>
+    public void ClearDialogPendingPhotos()
+    {
+        _dialogPendingPhotoPaths.Clear();
+        DialogPendingPhotosLabel = "";
+    }
+
+    private void UpdateDialogPendingPhotosLabel()
+    {
+        DialogPendingPhotosLabel = _dialogPendingPhotoPaths.Count == 0
+            ? ""
+            : _dialogPendingPhotoPaths.Count == 1
+                ? "1 photo will be attached on save"
+                : $"{_dialogPendingPhotoPaths.Count} photos will be attached on save";
+    }
+
+    /// <summary>
+    /// Attaches the staged dialog photos to the just-created event. The event
+    /// itself already saved, so attachment failures are surfaced in the
+    /// timeline InfoBar without failing the save.
+    /// </summary>
+    private async Task AttachPendingDialogPhotosAsync(string eventId)
+    {
+        if (_dialogPendingPhotoPaths.Count == 0)
+            return;
+
+        var paths = _dialogPendingPhotoPaths.ToList();
+        ClearDialogPendingPhotos();
+
+        try
+        {
+            StatusText = "Attaching photos...";
+            var progress = new Progress<(int done, int total)>(p =>
+                StatusText = $"Attaching photos... {p.done}/{p.total}");
+            await _mediaService.AttachManyAsync(eventId, paths, progress);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error attaching staged photos to event {EventId}", eventId);
+            ErrorMessage = $"The event was saved, but some photos could not be attached: {ex.Message}";
+        }
+    }
+
+    #endregion
 
     /// <summary>
     /// Updates viewport dimensions when window is resized.
@@ -1044,6 +1338,9 @@ public partial class TimelineViewModel : ObservableObject
 
             // A successful real save consumes the draft the dialog was opened from.
             await ClearCurrentDraftAsync();
+
+            // Attach photos staged in the dialog before the event id existed.
+            await AttachPendingDialogPhotosAsync(createdEvent.EventId);
 
             TotalEventCount = await _eventService.GetTotalEventCountAsync();
 
@@ -1255,6 +1552,7 @@ public partial class TimelineViewModel : ObservableObject
         _originalPeopleIds.Clear();
         _originalTagIds.Clear();
         CurrentDraftId = null;
+        ClearDialogPendingPhotos();
 
         // Load era choices ("None" + all eras by start date).
         DialogEraChoices.Clear();
@@ -1777,4 +2075,110 @@ public sealed class EventTagChipDto
 {
     /// <summary>The tag name.</summary>
     public string Name { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// A media attachment shown in the event details photo strip and lightbox.
+/// Paths are absolute, resolved through <see cref="IMediaService"/> from the
+/// relative paths stored in the database.
+/// </summary>
+public sealed partial class EventMediaThumbDto : ObservableObject
+{
+    public string MediaId { get; init; } = string.Empty;
+
+    public string EventId { get; init; } = string.Empty;
+
+    public MediaType MediaType { get; init; }
+
+    /// <summary>Absolute path of the copied file in the managed media tree.</summary>
+    public string AbsolutePath { get; init; } = string.Empty;
+
+    /// <summary>Absolute path of the generated thumbnail, or null.</summary>
+    public string? AbsoluteThumbnailPath { get; init; }
+
+    /// <summary>User caption (editable in the lightbox).</summary>
+    [ObservableProperty]
+    private string? _caption;
+
+    public bool IsImage => MediaType == MediaType.Image;
+
+    public string FileName => Path.GetFileName(AbsolutePath);
+
+    /// <summary>Placeholder glyph for non-image attachments.</summary>
+    public string FileGlyph => MediaType switch
+    {
+        MediaType.Video => "\uE714",    // Video
+        MediaType.Audio => "\uE8D6",    // Audio
+        MediaType.Document => "\uE8A5", // Document
+        _ => "\uEB9F"                   // Photo
+    };
+
+    private BitmapImage? _thumbnailImage;
+    private bool _thumbnailResolved;
+
+    /// <summary>
+    /// Strip thumbnail: the generated 256px JPEG when available, else the
+    /// original image decoded small, else null (non-images show the glyph).
+    /// Created lazily on first binding evaluation, which happens on the UI
+    /// thread (BitmapImage is a DependencyObject and must not be constructed
+    /// on a background thread).
+    /// </summary>
+    public BitmapImage? ThumbnailImage
+    {
+        get
+        {
+            if (!_thumbnailResolved)
+            {
+                _thumbnailResolved = true;
+                _thumbnailImage = TryCreateImage(
+                    AbsoluteThumbnailPath ?? (IsImage ? AbsolutePath : null),
+                    decodePixelWidth: 144);
+            }
+
+            return _thumbnailImage;
+        }
+    }
+
+    /// <summary>True when a strip thumbnail image could be created.</summary>
+    public bool HasImage => ThumbnailImage != null;
+
+    /// <summary>Full-resolution image for the lightbox (null for non-images).</summary>
+    public BitmapImage? CreateFullImage()
+        => IsImage ? TryCreateImage(AbsolutePath, decodePixelWidth: null) : null;
+
+    /// <summary>Creates a display DTO from an entity, resolving absolute paths.</summary>
+    public static EventMediaThumbDto FromMedia(EventMedia media, IMediaService mediaService) => new()
+    {
+        MediaId = media.MediaId,
+        EventId = media.EventId,
+        MediaType = media.MediaType,
+        AbsolutePath = mediaService.GetAbsolutePath(media),
+        AbsoluteThumbnailPath = mediaService.GetAbsoluteThumbnailPath(media),
+        Caption = media.Caption
+    };
+
+    private static BitmapImage? TryCreateImage(string? path, int? decodePixelWidth)
+    {
+        // Defensive display formatting (mirrors EventPersonChipDto.CreateBrush):
+        // a missing/unreadable file falls back to the glyph placeholder.
+        if (string.IsNullOrEmpty(path) || !File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            var image = new BitmapImage { UriSource = new Uri(path) };
+            if (decodePixelWidth.HasValue)
+            {
+                image.DecodePixelWidth = decodePixelWidth.Value;
+            }
+
+            return image;
+        }
+        catch
+        {
+            return null;
+        }
+    }
 }

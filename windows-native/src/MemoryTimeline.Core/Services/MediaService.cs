@@ -1,0 +1,572 @@
+using CommunityToolkit.Mvvm.Messaging;
+using MemoryTimeline.Data;
+using MemoryTimeline.Data.Models;
+using MemoryTimeline.Data.Repositories;
+using MetadataExtractor.Formats.Exif;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using System.Globalization;
+using System.Security.Cryptography;
+
+namespace MemoryTimeline.Core.Services;
+
+/// <summary>
+/// Pure, dependency-free rules for media attachments: the extension
+/// allowlist -> <see cref="MediaType"/> mapping and the EXIF value
+/// normalization. Kept separate from <see cref="MediaService"/> so tests can
+/// exercise the logic without binary image fixtures.
+/// </summary>
+public static class MediaAttachmentRules
+{
+    private static readonly (string Extension, MediaType Type)[] AllowedExtensions =
+    {
+        (".jpg", MediaType.Image),
+        (".jpeg", MediaType.Image),
+        (".png", MediaType.Image),
+        (".gif", MediaType.Image),
+        (".bmp", MediaType.Image),
+        (".webp", MediaType.Image),
+        (".heic", MediaType.Image),
+        (".mp4", MediaType.Video),
+        (".mov", MediaType.Video),
+        (".mp3", MediaType.Audio),
+        (".wav", MediaType.Audio),
+        (".m4a", MediaType.Audio),
+        (".pdf", MediaType.Document),
+        (".txt", MediaType.Document),
+        (".md", MediaType.Document),
+    };
+
+    private static readonly Dictionary<string, MediaType> ExtensionMap =
+        AllowedExtensions.ToDictionary(e => e.Extension, e => e.Type, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Human-readable allowlist for error messages.</summary>
+    public static readonly string SupportedExtensionsDisplay =
+        string.Join(", ", AllowedExtensions.Select(e => e.Extension));
+
+    /// <summary>
+    /// Maps a file extension (with or without leading dot, any casing) to its
+    /// <see cref="MediaType"/>, or null when the extension is not allowlisted.
+    /// </summary>
+    public static MediaType? GetMediaTypeForExtension(string? extension)
+    {
+        if (string.IsNullOrWhiteSpace(extension))
+        {
+            return null;
+        }
+
+        var normalized = extension.Trim();
+        if (!normalized.StartsWith('.'))
+        {
+            normalized = "." + normalized;
+        }
+
+        return ExtensionMap.TryGetValue(normalized, out var type) ? type : null;
+    }
+
+    /// <summary>
+    /// Normalizes raw EXIF values into trustworthy ones:
+    ///  - a default(DateTime) capture date is treated as absent;
+    ///  - GPS coordinates are kept only when BOTH are present, finite, within
+    ///    range (|lat| &lt;= 90, |lon| &lt;= 180) and not the (0, 0) "null
+    ///    island" that cameras write when the fix was missing.
+    /// </summary>
+    public static (DateTime? CapturedAt, double? Latitude, double? Longitude) NormalizeExif(
+        DateTime? capturedAt,
+        double? latitude,
+        double? longitude)
+    {
+        DateTime? normalizedDate =
+            capturedAt.HasValue && capturedAt.Value != default ? capturedAt.Value : null;
+
+        double? lat = latitude;
+        double? lon = longitude;
+
+        var coordinatesInvalid =
+            !lat.HasValue || !lon.HasValue ||
+            double.IsNaN(lat.Value) || double.IsNaN(lon.Value) ||
+            double.IsInfinity(lat.Value) || double.IsInfinity(lon.Value) ||
+            Math.Abs(lat.Value) > 90.0 || Math.Abs(lon.Value) > 180.0 ||
+            (Math.Abs(lat.Value) < 1e-7 && Math.Abs(lon.Value) < 1e-7);
+
+        if (coordinatesInvalid)
+        {
+            lat = null;
+            lon = null;
+        }
+
+        return (normalizedDate, lat, lon);
+    }
+}
+
+/// <summary>
+/// Media attachment implementation. Copies files into the managed media tree
+/// ({MediaRoot}\{yyyy}\{MM}\{guid}{ext} keyed on the EXIF capture date when
+/// known, else the current UTC time), stores paths relative to the media
+/// root, and generates 256px JPEG thumbnails into {MediaRoot}\.thumbs via the
+/// injected <see cref="IThumbnailGenerator"/>.
+/// Registered singleton; every DB operation uses a short-lived context or a
+/// factory-based repository.
+/// </summary>
+public class MediaService : IMediaService
+{
+    /// <summary>Longest edge (px) of generated thumbnails.</summary>
+    public const int ThumbnailLongestEdge = 256;
+
+    private const string ThumbsDirectoryName = ".thumbs";
+
+    private readonly IEventMediaRepository _mediaRepository;
+    private readonly IDbContextFactory<AppDbContext> _contextFactory;
+    private readonly IThumbnailGenerator _thumbnailGenerator;
+    private readonly ILogger<MediaService> _logger;
+
+    /// <summary>
+    /// Creates the service. <paramref name="mediaRootOverride"/> replaces the
+    /// default %LOCALAPPDATA%\MemoryTimeline\Media root - production leaves it
+    /// null (the DI container cannot resolve a string, so the default kicks
+    /// in); tests inject a temp directory.
+    /// </summary>
+    public MediaService(
+        IEventMediaRepository mediaRepository,
+        IDbContextFactory<AppDbContext> contextFactory,
+        IThumbnailGenerator thumbnailGenerator,
+        ILogger<MediaService> logger,
+        string? mediaRootOverride = null)
+    {
+        _mediaRepository = mediaRepository;
+        _contextFactory = contextFactory;
+        _thumbnailGenerator = thumbnailGenerator;
+        _logger = logger;
+
+        MediaRoot = string.IsNullOrWhiteSpace(mediaRootOverride)
+            ? Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "MemoryTimeline",
+                "Media")
+            : mediaRootOverride;
+    }
+
+    /// <inheritdoc />
+    public string MediaRoot { get; }
+
+    /// <inheritdoc />
+    public async Task<EventMedia> AttachAsync(
+        string eventId,
+        string sourceFilePath,
+        string? caption = null,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(eventId))
+        {
+            throw new ArgumentException("An event id is required.", nameof(eventId));
+        }
+
+        if (string.IsNullOrWhiteSpace(sourceFilePath))
+        {
+            throw new ArgumentException("A source file path is required.", nameof(sourceFilePath));
+        }
+
+        if (!File.Exists(sourceFilePath))
+        {
+            throw new FileNotFoundException(
+                $"The file could not be found: {sourceFilePath}", sourceFilePath);
+        }
+
+        var extension = Path.GetExtension(sourceFilePath);
+        var mediaType = MediaAttachmentRules.GetMediaTypeForExtension(extension)
+            ?? throw new InvalidOperationException(
+                $"'{Path.GetFileName(sourceFilePath)}' is not a supported file type. " +
+                $"Supported types: {MediaAttachmentRules.SupportedExtensionsDisplay}.");
+
+        await using (var context = await _contextFactory.CreateDbContextAsync(ct))
+        {
+            if (!await context.Events.AnyAsync(e => e.EventId == eventId, ct))
+            {
+                throw new InvalidOperationException($"Event not found: {eventId}");
+            }
+        }
+
+        var contentHash = await ComputeSha256Async(sourceFilePath, ct);
+
+        // Attaching the same content to the SAME event twice is a no-op; the
+        // same file may still be attached to a DIFFERENT event.
+        var existing = await _mediaRepository.GetByHashForEventAsync(eventId, contentHash);
+        if (existing != null)
+        {
+            _logger.LogInformation(
+                "File '{File}' is already attached to event {EventId} (media {MediaId}); skipping duplicate.",
+                Path.GetFileName(sourceFilePath), eventId, existing.MediaId);
+            return existing;
+        }
+
+        var fileSizeBytes = new FileInfo(sourceFilePath).Length;
+
+        DateTime? capturedAt = null;
+        double? latitude = null;
+        double? longitude = null;
+        if (mediaType == MediaType.Image)
+        {
+            (capturedAt, latitude, longitude) = TryReadImageMetadata(sourceFilePath);
+        }
+
+        // Managed tree: {MediaRoot}\{yyyy}\{MM}\{guid}{ext}, folder keyed on
+        // the capture date when known, else now (UTC).
+        var mediaId = Guid.NewGuid().ToString();
+        var anchor = capturedAt ?? DateTime.UtcNow;
+        var relativeDirectory = Path.Combine(
+            anchor.Year.ToString("D4", CultureInfo.InvariantCulture),
+            anchor.Month.ToString("D2", CultureInfo.InvariantCulture));
+        var relativePath = Path.Combine(relativeDirectory, mediaId + extension.ToLowerInvariant());
+        var absolutePath = Path.Combine(MediaRoot, relativePath);
+
+        try
+        {
+            // Directories are created lazily - the media root does not exist
+            // until the first attachment.
+            Directory.CreateDirectory(Path.Combine(MediaRoot, relativeDirectory));
+            File.Copy(sourceFilePath, absolutePath, overwrite: false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            // A read-only or otherwise unusable media root must surface as a
+            // clear, user-presentable error - never a crash or a retry loop.
+            throw new InvalidOperationException(
+                $"Could not copy '{Path.GetFileName(sourceFilePath)}' into the media library at '{MediaRoot}': {ex.Message}",
+                ex);
+        }
+
+        // Thumbnail (images only). Failure is logged and tolerated - the
+        // attachment is still valid without one.
+        string? thumbnailRelativePath = null;
+        if (mediaType == MediaType.Image)
+        {
+            var thumbRelative = Path.Combine(ThumbsDirectoryName, mediaId + ".jpg");
+            var thumbAbsolute = Path.Combine(MediaRoot, thumbRelative);
+            try
+            {
+                Directory.CreateDirectory(Path.Combine(MediaRoot, ThumbsDirectoryName));
+                if (await _thumbnailGenerator.TryGenerateAsync(absolutePath, thumbAbsolute, ThumbnailLongestEdge, ct))
+                {
+                    thumbnailRelativePath = thumbRelative;
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "Thumbnail generation failed for {Path}; the attachment is still valid.", absolutePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Thumbnail generation threw for {Path}; the attachment is still valid.", absolutePath);
+            }
+        }
+
+        var sortOrder = await _mediaRepository.MaxSortOrderAsync(eventId) + 1;
+
+        var media = new EventMedia
+        {
+            MediaId = mediaId,
+            EventId = eventId,
+            FilePath = relativePath,
+            ThumbnailPath = thumbnailRelativePath,
+            MediaType = mediaType,
+            Caption = NormalizeCaption(caption),
+            CapturedAt = capturedAt,
+            Latitude = latitude,
+            Longitude = longitude,
+            FileSizeBytes = fileSizeBytes,
+            ContentHash = contentHash,
+            SortOrder = sortOrder,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        try
+        {
+            await _mediaRepository.AddAsync(media);
+        }
+        catch
+        {
+            // Don't strand orphan files when the row could not be persisted.
+            TryDeleteFile(absolutePath);
+            if (thumbnailRelativePath != null)
+            {
+                TryDeleteFile(Path.Combine(MediaRoot, thumbnailRelativePath));
+            }
+
+            throw;
+        }
+
+        _logger.LogInformation(
+            "Attached media {MediaId} ({MediaType}) to event {EventId}.", mediaId, mediaType, eventId);
+
+        // Notify subscribers (timeline badge/strip). A subscriber failure must
+        // not turn a successful attach into an error.
+        try
+        {
+            WeakReferenceMessenger.Default.Send(new MediaAttachedMessage(eventId, mediaId));
+        }
+        catch (Exception messengerEx)
+        {
+            _logger.LogWarning(messengerEx,
+                "Error publishing MediaAttachedMessage for media {MediaId}", mediaId);
+        }
+
+        return media;
+    }
+
+    /// <inheritdoc />
+    public async Task<List<EventMedia>> AttachManyAsync(
+        string eventId,
+        IEnumerable<string> paths,
+        IProgress<(int done, int total)>? progress = null,
+        CancellationToken ct = default)
+    {
+        var pathList = (paths ?? Enumerable.Empty<string>())
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .ToList();
+
+        var attached = new List<EventMedia>();
+        if (pathList.Count == 0)
+        {
+            return attached;
+        }
+
+        var errors = new List<string>();
+        var done = 0;
+
+        foreach (var path in pathList)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            try
+            {
+                attached.Add(await AttachAsync(eventId, path, caption: null, ct));
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // Keep going: one unreadable file must not abort the batch.
+                _logger.LogError(ex, "Error attaching '{Path}' to event {EventId}", path, eventId);
+                errors.Add($"{Path.GetFileName(path)}: {ex.Message}");
+            }
+
+            done++;
+            progress?.Report((done, pathList.Count));
+        }
+
+        if (errors.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"{errors.Count} of {pathList.Count} file(s) could not be attached. {string.Join(" ", errors)}");
+        }
+
+        return attached;
+    }
+
+    /// <inheritdoc />
+    public Task<List<EventMedia>> GetForEventAsync(string eventId)
+        => _mediaRepository.GetForEventAsync(eventId);
+
+    /// <inheritdoc />
+    public async Task RemoveAsync(string mediaId, bool deleteFile = true)
+    {
+        var media = await _mediaRepository.GetByIdAsync(mediaId);
+        if (media == null)
+        {
+            _logger.LogWarning("RemoveAsync: media {MediaId} not found; nothing to remove.", mediaId);
+            return;
+        }
+
+        await _mediaRepository.DeleteAsync(media);
+
+        if (deleteFile)
+        {
+            DeleteFiles(new[] { media });
+        }
+
+        _logger.LogInformation(
+            "Removed media {MediaId} from event {EventId} (deleteFile={DeleteFile}).",
+            mediaId, media.EventId, deleteFile);
+    }
+
+    /// <inheritdoc />
+    public async Task UpdateCaptionAsync(string mediaId, string? caption)
+    {
+        var media = await _mediaRepository.GetByIdAsync(mediaId)
+            ?? throw new InvalidOperationException(
+                "The photo could not be found. It may have been removed.");
+
+        media.Caption = NormalizeCaption(caption);
+        await _mediaRepository.UpdateAsync(media);
+    }
+
+    /// <inheritdoc />
+    public async Task ReorderAsync(string eventId, IReadOnlyList<string> mediaIdsInOrder)
+    {
+        var media = await _mediaRepository.GetForEventAsync(eventId);
+        if (media.Count == 0)
+        {
+            return;
+        }
+
+        var desiredOrder = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var i = 0; i < mediaIdsInOrder.Count; i++)
+        {
+            desiredOrder.TryAdd(mediaIdsInOrder[i], i);
+        }
+
+        // Ids not in the list keep their relative order after the listed ones.
+        var next = mediaIdsInOrder.Count;
+        foreach (var item in media.Where(m => !desiredOrder.ContainsKey(m.MediaId)).OrderBy(m => m.SortOrder))
+        {
+            desiredOrder[item.MediaId] = next++;
+        }
+
+        foreach (var item in media)
+        {
+            var desired = desiredOrder[item.MediaId];
+            if (item.SortOrder == desired)
+            {
+                continue;
+            }
+
+            item.SortOrder = desired;
+            await _mediaRepository.UpdateAsync(item);
+        }
+    }
+
+    /// <inheritdoc />
+    public Task<MediaProbeResult> ProbeAsync(string filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+        {
+            throw new FileNotFoundException($"The file could not be found: {filePath}", filePath);
+        }
+
+        // File IO + metadata parsing off the caller's (possibly UI) thread.
+        return Task.Run(() =>
+        {
+            var mediaType = MediaAttachmentRules.GetMediaTypeForExtension(Path.GetExtension(filePath));
+            var result = new MediaProbeResult
+            {
+                MediaType = mediaType,
+                FileSizeBytes = new FileInfo(filePath).Length
+            };
+
+            if (mediaType == MediaType.Image)
+            {
+                var (capturedAt, latitude, longitude) = TryReadImageMetadata(filePath);
+                result.CapturedAt = capturedAt;
+                result.Latitude = latitude;
+                result.Longitude = longitude;
+            }
+
+            return result;
+        });
+    }
+
+    /// <inheritdoc />
+    public string GetAbsolutePath(EventMedia media)
+        => Path.Combine(MediaRoot, media.FilePath);
+
+    /// <inheritdoc />
+    public string? GetAbsoluteThumbnailPath(EventMedia media)
+        => string.IsNullOrEmpty(media.ThumbnailPath) ? null : Path.Combine(MediaRoot, media.ThumbnailPath);
+
+    /// <inheritdoc />
+    public void DeleteFiles(IEnumerable<EventMedia> media)
+    {
+        foreach (var item in media)
+        {
+            TryDeleteFile(GetAbsolutePath(item));
+
+            var thumbnail = GetAbsoluteThumbnailPath(item);
+            if (thumbnail != null)
+            {
+                TryDeleteFile(thumbnail);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Reads EXIF DateTimeOriginal and GPS coordinates from an image via
+    /// MetadataExtractor, normalized through
+    /// <see cref="MediaAttachmentRules.NormalizeExif"/>. Any parse failure
+    /// (corrupt file, unsupported container) is logged and yields nulls - the
+    /// attachment itself must not fail over metadata.
+    /// </summary>
+    private (DateTime? CapturedAt, double? Latitude, double? Longitude) TryReadImageMetadata(string path)
+    {
+        try
+        {
+            // NOTE: ImageMetadataReader and the TryGetDateTime extension are
+            // invoked fully qualified - `using MetadataExtractor;` would make
+            // `Directory` ambiguous with System.IO.Directory in this file.
+            var directories = MetadataExtractor.ImageMetadataReader.ReadMetadata(path);
+
+            DateTime? capturedAt = null;
+            var subIfd = directories.OfType<ExifSubIfdDirectory>().FirstOrDefault();
+            if (subIfd != null &&
+                MetadataExtractor.DirectoryExtensions.TryGetDateTime(
+                    subIfd, ExifDirectoryBase.TagDateTimeOriginal, out var dateTimeOriginal))
+            {
+                capturedAt = dateTimeOriginal;
+            }
+
+            double? latitude = null;
+            double? longitude = null;
+            var gps = directories.OfType<GpsDirectory>().FirstOrDefault();
+            var location = gps?.GetGeoLocation();
+            if (location != null)
+            {
+                latitude = location.Latitude;
+                longitude = location.Longitude;
+            }
+
+            return MediaAttachmentRules.NormalizeExif(capturedAt, latitude, longitude);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not read image metadata from {Path}; attaching without EXIF data.", path);
+            return (null, null, null);
+        }
+    }
+
+    private static async Task<string> ComputeSha256Async(string filePath, CancellationToken ct)
+    {
+        await using var stream = File.OpenRead(filePath);
+        using var sha256 = SHA256.Create();
+        var hash = await sha256.ComputeHashAsync(stream, ct);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static string? NormalizeCaption(string? caption)
+    {
+        if (string.IsNullOrWhiteSpace(caption))
+        {
+            return null;
+        }
+
+        var trimmed = caption.Trim();
+        return trimmed.Length <= 500 ? trimmed : trimmed[..500];
+    }
+
+    private void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not delete media file {Path}.", path);
+        }
+    }
+}

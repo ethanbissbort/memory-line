@@ -51,3 +51,10 @@ public sealed record EventUpdatedMessage(string EventId, DateTime StartDate);
 /// drop it without renavigation.
 /// </summary>
 public sealed record EventDeletedMessage(string EventId);
+
+/// <summary>
+/// Published via <c>WeakReferenceMessenger.Default</c> after a media file is
+/// successfully attached to an event, so the timeline can refresh the pin's
+/// photo-count badge and the details-panel media strip without renavigation.
+/// </summary>
+public sealed record MediaAttachedMessage(string EventId, string MediaId);

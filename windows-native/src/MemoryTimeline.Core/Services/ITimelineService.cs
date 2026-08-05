@@ -29,16 +29,19 @@ public class TimelineService : ITimelineService
 {
     private readonly IEventRepository _eventRepository;
     private readonly IEraRepository _eraRepository;
+    private readonly IEventMediaRepository? _mediaRepository;
     private readonly ILogger<TimelineService> _logger;
 
     public TimelineService(
         IEventRepository eventRepository,
         IEraRepository eraRepository,
-        ILogger<TimelineService> logger)
+        ILogger<TimelineService> logger,
+        IEventMediaRepository? mediaRepository = null)
     {
         _eventRepository = eventRepository;
         _eraRepository = eraRepository;
         _logger = logger;
+        _mediaRepository = mediaRepository;
     }
 
     /// <summary>
@@ -57,6 +60,28 @@ public class TimelineService : ITimelineService
             var dtos = events.Select(TimelineEventDto.FromEvent).ToList();
 
             CalculateEventPositions(dtos, viewport);
+
+            // Media counts for the pins' photo badges: ONE batched query for
+            // the whole viewport, never per-event. Badge data is decorative,
+            // so a failure only logs and hides the badges.
+            if (_mediaRepository != null && dtos.Count > 0)
+            {
+                try
+                {
+                    var counts = await _mediaRepository.GetCountsForEventsAsync(dtos.Select(d => d.EventId));
+                    foreach (var dto in dtos)
+                    {
+                        if (counts.TryGetValue(dto.EventId, out var count))
+                        {
+                            dto.MediaCount = count;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not load media counts for the viewport; photo badges will be hidden.");
+                }
+            }
 
             _logger.LogDebug("Loaded {Count} events for viewport", dtos.Count);
             return dtos;

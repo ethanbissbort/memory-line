@@ -87,6 +87,7 @@ public class Event
     public virtual ICollection<EventTag> EventTags { get; set; } = new List<EventTag>();
     public virtual ICollection<EventPerson> EventPeople { get; set; } = new List<EventPerson>();
     public virtual ICollection<EventLocation> EventLocations { get; set; } = new List<EventLocation>();
+    public virtual ICollection<EventMedia> Media { get; set; } = new List<EventMedia>();
 
     // Computed property for Tags collection
     [NotMapped]

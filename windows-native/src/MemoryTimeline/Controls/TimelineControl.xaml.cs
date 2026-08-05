@@ -9,6 +9,10 @@ using MemoryTimeline.Core.DTOs;
 using MemoryTimeline.Core.Models;
 using MemoryTimeline.Data.Models;
 using System.ComponentModel;
+using Windows.ApplicationModel.DataTransfer;
+using Windows.Storage;
+using Windows.Storage.Pickers;
+using WinRT.Interop;
 
 namespace MemoryTimeline.Controls;
 
@@ -1301,6 +1305,329 @@ public sealed partial class TimelineControl : UserControl
         if (sender is FrameworkElement { DataContext: EventTagChipDto chip })
         {
             _viewModel?.RemoveTagChip(chip);
+        }
+    }
+
+    #endregion
+
+    #region Media Attachments (picker, drag-drop, lightbox)
+
+    // Extensions offered by the "Add photos..." pickers. Drag-drop accepts the
+    // full IMediaService allowlist; the service validates every file anyway.
+    private static readonly string[] PickerImageExtensions =
+    {
+        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".heic"
+    };
+
+    // Lightbox state: the items being paged through and the current index.
+    private List<EventMediaThumbDto> _lightboxItems = new();
+    private int _lightboxIndex = -1;
+    private bool _lightboxRemoveArmed;
+
+    /// <summary>
+    /// Opens a multi-select file picker for photos (unpackaged-app interop:
+    /// the picker must be initialized with the window handle).
+    /// </summary>
+    private async Task<List<string>> PickMediaFilesAsync()
+    {
+        var openPicker = new FileOpenPicker
+        {
+            ViewMode = PickerViewMode.Thumbnail,
+            SuggestedStartLocation = PickerLocationId.PicturesLibrary
+        };
+        foreach (var extension in PickerImageExtensions)
+        {
+            openPicker.FileTypeFilter.Add(extension);
+        }
+
+        var hwnd = WindowNative.GetWindowHandle(App.Current.Window);
+        InitializeWithWindow.Initialize(openPicker, hwnd);
+
+        var files = await openPicker.PickMultipleFilesAsync();
+        return files?
+            .Select(f => f.Path)
+            .Where(p => !string.IsNullOrEmpty(p))
+            .ToList() ?? new List<string>();
+    }
+
+    /// <summary>Accepts file drags over the media drop targets.</summary>
+    private void MediaDropTarget_DragOver(object sender, DragEventArgs e)
+    {
+        e.AcceptedOperation = e.DataView.Contains(StandardDataFormats.StorageItems)
+            ? DataPackageOperation.Copy
+            : DataPackageOperation.None;
+    }
+
+    /// <summary>
+    /// Extracts local file paths from a drop's storage items. The deferral is
+    /// completed before any (slow) attachment work starts so the drag-drop
+    /// interaction finishes promptly.
+    /// </summary>
+    private static async Task<List<string>> GetDroppedFilePathsAsync(DragEventArgs e)
+    {
+        var paths = new List<string>();
+        if (!e.DataView.Contains(StandardDataFormats.StorageItems))
+        {
+            return paths;
+        }
+
+        var deferral = e.GetDeferral();
+        try
+        {
+            var items = await e.DataView.GetStorageItemsAsync();
+            paths.AddRange(items
+                .OfType<StorageFile>()
+                .Select(f => f.Path)
+                .Where(p => !string.IsNullOrEmpty(p)));
+        }
+        finally
+        {
+            deferral.Complete();
+        }
+
+        return paths;
+    }
+
+    /// <summary>"Add photos..." on the details-panel strip.</summary>
+    private async void AddPhotosToSelectedEvent_Click(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel?.SelectedEvent == null)
+            return;
+
+        var paths = await PickMediaFilesAsync();
+        if (paths.Count > 0)
+        {
+            await _viewModel.AttachMediaToSelectedEventAsync(paths);
+        }
+    }
+
+    /// <summary>Files dropped on the details-panel strip.</summary>
+    private async void DetailsMediaStrip_Drop(object sender, DragEventArgs e)
+    {
+        if (_viewModel?.SelectedEvent == null)
+            return;
+
+        try
+        {
+            var paths = await GetDroppedFilePathsAsync(e);
+            if (paths.Count > 0)
+            {
+                await _viewModel.AttachMediaToSelectedEventAsync(paths);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Errors surface in the timeline InfoBar.
+            if (_viewModel != null)
+            {
+                _viewModel.ErrorMessage = $"Could not attach the dropped files: {ex.Message}";
+            }
+        }
+    }
+
+    /// <summary>"Add photos..." inside the Add/Edit Event dialog.</summary>
+    private async void EventDialogAddPhotos_Click(object sender, RoutedEventArgs e)
+    {
+        var paths = await PickMediaFilesAsync();
+        await AddPhotosToDialogAsync(paths);
+    }
+
+    /// <summary>Files dropped on the Add/Edit Event dialog's photo section.</summary>
+    private async void EventDialogPhotos_Drop(object sender, DragEventArgs e)
+    {
+        try
+        {
+            var paths = await GetDroppedFilePathsAsync(e);
+            await AddPhotosToDialogAsync(paths);
+        }
+        catch (Exception ex)
+        {
+            ShowEventDialogError($"Could not attach the dropped files: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Routes dialog photos: a NEW event stages them (attached after save
+    /// creates the event id); an EXISTING event attaches immediately.
+    /// Failures show in the dialog's own error bar.
+    /// </summary>
+    private async Task AddPhotosToDialogAsync(List<string> paths)
+    {
+        if (_viewModel == null || paths.Count == 0)
+            return;
+
+        if (_editingEventId == null)
+        {
+            _viewModel.AddDialogPendingPhotos(paths);
+            return;
+        }
+
+        try
+        {
+            var attached = await _viewModel.AttachMediaAsync(_editingEventId, paths);
+            _viewModel.DialogPendingPhotosLabel = attached.Count == 1
+                ? "1 photo attached"
+                : $"{attached.Count} photos attached";
+        }
+        catch (Exception ex)
+        {
+            ShowEventDialogError($"Could not attach photos: {ex.Message}");
+        }
+    }
+
+    /// <summary>Opens the lightbox at the clicked thumbnail.</summary>
+    private async void MediaThumb_Click(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel == null)
+            return;
+
+        if (sender is FrameworkElement { DataContext: EventMediaThumbDto media })
+        {
+            var items = _viewModel.SelectedEventMedia.ToList();
+            var index = items.FindIndex(m => m.MediaId == media.MediaId);
+            if (index < 0)
+                return;
+
+            _lightboxItems = items;
+            _lightboxIndex = index;
+            ApplyLightboxItem();
+
+            MediaLightboxDialog.XamlRoot = XamlRoot;
+            await MediaLightboxDialog.ShowAsync();
+        }
+    }
+
+    /// <summary>
+    /// Shows the current lightbox item (image or file placeholder, counter,
+    /// nav enablement, caption) and resets the two-step Remove confirmation.
+    /// </summary>
+    private void ApplyLightboxItem()
+    {
+        _lightboxRemoveArmed = false;
+        MediaLightboxDialog.SecondaryButtonText = "Remove";
+        LightboxStatusText.Text = "";
+
+        if (_lightboxIndex < 0 || _lightboxIndex >= _lightboxItems.Count)
+            return;
+
+        var item = _lightboxItems[_lightboxIndex];
+        MediaLightboxDialog.Title = item.FileName;
+
+        if (item.IsImage)
+        {
+            LightboxImage.Source = item.CreateFullImage();
+            LightboxImage.Visibility = Visibility.Visible;
+            LightboxFilePlaceholder.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            LightboxImage.Source = null;
+            LightboxImage.Visibility = Visibility.Collapsed;
+            LightboxFilePlaceholder.Visibility = Visibility.Visible;
+            LightboxFileGlyph.Glyph = item.FileGlyph;
+            LightboxFileName.Text = item.FileName;
+        }
+
+        LightboxCounter.Text = $"{_lightboxIndex + 1} of {_lightboxItems.Count}";
+        LightboxPrevButton.IsEnabled = _lightboxIndex > 0;
+        LightboxNextButton.IsEnabled = _lightboxIndex < _lightboxItems.Count - 1;
+        LightboxCaptionBox.Text = item.Caption ?? "";
+    }
+
+    private void LightboxPrev_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lightboxIndex > 0)
+        {
+            _lightboxIndex--;
+            ApplyLightboxItem();
+        }
+    }
+
+    private void LightboxNext_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lightboxIndex < _lightboxItems.Count - 1)
+        {
+            _lightboxIndex++;
+            ApplyLightboxItem();
+        }
+    }
+
+    /// <summary>
+    /// "Save caption": persists the caption and keeps the lightbox open,
+    /// showing the outcome (or the failure reason) in the status line.
+    /// </summary>
+    private async void MediaLightbox_PrimaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
+    {
+        args.Cancel = true; // saving the caption never closes the lightbox
+        var deferral = args.GetDeferral();
+        try
+        {
+            if (_viewModel == null || _lightboxIndex < 0 || _lightboxIndex >= _lightboxItems.Count)
+                return;
+
+            var item = _lightboxItems[_lightboxIndex];
+            await _viewModel.UpdateMediaCaptionAsync(item, LightboxCaptionBox.Text);
+            LightboxStatusText.Text = "Caption saved.";
+        }
+        catch (Exception ex)
+        {
+            LightboxStatusText.Text = $"Could not save the caption: {ex.Message}";
+        }
+        finally
+        {
+            deferral.Complete();
+        }
+    }
+
+    /// <summary>
+    /// "Remove" with confirmation: the first click arms (button becomes
+    /// "Confirm remove"), the second click deletes the attachment and its
+    /// managed file. The lightbox advances to a neighbor, or closes when the
+    /// last item was removed. Failures keep it open with the reason shown.
+    /// </summary>
+    private async void MediaLightbox_SecondaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
+    {
+        if (!_lightboxRemoveArmed)
+        {
+            args.Cancel = true;
+            _lightboxRemoveArmed = true;
+            MediaLightboxDialog.SecondaryButtonText = "Confirm remove";
+            LightboxStatusText.Text = "This permanently deletes the copied file. Click 'Confirm remove' to proceed.";
+            return;
+        }
+
+        var deferral = args.GetDeferral();
+        try
+        {
+            if (_viewModel == null || _lightboxIndex < 0 || _lightboxIndex >= _lightboxItems.Count)
+                return;
+
+            var item = _lightboxItems[_lightboxIndex];
+            await _viewModel.RemoveMediaAsync(item);
+
+            _lightboxItems.RemoveAt(_lightboxIndex);
+            if (_lightboxItems.Count > 0)
+            {
+                args.Cancel = true; // keep browsing the remaining items
+                if (_lightboxIndex >= _lightboxItems.Count)
+                {
+                    _lightboxIndex = _lightboxItems.Count - 1;
+                }
+
+                ApplyLightboxItem();
+            }
+            // else: nothing left to show - let the dialog close.
+        }
+        catch (Exception ex)
+        {
+            args.Cancel = true;
+            _lightboxRemoveArmed = false;
+            MediaLightboxDialog.SecondaryButtonText = "Remove";
+            LightboxStatusText.Text = $"Could not remove the photo: {ex.Message}";
+        }
+        finally
+        {
+            deferral.Complete();
         }
     }
 

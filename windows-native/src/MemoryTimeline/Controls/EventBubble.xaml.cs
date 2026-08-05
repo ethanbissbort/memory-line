@@ -55,6 +55,20 @@ public sealed partial class EventBubble : UserControl
     /// </summary>
     public double PinOpacity => Event?.IsApproximate == true ? 0.55 : 1.0;
 
+    /// <summary>Photo-count badge text ("3", capped at "9+").</summary>
+    public string MediaBadgeText
+    {
+        get
+        {
+            var count = Event?.MediaCount ?? 0;
+            return count > 9 ? "9+" : count.ToString();
+        }
+    }
+
+    /// <summary>The badge is shown only when the event has media attachments.</summary>
+    public Visibility MediaBadgeVisibility =>
+        Event?.HasMedia == true ? Visibility.Visible : Visibility.Collapsed;
+
     public EventBubble()
     {
         InitializeComponent();
@@ -64,10 +78,34 @@ public sealed partial class EventBubble : UserControl
     {
         if (d is EventBubble bubble)
         {
+            // The photo-count badge can change while the pin is on screen
+            // (photos attached from the details panel), so track the DTO's
+            // change notifications for the lifetime of the assignment.
+            if (e.OldValue is TimelineEventDto oldEvent)
+            {
+                oldEvent.PropertyChanged -= bubble.OnEventDtoPropertyChanged;
+            }
+
+            if (e.NewValue is TimelineEventDto newEvent)
+            {
+                newEvent.PropertyChanged += bubble.OnEventDtoPropertyChanged;
+            }
+
             bubble.OnPropertyChanged(nameof(CategoryBrush));
             bubble.OnPropertyChanged(nameof(CategoryGlyph));
             bubble.OnPropertyChanged(nameof(PinOpacity));
+            bubble.OnPropertyChanged(nameof(MediaBadgeVisibility));
             bubble.UpdateToolTip();
+        }
+    }
+
+    private void OnEventDtoPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(TimelineEventDto.MediaCount))
+        {
+            // MediaCount is only mutated on the UI thread (the ViewModel
+            // marshals), so refreshing the compiled bindings here is safe.
+            Bindings.Update();
         }
     }
 

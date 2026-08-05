@@ -26,6 +26,7 @@ public class AppDbContext : DbContext
     public DbSet<EventLocation> EventLocations { get; set; } = null!;
     public DbSet<CrossReference> CrossReferences { get; set; } = null!;
     public DbSet<EventEmbedding> EventEmbeddings { get; set; } = null!;
+    public DbSet<EventMedia> EventMedia { get; set; } = null!;
     public DbSet<AppSetting> AppSettings { get; set; } = null!;
     public DbSet<SavedSearch> SavedSearches { get; set; } = null!;
     public DbSet<Draft> Drafts { get; set; } = null!;
@@ -306,6 +307,19 @@ public class AppDbContext : DbContext
             entity.HasKey(e => e.EmbeddingId);
             entity.HasIndex(e => e.EventId).IsUnique();
             entity.HasIndex(e => e.EmbeddingProvider);
+        });
+
+        // Configure EventMedia entity
+        modelBuilder.Entity<EventMedia>(entity =>
+        {
+            entity.HasKey(m => m.MediaId);
+            entity.HasIndex(m => m.EventId);
+            entity.HasIndex(m => m.ContentHash);
+
+            entity.HasOne(m => m.Event)
+                .WithMany(e => e.Media)
+                .HasForeignKey(m => m.EventId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // Configure AppSetting entity

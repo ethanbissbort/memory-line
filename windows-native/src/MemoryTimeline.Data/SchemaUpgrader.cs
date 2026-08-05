@@ -178,6 +178,34 @@ public static class SchemaUpgrader
                 CREATE INDEX IF NOT EXISTS "IX_drafts_updated_at" ON "drafts" ("updated_at");
                 """);
 
+            // Media attachments (2026-08 F2). New tables may carry their FK
+            // inline in CREATE TABLE (unlike ALTER TABLE ADD COLUMN, which
+            // cannot add one). media_type is an INTEGER enum
+            // (0=Image 1=Video 2=Audio 3=Document).
+            await EnsureTableAsync(connection, existingTables, "event_media", logger,
+                """
+                CREATE TABLE IF NOT EXISTS "event_media" (
+                    "media_id" TEXT NOT NULL CONSTRAINT "PK_event_media" PRIMARY KEY,
+                    "event_id" TEXT NOT NULL,
+                    "file_path" TEXT NOT NULL,
+                    "thumbnail_path" TEXT NULL,
+                    "media_type" INTEGER NOT NULL,
+                    "caption" TEXT NULL,
+                    "captured_at" TEXT NULL,
+                    "latitude" REAL NULL,
+                    "longitude" REAL NULL,
+                    "file_size_bytes" INTEGER NULL,
+                    "content_hash" TEXT NULL,
+                    "sort_order" INTEGER NOT NULL,
+                    "created_at" TEXT NOT NULL,
+                    CONSTRAINT "FK_event_media_events_event_id" FOREIGN KEY ("event_id") REFERENCES "events" ("event_id") ON DELETE CASCADE
+                );
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS "IX_event_media_event_id" ON "event_media" ("event_id");
+                CREATE INDEX IF NOT EXISTS "IX_event_media_content_hash" ON "event_media" ("content_hash");
+                """);
+
             // ---- Missing columns on pre-existing tables ----
             // Note: SQLite's ALTER TABLE ADD COLUMN cannot add foreign key
             // constraints, so eras.category_id is added without one; the FK is

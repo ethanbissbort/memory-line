@@ -66,6 +66,7 @@ public class EventService : IEventService
 {
     private readonly IEventRepository _eventRepository;
     private readonly IEmbeddingService? _embeddingService;
+    private readonly IMediaService? _mediaService;
     private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly ILogger<EventService> _logger;
 
@@ -73,12 +74,14 @@ public class EventService : IEventService
         IEventRepository eventRepository,
         IDbContextFactory<AppDbContext> contextFactory,
         ILogger<EventService> logger,
-        IEmbeddingService? embeddingService = null)
+        IEmbeddingService? embeddingService = null,
+        IMediaService? mediaService = null)
     {
         _eventRepository = eventRepository;
         _contextFactory = contextFactory;
         _logger = logger;
         _embeddingService = embeddingService;
+        _mediaService = mediaService;
     }
 
     // CRUD operations
@@ -196,8 +199,33 @@ public class EventService : IEventService
                 throw new InvalidOperationException($"Event not found: {eventId}");
             }
 
+            // Media files live outside the database: capture the event's media
+            // rows BEFORE the delete (the FK cascade removes the rows but
+            // cannot touch the files), then clean the files up afterwards.
+            // Lookup failure must not block the delete itself.
+            IReadOnlyList<EventMedia> mediaToClean = Array.Empty<EventMedia>();
+            if (_mediaService != null)
+            {
+                try
+                {
+                    mediaToClean = await _mediaService.GetForEventAsync(eventId);
+                }
+                catch (Exception mediaEx)
+                {
+                    _logger.LogWarning(mediaEx,
+                        "Could not enumerate media for event {EventId} before delete; managed files may be orphaned.",
+                        eventId);
+                }
+            }
+
             await _eventRepository.DeleteAsync(eventToDelete);
             _logger.LogInformation("Event deleted: {EventId}", eventId);
+
+            if (_mediaService != null && mediaToClean.Count > 0)
+            {
+                // Best-effort physical cleanup; DeleteFiles logs any failures.
+                _mediaService.DeleteFiles(mediaToClean);
+            }
 
             // Notify subscribers (e.g. TimelineViewModel) that the event is gone.
             // A subscriber failure must not turn a successful delete into an error.
