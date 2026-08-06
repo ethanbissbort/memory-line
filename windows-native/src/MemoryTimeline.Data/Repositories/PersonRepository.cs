@@ -102,9 +102,12 @@ public class PersonRepository : IPersonRepository
     public async Task<Person?> GetByNameAsync(string name)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
+        // Tombstones (merged-away people) keep their names but their event
+        // links were repointed at merge time; resolving a name to one would
+        // hand callers a zero-link person. Only living people match here.
         return await context.People
             .Include(p => p.EventPeople)
-            .FirstOrDefaultAsync(p => p.Name == name);
+            .FirstOrDefaultAsync(p => p.MergedIntoId == null && p.Name == name);
     }
 
     public async Task<IEnumerable<Person>> GetOrderedByNameAsync()
@@ -119,9 +122,11 @@ public class PersonRepository : IPersonRepository
     public async Task<IEnumerable<Person>> SearchByNameAsync(string searchTerm)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
+        // Tombstones (merged-away people) never surface in name search: they
+        // keep their names but hold zero event links after the merge.
         return await context.People
             .AsNoTracking()
-            .Where(p => EF.Functions.Like(p.Name, $"%{searchTerm}%"))
+            .Where(p => p.MergedIntoId == null && EF.Functions.Like(p.Name, $"%{searchTerm}%"))
             .OrderBy(p => p.Name)
             .ToListAsync();
     }

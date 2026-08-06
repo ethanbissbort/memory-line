@@ -452,6 +452,18 @@ public partial class TimelineViewModel : ObservableObject
                 Events.Remove(dto);
                 SpanEvents.Remove(dto);
                 UncertainEvents.Remove(dto);
+
+                // In a lane mode the removal changes lane membership:
+                // recompute lanes, geometry, and the gutter (mirroring the
+                // settled-reload path) so row counts stay accurate, a
+                // now-empty lane row disappears, and _lanes stops holding
+                // the removed DTO.
+                if (LaneMode != LaneMode.Auto)
+                {
+                    RecomputeLanes();
+                    ApplyLaneGeometry();
+                    RebuildLaneGutter();
+                }
             }
 
             if (SelectedEvent?.EventId == message.EventId)

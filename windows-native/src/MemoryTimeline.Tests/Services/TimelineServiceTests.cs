@@ -547,12 +547,42 @@ public class TimelineServiceTests : IDisposable
         // Act
         _timelineService.CalculateEventPositions(new[] { evt }, viewport);
 
-        // Assert
+        // Assert - the TRUE width still follows GetEventWidth (track-overlap
+        // math), while the RENDERED geometry and the overhang (measured from
+        // the clamped render edge) cap at the span render margin.
         evt.RenderMode.Should().Be(Core.DTOs.EventRenderMode.Span);
         evt.Width.Should().Be(TimelineScale.GetEventWidth(start, end, ZoomLevel.Day));
         evt.ClipsViewportLeft.Should().BeFalse();
         evt.ClipsViewportRight.Should().BeTrue();
-        evt.SpanRightOverhang.Should().Be(evt.PixelX + evt.Width - viewport.ViewportWidth);
+        evt.SpanRightOverhang.Should().Be(TimelineService.SpanRenderMargin);
+        evt.RenderX.Should().Be(evt.PixelX);
+        evt.RenderWidth.Should().Be(
+            viewport.ViewportWidth + TimelineService.SpanRenderMargin - evt.PixelX);
+    }
+
+    [Fact]
+    public void CalculateEventPositions_TwentyYearEventAtDayZoom_RenderGeometryStaysClamped()
+    {
+        // Arrange - a 20-year event at Day zoom (800 px/day) is ~5.8M true
+        // pixels wide; the rendered element must stay within the viewport
+        // plus the render margin on each side.
+        var viewport = CreateTestViewport(ZoomLevel.Day, new DateTime(2010, 6, 1));
+        var start = new DateTime(2000, 1, 1);
+        var end = new DateTime(2020, 1, 1);
+        var evt = new Core.DTOs.TimelineEventDto { EventId = "1", Title = "Era-like", StartDate = start, EndDate = end };
+
+        // Act
+        _timelineService.CalculateEventPositions(new[] { evt }, viewport);
+
+        // Assert - true width for overlap math, clamped geometry for rendering.
+        evt.RenderMode.Should().Be(Core.DTOs.EventRenderMode.Span);
+        evt.Width.Should().Be(TimelineScale.GetEventWidth(start, end, ZoomLevel.Day));
+        evt.RenderX.Should().Be(-TimelineService.SpanRenderMargin);
+        evt.RenderWidth.Should().Be(viewport.ViewportWidth + 2 * TimelineService.SpanRenderMargin);
+        evt.ClipsViewportLeft.Should().BeTrue();
+        evt.ClipsViewportRight.Should().BeTrue();
+        evt.SpanLeftOverhang.Should().Be(TimelineService.SpanRenderMargin);
+        evt.SpanRightOverhang.Should().Be(TimelineService.SpanRenderMargin);
     }
 
     [Theory]
@@ -723,6 +753,40 @@ public class TimelineServiceTests : IDisposable
         evt.WindowStartX.Should().Be(0.0);
         evt.WindowEndX.Should().Be(viewport.ViewportWidth);
         evt.HasUncertaintyWindow.Should().BeTrue();
+    }
+
+    [Fact]
+    public void CalculateEventPositions_YearPrecisionAnchorOutsideViewport_BandStillShowsWhileWindowOverlaps()
+    {
+        // Arrange - a Week-zoom viewport over ~20 days of June 1998; the
+        // Year-precision anchor (15 Jul 1998) sits OUTSIDE it, but the
+        // precision window (all of 1998) covers the whole screen. The band
+        // must render anyway - it must not pop off when only the anchor
+        // leaves the viewport.
+        var viewport = CreateTestViewport(ZoomLevel.Week, new DateTime(1998, 6, 1));
+        var evt = new Core.DTOs.TimelineEventDto
+        {
+            EventId = "1",
+            Title = "Sometime that year",
+            StartDate = new DateTime(1998, 7, 15),
+            DatePrecision = DatePrecision.Year
+        };
+
+        // Act
+        _timelineService.CalculateEventPositions(new[] { evt }, viewport);
+
+        // Assert - anchor invisible (pin hidden), window visible (band shown).
+        evt.IsInViewport.Should().BeFalse();
+        evt.IsVisible.Should().BeFalse();
+        evt.IsWindowInViewport.Should().BeTrue();
+        evt.WindowStartX.Should().Be(0.0);
+        evt.WindowEndX.Should().Be(viewport.ViewportWidth);
+        evt.HasUncertaintyWindow.Should().BeTrue();
+        evt.ShowUncertaintyBand.Should().BeTrue();
+
+        // A collapsed lane still hides the band.
+        evt.IsLaneCollapsed = true;
+        evt.ShowUncertaintyBand.Should().BeFalse();
     }
 
     [Fact]

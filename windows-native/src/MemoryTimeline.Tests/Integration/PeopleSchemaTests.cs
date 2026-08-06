@@ -123,11 +123,16 @@ public class PeopleSchemaTests : IDisposable
     [Fact]
     public async Task EnsureSchemaAsync_CaseVariantPeople_MergesRowsAndRebuildsIndexNocase_Idempotently()
     {
-        // Arrange - an old-shape database whose unique name index is BINARY,
-        // holding case-variant duplicates: "Sarah" (1 event link) and "sarah"
-        // (2 links, one shared with "Sarah"). "sarah" has the most junction
-        // links, so it must win keeper selection even though "Sarah" was
-        // inserted first.
+        // Arrange - an old-shape database (from the previously shipped people
+        // build: BINARY unique name index with contact columns already
+        // present and populated) holding case-variant duplicates: "Sarah"
+        // with 2 junction links (event-1, event-2) and "sarah" with 3
+        // (event-2, event-3, event-1) - two shared events (event-1 and
+        // event-2). "sarah" has the most junction links, so it must win
+        // keeper selection even though "Sarah" was inserted first. "Sarah"
+        // (the loser) is the row the user enriched - email, notes, favorite
+        // flag - so the repair must backfill those onto the keeper before
+        // deleting the loser row.
         var factory = CreateFactory();
         await using (var setupContext = factory.CreateDbContext())
         {
@@ -138,7 +143,10 @@ public class PeopleSchemaTests : IDisposable
                 CREATE TABLE "people" (
                     "person_id" TEXT NOT NULL CONSTRAINT "PK_people" PRIMARY KEY,
                     "name" TEXT NOT NULL,
-                    "created_at" TEXT NOT NULL
+                    "created_at" TEXT NOT NULL,
+                    "email" TEXT NULL,
+                    "notes" TEXT NULL,
+                    "is_favorite" INTEGER NOT NULL DEFAULT 0
                 );
                 """);
             await ExecuteAsync(connection,
@@ -166,9 +174,9 @@ public class PeopleSchemaTests : IDisposable
                 """);
             await ExecuteAsync(connection,
                 """
-                INSERT INTO "people" ("person_id", "name", "created_at") VALUES
-                    ('person-upper', 'Sarah', '2024-01-01 00:00:00'),
-                    ('person-lower', 'sarah', '2024-02-01 00:00:00');
+                INSERT INTO "people" ("person_id", "name", "created_at", "email", "notes", "is_favorite") VALUES
+                    ('person-upper', 'Sarah', '2024-01-01 00:00:00', 'sarah@example.com', 'Met on the coast trail', 1),
+                    ('person-lower', 'sarah', '2024-02-01 00:00:00', NULL, NULL, 0);
                 INSERT INTO "events" ("event_id", "title", "start_date", "created_at", "updated_at") VALUES
                     ('event-1', 'Hike',   '2024-03-01 00:00:00', '2024-03-01 00:00:00', '2024-03-01 00:00:00'),
                     ('event-2', 'Dinner', '2024-04-01 00:00:00', '2024-04-01 00:00:00', '2024-04-01 00:00:00'),
@@ -220,6 +228,16 @@ public class PeopleSchemaTests : IDisposable
                 "alias");
             aliases.Should().Equal("Sarah");
 
+            // The loser's user-entered contact data was backfilled onto the
+            // keeper before the delete (exactly what MergeAsync would have
+            // preserved): empty columns take the loser's values and the
+            // favorite flag ORs in.
+            var survivor = await verifyContext.People.AsNoTracking().SingleAsync();
+            survivor.PersonId.Should().Be("person-lower");
+            survivor.Email.Should().Be("sarah@example.com");
+            survivor.Notes.Should().Be("Met on the coast trail");
+            survivor.IsFavorite.Should().BeTrue();
+
             // The unique name index was rebuilt with COLLATE NOCASE...
             var indexSql = await GetNamesAsync(connection,
                 "SELECT sql FROM sqlite_master WHERE type='index' AND name='IX_people_name'",
@@ -250,7 +268,8 @@ public class PeopleSchemaTests : IDisposable
             await SchemaUpgrader.EnsureSchemaAsync(secondUpgradeContext);
         }
 
-        // Assert - still exactly one sarah, three links, one alias
+        // Assert - still exactly one sarah, three links, one alias, and the
+        // backfilled contact data untouched
         await using (var reverifyContext = factory.CreateDbContext())
         {
             var connection = reverifyContext.Database.GetDbConnection();
@@ -264,6 +283,11 @@ public class PeopleSchemaTests : IDisposable
             (await GetNamesAsync(connection,
                 "SELECT alias FROM \"person_aliases\"", "alias"))
                 .Should().Equal("Sarah");
+
+            var survivor = await reverifyContext.People.AsNoTracking().SingleAsync();
+            survivor.Email.Should().Be("sarah@example.com");
+            survivor.Notes.Should().Be("Met on the coast trail");
+            survivor.IsFavorite.Should().BeTrue();
         }
     }
 

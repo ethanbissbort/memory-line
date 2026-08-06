@@ -387,12 +387,30 @@ public class MemoryQueryService : IMemoryQueryService
         // in the filter would zero out the results.
         foreach (var name in NonBlank(plan.People))
         {
+            // Living people only (the repository filters tombstones): exact
+            // case-insensitive name match first, then the alias table - so
+            // "Bob" filters as "Robert", and a retired pre-merge name (kept
+            // as an alias by MergeAsync) resolves to the survivor instead of
+            // silently matching nothing - then any partial name match.
             var matches = (await _personRepository.SearchByNameAsync(name)).ToList();
-            var match = matches.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))
-                ?? matches.FirstOrDefault();
-            if (match != null)
+            var exact = matches.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (exact != null)
             {
-                filter.PersonIds.Add(match.PersonId);
+                filter.PersonIds.Add(exact.PersonId);
+                continue;
+            }
+
+            var aliasPersonId = await ResolveAliasToLivingPersonIdAsync(name);
+            if (aliasPersonId != null)
+            {
+                filter.PersonIds.Add(aliasPersonId);
+                continue;
+            }
+
+            var partial = matches.FirstOrDefault();
+            if (partial != null)
+            {
+                filter.PersonIds.Add(partial.PersonId);
             }
         }
 
@@ -421,6 +439,45 @@ public class MemoryQueryService : IMemoryQueryService
 
     private static IEnumerable<string> NonBlank(List<string>? names) =>
         (names ?? new List<string>()).Where(n => !string.IsNullOrWhiteSpace(n));
+
+    /// <summary>
+    /// Resolves a name through the person_aliases table (case-insensitive)
+    /// to the LIVING person, following the merge-tombstone chain like
+    /// PersonService.FindBestMatchAsync does (the visited set terminates a
+    /// malformed cycle). Null when the name is no one's alias or the chain
+    /// leads nowhere living.
+    /// </summary>
+    private async Task<string?> ResolveAliasToLivingPersonIdAsync(string name)
+    {
+        var lowered = name.Trim().ToLowerInvariant();
+        if (lowered.Length == 0)
+        {
+            return null;
+        }
+
+        await using var context = await _contextFactory.CreateDbContextAsync();
+
+        var aliasOwnerId = await context.PersonAliases.AsNoTracking()
+            .Where(a => a.Alias.ToLower() == lowered)
+            .Select(a => a.PersonId)
+            .FirstOrDefaultAsync();
+        if (aliasOwnerId == null)
+        {
+            return null;
+        }
+
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var current = await context.People.AsNoTracking()
+            .FirstOrDefaultAsync(p => p.PersonId == aliasOwnerId);
+        while (current != null && current.MergedIntoId != null && visited.Add(current.PersonId))
+        {
+            var nextId = current.MergedIntoId;
+            current = await context.People.AsNoTracking()
+                .FirstOrDefaultAsync(p => p.PersonId == nextId);
+        }
+
+        return current != null && current.MergedIntoId == null ? current.PersonId : null;
+    }
 
     private async Task<List<string>> RunSemanticSearchAsync(string semanticQuery, int topK, CancellationToken ct)
     {

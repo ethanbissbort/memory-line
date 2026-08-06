@@ -28,6 +28,17 @@ public interface ITimelineService
 /// </summary>
 public class TimelineService : ITimelineService
 {
+    /// <summary>
+    /// Pixels of span-bar overdraw kept past each viewport edge. A span's
+    /// RENDERED geometry (<see cref="TimelineEventDto.RenderX"/>/<see
+    /// cref="TimelineEventDto.RenderWidth"/>) is clamped to the viewport plus
+    /// this margin - mirroring the uncertainty band's clamp - so a
+    /// decades-long event at Day zoom cannot materialize a multi-million-pixel
+    /// XAML element. The margin keeps rounded corners and pointer targets
+    /// just off-screen instead of cutting the bar exactly at the edge.
+    /// </summary>
+    public const double SpanRenderMargin = 200.0;
+
     private readonly IEventRepository _eventRepository;
     private readonly IEraRepository _eraRepository;
     private readonly IEventMediaRepository? _mediaRepository;
@@ -329,9 +340,23 @@ public class TimelineService : ITimelineService
                 evt.Width = proportionalWidth;
                 evt.Height = spanHeight;
 
-                // Overhang past the viewport edges drives the end-cap chevrons.
-                evt.SpanLeftOverhang = Math.Max(0, -evt.PixelX);
-                evt.SpanRightOverhang = Math.Max(0, evt.PixelX + evt.Width - maxVisibleX);
+                // Render geometry: the XAML element is clamped to the
+                // viewport plus SpanRenderMargin so long spans at deep zoom
+                // never materialize at their true (possibly multi-million
+                // pixel) width. PixelX/Width keep the TRUE values for the
+                // track-overlap math below.
+                var renderLeft = Math.Clamp(evt.PixelX, -SpanRenderMargin, maxVisibleX + SpanRenderMargin);
+                var renderRight = Math.Clamp(evt.PixelX + evt.Width, -SpanRenderMargin, maxVisibleX + SpanRenderMargin);
+                evt.RenderX = renderLeft;
+                evt.RenderWidth = renderRight - renderLeft;
+
+                // Overhang past the viewport edges drives the end-cap
+                // chevrons. Measured from the CLAMPED render geometry (so it
+                // caps at SpanRenderMargin): EventSpanBar insets its chevrons
+                // and title by these amounts relative to the rendered element
+                // edge, which places them exactly at the visible edge.
+                evt.SpanLeftOverhang = Math.Max(0, -renderLeft);
+                evt.SpanRightOverhang = Math.Max(0, renderRight - maxVisibleX);
             }
             else
             {
@@ -341,6 +366,8 @@ public class TimelineService : ITimelineService
                 evt.PixelX = datePixelX - (pinWidth / 2);
                 evt.Width = pinWidth;
                 evt.Height = pinHeight;
+                evt.RenderX = evt.PixelX;
+                evt.RenderWidth = evt.Width;
                 evt.SpanLeftOverhang = 0;
                 evt.SpanRightOverhang = 0;
             }
@@ -355,11 +382,18 @@ public class TimelineService : ITimelineService
             if (evt.IsApproximate)
             {
                 var (earliest, latest) = DatePrecisionExtensions.GetWindow(evt.StartDate, evt.DatePrecision);
+
+                // The band is gated on the WINDOW's visibility, not the
+                // anchor's: a "Summer 1998" band must not pop off mid-pan
+                // while June 1998 is still on screen just because the anchor
+                // date crossed the viewport edge.
+                evt.IsWindowInViewport = latest >= viewport.StartDate && earliest <= viewport.EndDate;
                 evt.WindowStartX = Math.Clamp(converter.DateToScreen(earliest), 0.0, maxVisibleX);
                 evt.WindowEndX = Math.Clamp(converter.DateToScreen(latest), 0.0, maxVisibleX);
             }
             else
             {
+                evt.IsWindowInViewport = false;
                 evt.WindowStartX = 0;
                 evt.WindowEndX = 0;
             }

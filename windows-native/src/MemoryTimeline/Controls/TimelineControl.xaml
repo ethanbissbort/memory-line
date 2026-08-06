@@ -174,7 +174,12 @@
                     </ItemsControl>
 
                     <!-- Span bars: duration events wide enough to earn a real
-                         width (left edge anchored on the start date). -->
+                         width (left edge anchored on the start date). The
+                         element geometry binds the CLAMPED RenderX/RenderWidth
+                         (viewport + margin) rather than the true PixelX/Width,
+                         so a decades-long span at Day zoom never materializes
+                         a multi-million-pixel element; the overhang chevrons
+                         mark the clipped ends. -->
                     <ItemsControl x:Name="SpansLayer"
                                  ItemsSource="{x:Bind ViewModel.SpanEvents, Mode=OneWay}">
                         <ItemsControl.ItemsPanel>
@@ -185,7 +190,7 @@
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="dto:TimelineEventDto">
                                 <controls:EventSpanBar Event="{x:Bind Mode=OneWay}"
-                                                      Width="{x:Bind Width, Mode=OneWay}"
+                                                      Width="{x:Bind RenderWidth, Mode=OneWay}"
                                                       Height="24"
                                                       Visibility="{x:Bind IsVisible, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"
                                                       Tapped="EventBubble_Tapped"
@@ -193,7 +198,7 @@
                                                       PointerEntered="EventBubble_PointerEntered"
                                                       PointerExited="EventBubble_PointerExited">
                                     <controls:EventSpanBar.RenderTransform>
-                                        <TranslateTransform X="{x:Bind PixelX, Mode=OneWay}" Y="{x:Bind PixelY, Mode=OneWay}"/>
+                                        <TranslateTransform X="{x:Bind RenderX, Mode=OneWay}" Y="{x:Bind PixelY, Mode=OneWay}"/>
                                     </controls:EventSpanBar.RenderTransform>
                                     <controls:EventSpanBar.ContextFlyout>
                                         <MenuFlyout>
@@ -343,8 +348,15 @@
                 <!-- Swimlane gutter (lane modes only): fixed labels overlaying
                      the left edge of the events area, one row per lane. Row
                      heights come from the same lane constants the events use,
-                     so gutter rows stay aligned with lane rows. The events
-                     area does not scroll vertically, and neither does this. -->
+                     so gutter rows stay aligned with lane rows.
+                     DEFERRED (F8 wave): vertical lane scrolling. The events
+                     area does not scroll vertically, and neither does this,
+                     so lanes past the viewport bottom are reachable only by
+                     collapsing the lanes above them. The spec's synchronised
+                     vertical-scroll note needs a shared scroll surface over
+                     the events canvas plus this gutter and is intentionally
+                     out of scope here (see the reorderable-lanes precedent in
+                     LaneAssignment.cs). -->
                 <Border x:Name="LaneGutter"
                        Grid.Row="0"
                        Width="140"

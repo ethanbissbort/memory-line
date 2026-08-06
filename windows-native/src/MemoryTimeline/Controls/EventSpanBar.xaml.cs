@@ -115,6 +115,8 @@ public sealed partial class EventSpanBar : UserControl
         {
             case nameof(TimelineEventDto.Width):
             case nameof(TimelineEventDto.PixelX):
+            case nameof(TimelineEventDto.RenderWidth):
+            case nameof(TimelineEventDto.RenderX):
             case nameof(TimelineEventDto.SpanLeftOverhang):
             case nameof(TimelineEventDto.SpanRightOverhang):
                 RefreshVisuals();

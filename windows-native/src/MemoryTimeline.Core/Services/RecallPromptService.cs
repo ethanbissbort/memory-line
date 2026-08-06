@@ -373,9 +373,12 @@ public class RecallPromptService : IRecallPromptService
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
+        // Living people only: a merged-away tombstone can end up with a link
+        // (broken-chain approval fallback), and prompting about it would
+        // surface a retired name the survivor already covers.
         var dangling = await context.People
             .AsNoTracking()
-            .Where(p => p.EventPeople.Count() == 1)
+            .Where(p => p.MergedIntoId == null && p.EventPeople.Count() == 1)
             .Select(p => new
             {
                 p.PersonId,

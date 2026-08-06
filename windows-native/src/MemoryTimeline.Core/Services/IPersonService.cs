@@ -145,6 +145,9 @@ public sealed class PersonEventSummary
 
 /// <summary>
 /// Service interface for contact-book person business logic.
+/// F9 deviation (deliberate): the spec's IPeopleService members were added to
+/// the pre-existing IPersonService rather than introducing a parallel
+/// interface; legacy member names are kept as delegating shims.
 /// </summary>
 public interface IPersonService
 {

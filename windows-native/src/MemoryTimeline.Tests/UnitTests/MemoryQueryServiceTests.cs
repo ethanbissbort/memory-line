@@ -196,6 +196,38 @@ public class MemoryQueryServiceTests : IDisposable
 
     #endregion
 
+    #region AskAsync — merged-person name resolution
+
+    [Fact]
+    public async Task AskAsync_PersonFilterUsesRetiredMergedName_ReturnsSurvivorsEvents()
+    {
+        // Arrange: "Bob" was merged into "Robert" — the tombstone keeps its
+        // name (zero event links), the alias points at the survivor, and the
+        // event link lives on the survivor. Filtering by the old name must
+        // resolve to the survivor, not the tombstone.
+        await SeedMergedPersonFixtureAsync(
+            survivorId: "person-robert", survivorName: "Robert",
+            tombstoneId: "person-bob", tombstoneName: "Bob",
+            alias: "Bob",
+            eventId: "evt-fishing", eventTitle: "Fishing trip", eventDate: new DateTime(2021, 5, 1));
+
+        SetupLlmSequence(
+            planJson: "{\"semanticQuery\":\"Bob\",\"from\":null,\"to\":null,\"people\":[\"Bob\"],\"tags\":[],\"locations\":[],\"answerMode\":\"Factual\"}",
+            answerJson: "{\"answer\":\"You went on a fishing trip together [event:evt-fishing].\",\"answeredFromArchive\":true,\"confidence\":0.9}");
+
+        // Act
+        var result = await _service.AskAsync(
+            "What did I do with Bob?", new MemoryQueryOptions { TopK = 5 });
+
+        // Assert: the old name filtered as the survivor's id, so the
+        // survivor's events were retrieved and cited.
+        result.RetrievedEventIds.Should().Contain("evt-fishing");
+        result.AnsweredFromArchive.Should().BeTrue();
+        result.Citations.Should().ContainSingle(c => c.EventId == "evt-fishing");
+    }
+
+    #endregion
+
     #region AskAsync — degraded (keyword-only) retrieval
 
     [Fact]
@@ -307,6 +339,49 @@ public class MemoryQueryServiceTests : IDisposable
             .SetupSequence(l => l.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(planJson)
             .ReturnsAsync(answerJson);
+    }
+
+    /// <summary>
+    /// Seeds a post-merge people fixture: a living survivor linked to one
+    /// event, a tombstone (MergedIntoId set) that kept the retired name, and
+    /// the alias row MergeAsync records so old mentions resolve.
+    /// </summary>
+    private async Task SeedMergedPersonFixtureAsync(
+        string survivorId, string survivorName,
+        string tombstoneId, string tombstoneName,
+        string alias,
+        string eventId, string eventTitle, DateTime eventDate)
+    {
+        await SeedEventAsync(eventId, eventTitle, eventDate);
+
+        await using var context = _contextFactory.CreateDbContext();
+        context.People.Add(new Person
+        {
+            PersonId = survivorId,
+            Name = survivorName,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        });
+        context.People.Add(new Person
+        {
+            PersonId = tombstoneId,
+            Name = tombstoneName,
+            MergedIntoId = survivorId,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        });
+        context.PersonAliases.Add(new PersonAlias
+        {
+            PersonId = survivorId,
+            Alias = alias
+        });
+        context.EventPeople.Add(new EventPerson
+        {
+            EventId = eventId,
+            PersonId = survivorId,
+            CreatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
     }
 
     private async Task SeedEventAsync(string eventId, string title, DateTime startDate, string? description = null)

@@ -275,6 +275,10 @@ public partial class QueueViewModel : ObservableObject, IDisposable
         {
             _logger.LogError(ex, "Error stopping recording");
             StatusText = "Error stopping recording";
+            // A failed stop answers nothing - drop the recall link (mirrors
+            // CancelRecording) so the NEXT successful plain recording is not
+            // stamped as this prompt's answer.
+            _answeringRecallPromptId = null;
         }
     }
 

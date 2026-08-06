@@ -383,9 +383,11 @@ public class AdvancedSearchService : IAdvancedSearchService
                 .ToListAsync();
             suggestions.AddRange(tagSuggestions);
 
-            // Person suggestions
+            // Person suggestions (living only: a merged-away tombstone keeps
+            // its name but has zero event links, so selecting it would filter
+            // to guaranteed-empty results)
             var personSuggestions = await dbContext.People
-                .Where(p => p.Name.ToLower().Contains(lowerQuery))
+                .Where(p => p.MergedIntoId == null && p.Name.ToLower().Contains(lowerQuery))
                 .Take(halfResults / 2)
                 .Select(p => new AutocompleteSuggestion
                 {

@@ -359,10 +359,12 @@ public static class SchemaUpgrader
             // tags.tag_name and locations.name with BINARY collation, letting
             // case-variant duplicates ("Sarah"/"sarah") coexist. The current
             // model is NOCASE. Merge each case-variant duplicate group into
-            // the row with the most junction links, then rebuild the unique
-            // index with COLLATE NOCASE. Each table runs in its own
-            // transaction inside its own try/catch: a failure leaves that
-            // table untouched and never crashes startup.
+            // the row with the most junction links (backfilling the keeper's
+            // empty contact columns from each loser, in MergeAsync's spirit,
+            // so user-entered data survives), then rebuild the unique index
+            // with COLLATE NOCASE. Each table runs in its own transaction
+            // inside its own try/catch: a failure leaves that table untouched
+            // and never crashes startup.
             await RepairCaseInsensitiveIdentityAsync(connection, existingTables, logger);
 
             // Seed parity with AppDbContext.SeedDefaultSettings (HasData);
@@ -509,29 +511,45 @@ public static class SchemaUpgrader
         await RepairTableIdentityAsync(connection, existingTables, logger,
             table: "people", idColumn: "person_id", nameColumn: "name",
             junctionTable: "event_people", junctionFkColumn: "person_id",
-            isPeople: true);
+            isPeople: true,
+            // The contact columns PersonService.MergeAsync preserves: each
+            // loser's values backfill the keeper's empty columns before the
+            // loser row is deleted, and is_favorite ORs together via MAX.
+            backfillCoalesceColumns: new[]
+            {
+                "nickname", "relationship", "email", "phone", "birthday",
+                "company", "notes", "photo_path", "avatar_color",
+                "first_met_date"
+            },
+            backfillMaxColumns: new[] { "is_favorite" });
 
         await RepairTableIdentityAsync(connection, existingTables, logger,
             table: "tags", idColumn: "tag_id", nameColumn: "tag_name",
             junctionTable: "event_tags", junctionFkColumn: "tag_id",
-            isPeople: false);
+            isPeople: false,
+            backfillCoalesceColumns: new[] { "color" },
+            backfillMaxColumns: Array.Empty<string>());
 
         await RepairTableIdentityAsync(connection, existingTables, logger,
             table: "locations", idColumn: "location_id", nameColumn: "name",
             junctionTable: "event_locations", junctionFkColumn: "location_id",
-            isPeople: false);
+            isPeople: false,
+            backfillCoalesceColumns: Array.Empty<string>(),
+            backfillMaxColumns: Array.Empty<string>());
     }
 
     /// <summary>
     /// One table's case-insensitive identity repair: skip when the unique
     /// index over the name column is already NOCASE; otherwise merge
     /// case-variant duplicate groups into the row with the most junction
-    /// links (repointing junctions dedup-safely; for people also keeping the
-    /// losers' names as aliases of the keeper), then drop the BINARY unique
-    /// index and recreate it with COLLATE NOCASE. All work happens inside a
-    /// single transaction so a failure leaves the table untouched; the
-    /// failure itself is logged and swallowed (never fatal), per this file's
-    /// contract.
+    /// links (ties prefer the row with the most populated backfill columns,
+    /// then the first row), repointing junctions dedup-safely, backfilling
+    /// the keeper's empty backfill columns from each loser before that loser
+    /// is deleted (for people also keeping the losers' names as aliases of
+    /// the keeper), then drop the BINARY unique index and recreate it with
+    /// COLLATE NOCASE. All work happens inside a single transaction so a
+    /// failure leaves the table untouched; the failure itself is logged and
+    /// swallowed (never fatal), per this file's contract.
     /// </summary>
     private static async Task RepairTableIdentityAsync(
         DbConnection connection,
@@ -542,7 +560,9 @@ public static class SchemaUpgrader
         string nameColumn,
         string junctionTable,
         string junctionFkColumn,
-        bool isPeople)
+        bool isPeople,
+        string[] backfillCoalesceColumns,
+        string[] backfillMaxColumns)
     {
         if (!existingTables.Contains(table))
         {
@@ -563,6 +583,19 @@ public static class SchemaUpgrader
             var aliasTableExists = existingTables.Contains("person_aliases");
             var mergedGroups = 0;
 
+            // Backfill columns filtered against the live schema: a partially
+            // repaired older database (some contact columns still missing)
+            // must still get its index fixed rather than failing the whole
+            // per-table transaction on an absent column.
+            var coalesceColumns = new List<string>();
+            var maxColumns = new List<string>();
+            if (backfillCoalesceColumns.Length > 0 || backfillMaxColumns.Length > 0)
+            {
+                var tableColumns = await GetColumnNamesAsync(connection, table);
+                coalesceColumns.AddRange(backfillCoalesceColumns.Where(tableColumns.Contains));
+                maxColumns.AddRange(backfillMaxColumns.Where(tableColumns.Contains));
+            }
+
             // Raw BEGIN/COMMIT instead of DbConnection.BeginTransaction:
             // Microsoft.Data.Sqlite requires every command to carry the
             // connection's ADO transaction object, which the shared
@@ -574,22 +607,28 @@ public static class SchemaUpgrader
                 var groups = await LoadCaseVariantGroupsAsync(connection, table, idColumn, nameColumn);
                 foreach (var group in groups)
                 {
-                    // Keeper = the row with the most junction links (first
-                    // row wins ties, preserving insertion order).
+                    // Keeper = the row with the most junction links; ties
+                    // prefer the row with the most populated (non-null)
+                    // backfill columns - a user-enriched contact card beats
+                    // an extraction-created bare row - and the first row wins
+                    // remaining ties, preserving insertion order.
                     var keeper = group[0];
-                    if (junctionExists)
+                    var bestLinks = -1L;
+                    var bestFilled = -1L;
+                    foreach (var row in group)
                     {
-                        var bestLinks = -1L;
-                        foreach (var row in group)
-                        {
-                            var links = await ExecuteScalarLongAsync(connection,
+                        var links = junctionExists
+                            ? await ExecuteScalarLongAsync(connection,
                                 $"SELECT COUNT(*) FROM \"{junctionTable}\" WHERE \"{junctionFkColumn}\" = @id",
-                                ("@id", row.Id));
-                            if (links > bestLinks)
-                            {
-                                bestLinks = links;
-                                keeper = row;
-                            }
+                                ("@id", row.Id))
+                            : 0L;
+                        var filled = await CountFilledColumnsAsync(
+                            connection, table, idColumn, row.Id, coalesceColumns);
+                        if (links > bestLinks || (links == bestLinks && filled > bestFilled))
+                        {
+                            bestLinks = links;
+                            bestFilled = filled;
+                            keeper = row;
                         }
                     }
 
@@ -599,6 +638,15 @@ public static class SchemaUpgrader
                         {
                             continue;
                         }
+
+                        // Backfill the keeper the way the in-app MergeAsync
+                        // would have: each empty (NULL) contact column takes
+                        // the loser's value and flag columns OR together via
+                        // MAX, so user-entered data survives the loser row's
+                        // deletion below.
+                        await BackfillKeeperFromLoserAsync(
+                            connection, table, idColumn, keeper.Id, loser.Id,
+                            coalesceColumns, maxColumns);
 
                         if (junctionExists)
                         {
@@ -728,6 +776,73 @@ public static class SchemaUpgrader
             .Where(g => g.Count() > 1)
             .Select(g => g.ToList())
             .ToList();
+    }
+
+    /// <summary>
+    /// Counts how many of the given columns hold a non-null value on one row
+    /// (keeper-selection tie-break). Returns 0 when no columns are given.
+    /// Column/table names are compile-time constants (never user input); the
+    /// row id is data and is parameterized.
+    /// </summary>
+    private static async Task<long> CountFilledColumnsAsync(
+        DbConnection connection,
+        string table,
+        string idColumn,
+        string rowId,
+        List<string> columns)
+    {
+        if (columns.Count == 0)
+        {
+            return 0;
+        }
+
+        // In SQLite ("col" IS NOT NULL) evaluates to 0/1, so the sum is the
+        // populated-column count.
+        var filledExpression = string.Join(" + ", columns.Select(c => $"(\"{c}\" IS NOT NULL)"));
+        return await ExecuteScalarLongAsync(connection,
+            $"SELECT {filledExpression} FROM \"{table}\" WHERE \"{idColumn}\" = @id",
+            ("@id", rowId));
+    }
+
+    /// <summary>
+    /// Copies a loser row's values onto the keeper before the loser is
+    /// deleted, mirroring PersonService.MergeAsync: COALESCE fills only the
+    /// keeper's NULL columns, MAX ORs flag columns (is_favorite). One
+    /// parameterized UPDATE per loser; the loser's values flow through
+    /// per-column subqueries so no data value is ever interpolated into SQL
+    /// (column/table names are compile-time constants). Idempotent: once a
+    /// keeper column is non-null, COALESCE leaves it alone.
+    /// </summary>
+    private static async Task BackfillKeeperFromLoserAsync(
+        DbConnection connection,
+        string table,
+        string idColumn,
+        string keeperId,
+        string loserId,
+        List<string> coalesceColumns,
+        List<string> maxColumns)
+    {
+        var assignments = new List<string>();
+        foreach (var column in coalesceColumns)
+        {
+            assignments.Add(
+                $"\"{column}\" = COALESCE(\"{column}\", (SELECT \"{column}\" FROM \"{table}\" WHERE \"{idColumn}\" = @loser))");
+        }
+
+        foreach (var column in maxColumns)
+        {
+            assignments.Add(
+                $"\"{column}\" = MAX(\"{column}\", COALESCE((SELECT \"{column}\" FROM \"{table}\" WHERE \"{idColumn}\" = @loser), 0))");
+        }
+
+        if (assignments.Count == 0)
+        {
+            return;
+        }
+
+        await ExecuteAsync(connection,
+            $"UPDATE \"{table}\" SET {string.Join(", ", assignments)} WHERE \"{idColumn}\" = @keeper;",
+            ("@keeper", keeperId), ("@loser", loserId));
     }
 
     /// <summary>

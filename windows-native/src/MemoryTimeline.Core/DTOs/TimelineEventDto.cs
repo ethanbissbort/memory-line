@@ -63,6 +63,24 @@ public partial class TimelineEventDto : ObservableObject
     [ObservableProperty]
     private double _height;
 
+    /// <summary>
+    /// Clamped X used for RENDERING a span bar: the true <see cref="PixelX"/>
+    /// limited to the viewport plus TimelineService.SpanRenderMargin, so a
+    /// decades-long span at Day zoom cannot materialize a multi-million-pixel
+    /// XAML element. Equals <see cref="PixelX"/> for pins and unclipped spans.
+    /// Set by the position calc.
+    /// </summary>
+    [ObservableProperty]
+    private double _renderX;
+
+    /// <summary>
+    /// Clamped width paired with <see cref="RenderX"/> (equals
+    /// <see cref="Width"/> for pins and unclipped spans). The true
+    /// <see cref="Width"/> keeps driving the track-overlap math.
+    /// </summary>
+    [ObservableProperty]
+    private double _renderWidth;
+
     /// <summary>Pin or duration-proportional span; set by the position calc.</summary>
     [ObservableProperty]
     private EventRenderMode _renderMode = EventRenderMode.Pin;
@@ -79,6 +97,15 @@ public partial class TimelineEventDto : ObservableObject
     private bool _isLaneCollapsed;
 
     /// <summary>
+    /// True when the event's PRECISION WINDOW overlaps the viewport, even if
+    /// the anchor date itself is outside it. Set by the position calc; gates
+    /// <see cref="ShowUncertaintyBand"/> so a wider-than-viewport band keeps
+    /// rendering while any part of its window is on screen.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isWindowInViewport;
+
+    /// <summary>
     /// Whether the event should render: inside the viewport and not hidden by
     /// a collapsed lane. Drives the item's Visibility binding.
     /// </summary>
@@ -87,6 +114,10 @@ public partial class TimelineEventDto : ObservableObject
     partial void OnIsInViewportChanged(bool value)
     {
         OnPropertyChanged(nameof(IsVisible));
+    }
+
+    partial void OnIsWindowInViewportChanged(bool value)
+    {
         OnPropertyChanged(nameof(ShowUncertaintyBand));
     }
 
@@ -151,17 +182,24 @@ public partial class TimelineEventDto : ObservableObject
     /// <summary>True when a non-degenerate uncertainty window exists on screen.</summary>
     public bool HasUncertaintyWindow => IsApproximate && WindowEndX > WindowStartX;
 
-    /// <summary>The underlay renders only when visible and non-degenerate.</summary>
-    public bool ShowUncertaintyBand => HasUncertaintyWindow && IsVisible;
+    /// <summary>
+    /// The underlay renders only when non-degenerate, its WINDOW overlaps the
+    /// viewport (anchor visibility is irrelevant - the band must not pop off
+    /// mid-pan while the window still covers the screen), and the lane is not
+    /// collapsed.
+    /// </summary>
+    public bool ShowUncertaintyBand => HasUncertaintyWindow && IsWindowInViewport && !IsLaneCollapsed;
 
     /// <summary>
-    /// How many pixels of a span stick out past the LEFT viewport edge
-    /// (0 when fully visible). Drives the span's left end-cap chevron.
+    /// How many pixels of the RENDERED span element stick out past the LEFT
+    /// viewport edge (0 when fully visible; caps at the span render margin
+    /// because the render geometry is clamped). Drives the span's left
+    /// end-cap chevron, whose inset is measured from the rendered edge.
     /// </summary>
     [ObservableProperty]
     private double _spanLeftOverhang;
 
-    /// <summary>Pixels of a span past the RIGHT viewport edge (0 when fully visible).</summary>
+    /// <summary>Rendered-element pixels past the RIGHT viewport edge (0 when fully visible; caps at the render margin).</summary>
     [ObservableProperty]
     private double _spanRightOverhang;
 

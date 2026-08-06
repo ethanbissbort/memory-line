@@ -735,6 +735,40 @@ public class EventExtractionService : IEventExtractionService
                     CreatedAt = DateTime.UtcNow
                 };
                 dbContext.People.Add(person);
+
+                try
+                {
+                    // Flush the insert now (still inside the caller's approve
+                    // transaction) so a NOCASE unique-index collision surfaces
+                    // here instead of failing the whole approval at the final
+                    // SaveChanges.
+                    await dbContext.SaveChangesAsync();
+                }
+                catch (DbUpdateException ex)
+                {
+                    // SQLite's NOCASE folding is ASCII-only while the C#
+                    // lookup above pre-folds the parameter with full-Unicode
+                    // ToLowerInvariant, so for some non-ASCII case pairs
+                    // (e.g. 'İ' U+0130) the lookup misses a row the unique
+                    // index still treats as equal. Drop the rejected insert
+                    // and link the existing row instead, re-running the
+                    // lookup with the index's own folding (COLLATE NOCASE).
+                    dbContext.Entry(person).State = EntityState.Detached;
+
+                    var existing = await dbContext.People
+                        .FirstOrDefaultAsync(p => EF.Functions.Collate(p.Name, "NOCASE") == rawPerson);
+                    if (existing == null)
+                    {
+                        // Not a name collision after all - surface the
+                        // original failure.
+                        throw;
+                    }
+
+                    _logger.LogWarning(ex,
+                        "Person insert for '{RawName}' hit the NOCASE unique index; linking existing person '{ExistingName}' ({PersonId}) instead",
+                        rawPerson, existing.Name, existing.PersonId);
+                    person = await FollowMergeChainAsync(dbContext, existing);
+                }
             }
 
             // Two extracted spellings ("Bob" and "Robert") can resolve to the
@@ -815,8 +849,19 @@ public class EventExtractionService : IEventExtractionService
             }
         }
 
+        return person == null ? null : await FollowMergeChainAsync(dbContext, person);
+    }
+
+    /// <summary>
+    /// Follows a person's merge-tombstone chain to the living person. The
+    /// visited set guards a malformed cycle; a broken chain returns the last
+    /// person reached (linking the tombstone beats creating a row whose name
+    /// the NOCASE unique index already holds).
+    /// </summary>
+    private static async Task<Person> FollowMergeChainAsync(Data.AppDbContext dbContext, Person person)
+    {
         var visited = new HashSet<string>(StringComparer.Ordinal);
-        while (person != null && person.MergedIntoId != null && visited.Add(person.PersonId))
+        while (person.MergedIntoId != null && visited.Add(person.PersonId))
         {
             var nextId = person.MergedIntoId;
             var next = await dbContext.People
