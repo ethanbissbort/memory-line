@@ -27,6 +27,9 @@ public class AppDbContext : DbContext
     public DbSet<EventEmbedding> EventEmbeddings { get; set; } = null!;
     public DbSet<AppSetting> AppSettings { get; set; } = null!;
     public DbSet<SavedSearch> SavedSearches { get; set; } = null!;
+    public DbSet<Capture> Captures { get; set; } = null!;
+    public DbSet<CaptureArtifact> CaptureArtifacts { get; set; } = null!;
+    public DbSet<SyncOutbox> SyncOutboxEntries { get; set; } = null!;
 
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
     {
@@ -162,6 +165,40 @@ public class AppDbContext : DbContext
             entity.HasKey(q => q.QueueId);
             entity.HasIndex(q => q.Status);
             entity.HasIndex(q => q.CreatedAt);
+            // Idempotent ingestion: at most one queue item per device-neutral
+            // capture. SQLite treats NULLs as distinct, so Windows-legacy rows
+            // (no capture id) are unaffected.
+            entity.HasIndex(q => q.SourceCaptureId).IsUnique();
+        });
+
+        // Configure Capture entity
+        modelBuilder.Entity<Capture>(entity =>
+        {
+            entity.HasKey(c => c.CaptureId);
+            entity.HasIndex(c => c.Status);
+            entity.HasIndex(c => c.CapturedAtUtc);
+
+            entity.HasMany(c => c.Artifacts)
+                .WithOne(a => a.Capture)
+                .HasForeignKey(a => a.CaptureId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Configure CaptureArtifact entity
+        modelBuilder.Entity<CaptureArtifact>(entity =>
+        {
+            entity.HasKey(a => a.ArtifactId);
+            entity.HasIndex(a => a.CaptureId);
+            entity.HasIndex(a => a.Sha256);
+        });
+
+        // Configure SyncOutbox entity
+        modelBuilder.Entity<SyncOutbox>(entity =>
+        {
+            entity.HasKey(o => o.OutboxId);
+            entity.Property(o => o.OutboxId).ValueGeneratedOnAdd();
+            entity.HasIndex(o => o.DeliveredAt);
+            entity.HasIndex(o => new { o.EntityType, o.EntityId });
         });
 
         // Configure PendingEvent entity

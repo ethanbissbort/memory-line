@@ -162,6 +162,73 @@ public static class SchemaUpgrader
                 CREATE INDEX IF NOT EXISTS "IX_saved_searches_last_used_at" ON "saved_searches" ("last_used_at");
                 """);
 
+            // ---- Sync groundwork tables (iOS companion design, Phase 0) ----
+
+            await EnsureTableAsync(connection, existingTables, "captures", logger,
+                """
+                CREATE TABLE IF NOT EXISTS "captures" (
+                    "capture_id" TEXT NOT NULL CONSTRAINT "PK_captures" PRIMARY KEY,
+                    "source_device_id" TEXT NULL,
+                    "source_platform" TEXT NOT NULL,
+                    "capture_type" TEXT NOT NULL,
+                    "created_at_utc" TEXT NOT NULL,
+                    "captured_at_utc" TEXT NOT NULL,
+                    "timezone_id" TEXT NULL,
+                    "local_offset_minutes" INTEGER NULL,
+                    "status" TEXT NOT NULL,
+                    "title_hint" TEXT NULL,
+                    "user_note" TEXT NULL,
+                    "trip_id" TEXT NULL,
+                    "client_schema_version" INTEGER NOT NULL,
+                    "server_revision" INTEGER NOT NULL,
+                    "deleted_at_utc" TEXT NULL
+                );
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS "IX_captures_status" ON "captures" ("status");
+                CREATE INDEX IF NOT EXISTS "IX_captures_captured_at_utc" ON "captures" ("captured_at_utc");
+                """);
+
+            await EnsureTableAsync(connection, existingTables, "capture_artifacts", logger,
+                """
+                CREATE TABLE IF NOT EXISTS "capture_artifacts" (
+                    "artifact_id" TEXT NOT NULL CONSTRAINT "PK_capture_artifacts" PRIMARY KEY,
+                    "capture_id" TEXT NOT NULL,
+                    "artifact_type" TEXT NOT NULL,
+                    "storage_locator" TEXT NOT NULL,
+                    "media_type" TEXT NULL,
+                    "byte_length" INTEGER NULL,
+                    "sha256" TEXT NULL,
+                    "encryption_scheme" TEXT NULL,
+                    "created_at_utc" TEXT NOT NULL,
+                    "upload_state" TEXT NOT NULL,
+                    CONSTRAINT "FK_capture_artifacts_captures_capture_id" FOREIGN KEY ("capture_id") REFERENCES "captures" ("capture_id") ON DELETE CASCADE
+                );
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS "IX_capture_artifacts_capture_id" ON "capture_artifacts" ("capture_id");
+                CREATE INDEX IF NOT EXISTS "IX_capture_artifacts_sha256" ON "capture_artifacts" ("sha256");
+                """);
+
+            await EnsureTableAsync(connection, existingTables, "sync_outbox", logger,
+                """
+                CREATE TABLE IF NOT EXISTS "sync_outbox" (
+                    "outbox_id" INTEGER NOT NULL CONSTRAINT "PK_sync_outbox" PRIMARY KEY AUTOINCREMENT,
+                    "entity_type" TEXT NOT NULL,
+                    "entity_id" TEXT NOT NULL,
+                    "operation" TEXT NOT NULL,
+                    "payload_json" TEXT NULL,
+                    "created_at" TEXT NOT NULL,
+                    "delivered_at" TEXT NULL,
+                    "attempt_count" INTEGER NOT NULL,
+                    "last_error" TEXT NULL
+                );
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS "IX_sync_outbox_delivered_at" ON "sync_outbox" ("delivered_at");
+                CREATE INDEX IF NOT EXISTS "IX_sync_outbox_entity_type_entity_id" ON "sync_outbox" ("entity_type", "entity_id");
+                """);
+
             // ---- Missing columns on pre-existing tables ----
             // Note: SQLite's ALTER TABLE ADD COLUMN cannot add foreign key
             // constraints, so eras.category_id is added without one; the FK is
@@ -187,6 +254,31 @@ public static class SchemaUpgrader
             {
                 ("color", "\"color\" TEXT NULL"),
             });
+
+            // Device-neutral provenance columns on recording_queue (design §7.1/§7.3).
+            // Existing rows are Windows-local recordings, so source_platform
+            // backfills to 'windows' and everything else stays NULL.
+            await EnsureColumnsAsync(connection, existingTables, "recording_queue", logger, new[]
+            {
+                ("source_capture_id",  "\"source_capture_id\" TEXT NULL"),
+                ("source_device_id",   "\"source_device_id\" TEXT NULL"),
+                ("source_platform",    "\"source_platform\" TEXT NOT NULL DEFAULT 'windows'"),
+                ("audio_artifact_id",  "\"audio_artifact_id\" TEXT NULL"),
+                ("original_file_name", "\"original_file_name\" TEXT NULL"),
+                ("content_sha256",     "\"content_sha256\" TEXT NULL"),
+                ("sync_state",         "\"sync_state\" TEXT NULL"),
+                ("received_at",        "\"received_at\" TEXT NULL"),
+                ("processing_stage",   "\"processing_stage\" TEXT NULL"),
+            });
+
+            // Unique index enforcing idempotent ingestion, mirroring
+            // OnModelCreating's HasIndex(q => q.SourceCaptureId).IsUnique().
+            // SQLite treats NULLs as distinct, so legacy rows are unaffected.
+            if (existingTables.Contains("recording_queue"))
+            {
+                await ExecuteAsync(connection,
+                    "CREATE UNIQUE INDEX IF NOT EXISTS \"IX_recording_queue_source_capture_id\" ON \"recording_queue\" (\"source_capture_id\");");
+            }
 
             // Index on the (possibly just-added) eras.category_id column,
             // mirroring OnModelCreating's HasIndex(e => e.CategoryId).

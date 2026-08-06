@@ -37,15 +37,19 @@ public class QueueService : IQueueService
     /// <summary>
     /// Adds a new recording to the queue.
     /// </summary>
-    public async Task<RecordingQueue> AddToQueueAsync(AudioRecordingDto recording)
+    public async Task<RecordingQueue> AddToQueueAsync(AudioRecordingDto recording, CancellationToken cancellationToken = default)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var queueItem = new RecordingQueue
             {
                 QueueId = recording.QueueId,
                 AudioFilePath = recording.AudioFilePath,
                 Status = QueueStatus.Pending,
+                ProcessingStage = QueueProcessingStage.ReadyForTranscription,
+                SyncState = QueueSyncState.LocalOnly,
                 DurationSeconds = recording.DurationSeconds,
                 FileSizeBytes = recording.FileSizeBytes,
                 CreatedAt = recording.CreatedAt
@@ -91,9 +95,9 @@ public class QueueService : IQueueService
     }
 
     /// <summary>
-    /// Updates queue item status.
+    /// Updates queue item status and, when provided, its processing stage.
     /// </summary>
-    public async Task UpdateQueueItemStatusAsync(string queueId, string status, string? errorMessage = null)
+    public async Task UpdateQueueItemStatusAsync(string queueId, string status, string? errorMessage = null, string? processingStage = null)
     {
         try
         {
@@ -107,6 +111,11 @@ public class QueueService : IQueueService
             var oldStatus = item.Status;
             item.Status = status;
             item.ErrorMessage = errorMessage;
+
+            if (processingStage != null)
+            {
+                item.ProcessingStage = processingStage;
+            }
 
             if (status == QueueStatus.Completed || status == QueueStatus.Failed)
             {
@@ -257,6 +266,38 @@ public class QueueService : IQueueService
     }
 
     /// <summary>
+    /// Processes one specific queue item, e.g. a just-ingested mobile capture.
+    /// Unlike ProcessNextItemAsync this WAITS for in-flight processing to finish
+    /// instead of returning immediately.
+    /// </summary>
+    public async Task ProcessCaptureAsync(string queueId, CancellationToken cancellationToken = default)
+    {
+        await _processingSemaphore.WaitAsync(cancellationToken);
+
+        try
+        {
+            var item = await _queueRepository.GetByIdAsync(queueId);
+            if (item == null)
+            {
+                _logger.LogWarning("Cannot process capture: queue item {QueueId} not found", queueId);
+                return;
+            }
+
+            if (item.Status != QueueStatus.Pending && item.Status != QueueStatus.Failed)
+            {
+                _logger.LogInformation("Skipping queue item {QueueId}: status is {Status}", queueId, item.Status);
+                return;
+            }
+
+            await ProcessQueueItemAsync(item, cancellationToken);
+        }
+        finally
+        {
+            _processingSemaphore.Release();
+        }
+    }
+
+    /// <summary>
     /// Retries a failed queue item.
     /// </summary>
     public async Task RetryFailedItemAsync(string queueId)
@@ -271,6 +312,7 @@ public class QueueService : IQueueService
             }
 
             item.Status = QueueStatus.Pending;
+            item.ProcessingStage = QueueProcessingStage.ReadyForTranscription;
             item.ErrorMessage = null;
             item.ProcessedAt = null;
 
@@ -317,19 +359,43 @@ public class QueueService : IQueueService
     /// Processes a single queue item with retry logic.
     /// </summary>
     /// <returns>Tuple of (success, eventCount)</returns>
-    private async Task<(bool success, int eventCount)> ProcessQueueItemAsync(RecordingQueue item)
+    private async Task<(bool success, int eventCount)> ProcessQueueItemAsync(
+        RecordingQueue item, CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("Processing queue item: {QueueId}", item.QueueId);
+
+        await UpdateQueueItemStatusAsync(item.QueueId, QueueStatus.Processing,
+            processingStage: QueueProcessingStage.Transcribing);
+
+        try
+        {
+            return await ProcessQueueItemCoreAsync(item, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancellation is not a failure: put the item back so it can be
+            // picked up again, then let the caller observe the cancellation.
+            await UpdateQueueItemStatusAsync(item.QueueId, QueueStatus.Pending,
+                processingStage: QueueProcessingStage.ReadyForTranscription);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Retry loop for a single queue item. Cancellation propagates to the caller.
+    /// </summary>
+    private async Task<(bool success, int eventCount)> ProcessQueueItemCoreAsync(
+        RecordingQueue item, CancellationToken cancellationToken)
     {
         const int maxRetries = 3;
         const int baseDelayMs = 1000;
-
-        _logger.LogInformation("Processing queue item: {QueueId}", item.QueueId);
-
-        await UpdateQueueItemStatusAsync(item.QueueId, QueueStatus.Processing);
 
         for (int attempt = 1; attempt <= maxRetries; attempt++)
         {
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 // Process recording: transcribe + extract events
                 var progress = new Progress<(int percentage, string message)>(p =>
                 {
@@ -340,12 +406,23 @@ public class QueueService : IQueueService
 
                 RaiseProgressChanged(item.QueueId, 100, $"Completed - {eventCount} events extracted");
 
-                await UpdateQueueItemStatusAsync(item.QueueId, QueueStatus.Completed);
+                // Items that produced pending events are awaiting review; items
+                // with nothing to review are simply done.
+                await UpdateQueueItemStatusAsync(item.QueueId, QueueStatus.Completed,
+                    processingStage: eventCount > 0
+                        ? QueueProcessingStage.ReviewReady
+                        : QueueProcessingStage.Completed);
 
                 _logger.LogInformation("Successfully processed queue item: {QueueId} - {EventCount} events",
                     item.QueueId, eventCount);
 
                 return (true, eventCount);
+            }
+            catch (OperationCanceledException)
+            {
+                // Handled by the outer catch; must not fall into the generic
+                // retry path below.
+                throw;
             }
             catch (ConfigurationException configEx)
             {
@@ -354,7 +431,8 @@ public class QueueService : IQueueService
                 _logger.LogError(configEx, "Configuration error processing queue item {QueueId}; not retrying",
                     item.QueueId);
 
-                await UpdateQueueItemStatusAsync(item.QueueId, QueueStatus.Failed, configEx.Message);
+                await UpdateQueueItemStatusAsync(item.QueueId, QueueStatus.Failed, configEx.Message,
+                    processingStage: QueueProcessingStage.FailedConfiguration);
 
                 try
                 {
@@ -377,12 +455,13 @@ public class QueueService : IQueueService
                     // Exponential backoff
                     var delay = baseDelayMs * (int)Math.Pow(2, attempt - 1);
                     _logger.LogInformation("Retrying in {Delay}ms...", delay);
-                    await Task.Delay(delay);
+                    await Task.Delay(delay, cancellationToken);
                 }
                 else
                 {
                     // Max retries exceeded, mark as failed
-                    await UpdateQueueItemStatusAsync(item.QueueId, QueueStatus.Failed, ex.Message);
+                    await UpdateQueueItemStatusAsync(item.QueueId, QueueStatus.Failed, ex.Message,
+                        processingStage: QueueProcessingStage.FailedRetryable);
                     _logger.LogError("Failed to process queue item {QueueId} after {MaxRetries} attempts",
                         item.QueueId, maxRetries);
 

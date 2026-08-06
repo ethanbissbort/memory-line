@@ -1,0 +1,106 @@
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+
+namespace MemoryTimeline.Data.Models;
+
+/// <summary>
+/// Device-neutral unit of user input (iOS companion sync groundwork).
+/// A capture is the identity of a recording independent of which device made it
+/// and where its bytes currently live; artifacts carry the actual content.
+/// See docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md §6.1.
+/// </summary>
+[Table("captures")]
+public class Capture
+{
+    [Key]
+    [Column("capture_id")]
+    public string CaptureId { get; set; } = Guid.NewGuid().ToString();
+
+    [Column("source_device_id")]
+    public string? SourceDeviceId { get; set; }
+
+    [Required]
+    [Column("source_platform")]
+    [MaxLength(20)]
+    public string SourcePlatform { get; set; } = CapturePlatform.Windows;
+
+    [Required]
+    [Column("capture_type")]
+    [MaxLength(20)]
+    public string CaptureType { get; set; } = CaptureTypes.Unclassified;
+
+    [Column("created_at_utc")]
+    public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+
+    [Column("captured_at_utc")]
+    public DateTime CapturedAtUtc { get; set; } = DateTime.UtcNow;
+
+    [Column("timezone_id")]
+    public string? TimezoneId { get; set; }
+
+    [Column("local_offset_minutes")]
+    public int? LocalOffsetMinutes { get; set; }
+
+    [Required]
+    [Column("status")]
+    [MaxLength(20)]
+    public string Status { get; set; } = CaptureStatus.Received;
+
+    [Column("title_hint")]
+    public string? TitleHint { get; set; }
+
+    [Column("user_note")]
+    public string? UserNote { get; set; }
+
+    [Column("trip_id")]
+    public string? TripId { get; set; }
+
+    [Column("client_schema_version")]
+    public int ClientSchemaVersion { get; set; } = 1;
+
+    [Column("server_revision")]
+    public long ServerRevision { get; set; }
+
+    [Column("deleted_at_utc")]
+    public DateTime? DeletedAtUtc { get; set; }
+
+    // Navigation properties
+    public virtual ICollection<CaptureArtifact> Artifacts { get; set; } = new List<CaptureArtifact>();
+}
+
+/// <summary>
+/// Platform a capture originated on.
+/// </summary>
+public static class CapturePlatform
+{
+    public const string Windows = "windows";
+    public const string Ios = "ios";
+    public const string Other = "other";
+}
+
+/// <summary>
+/// Capture classification chosen by the user (or unclassified by default).
+/// </summary>
+public static class CaptureTypes
+{
+    public const string Memory = "memory";
+    public const string Idea = "idea";
+    public const string TripLog = "trip_log";
+    public const string Reminder = "reminder";
+    public const string Question = "question";
+    public const string Unclassified = "unclassified";
+}
+
+/// <summary>
+/// Capture lifecycle status as seen by this (Windows) client.
+/// </summary>
+public static class CaptureStatus
+{
+    public const string LocalOnly = "local_only";
+    public const string Uploading = "uploading";
+    public const string Received = "received";
+    public const string Processing = "processing";
+    public const string ReviewReady = "review_ready";
+    public const string Completed = "completed";
+    public const string Failed = "failed";
+}
