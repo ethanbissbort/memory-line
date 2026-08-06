@@ -711,13 +711,15 @@ public class EventExtractionService : IEventExtractionService
             });
         }
 
-        // People -> people + event_people
+        // People -> people + event_people. The lookup must be alias-aware and
+        // tombstone-aware BEFORE creating: under the NOCASE unique name index
+        // a case-variant create ("sarah" next to "Sarah") throws, and a name
+        // matching an alias ("Bob" for "Robert") must link the existing
+        // contact instead of minting a duplicate.
+        var linkedPersonIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var rawPerson in DistinctNames(extracted.People))
         {
-            var person = dbContext.People.Local
-                    .FirstOrDefault(p => string.Equals(p.Name, rawPerson, StringComparison.OrdinalIgnoreCase))
-                ?? await dbContext.People
-                    .FirstOrDefaultAsync(p => p.Name.ToLower() == rawPerson.ToLower());
+            var person = await ResolvePersonForApprovalAsync(dbContext, rawPerson);
 
             if (person == null)
             {
@@ -733,6 +735,13 @@ public class EventExtractionService : IEventExtractionService
                     CreatedAt = DateTime.UtcNow
                 };
                 dbContext.People.Add(person);
+            }
+
+            // Two extracted spellings ("Bob" and "Robert") can resolve to the
+            // same contact; guard the composite (event, person) primary key.
+            if (!linkedPersonIds.Add(person.PersonId))
+            {
+                continue;
             }
 
             dbContext.EventPeople.Add(new EventPerson
@@ -775,6 +784,56 @@ public class EventExtractionService : IEventExtractionService
         }
     }
 
+    /// <summary>
+    /// Resolves an extracted person name to an existing contact for the
+    /// approval path: rows already added to this context (case-insensitive),
+    /// then a case-insensitive name lookup, then a case-insensitive alias
+    /// lookup — finally following any merge-tombstone chain to the living
+    /// person (visited set guards a malformed cycle; a broken chain returns
+    /// the last person reached rather than creating a name that would
+    /// collide with the NOCASE unique index). Null means "genuinely new".
+    /// </summary>
+    private async Task<Person?> ResolvePersonForApprovalAsync(Data.AppDbContext dbContext, string rawName)
+    {
+        var lowered = rawName.ToLowerInvariant();
+
+        var person = dbContext.People.Local
+                .FirstOrDefault(p => string.Equals(p.Name, rawName, StringComparison.OrdinalIgnoreCase))
+            ?? await dbContext.People
+                .FirstOrDefaultAsync(p => p.Name.ToLower() == lowered);
+
+        if (person == null)
+        {
+            var aliasOwnerId = await dbContext.PersonAliases.AsNoTracking()
+                .Where(a => a.Alias.ToLower() == lowered)
+                .Select(a => a.PersonId)
+                .FirstOrDefaultAsync();
+            if (aliasOwnerId != null)
+            {
+                person = await dbContext.People
+                    .FirstOrDefaultAsync(p => p.PersonId == aliasOwnerId);
+            }
+        }
+
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        while (person != null && person.MergedIntoId != null && visited.Add(person.PersonId))
+        {
+            var nextId = person.MergedIntoId;
+            var next = await dbContext.People
+                .FirstOrDefaultAsync(p => p.PersonId == nextId);
+            if (next == null)
+            {
+                // Broken chain: link the tombstone rather than create a row
+                // whose name the unique index already holds.
+                break;
+            }
+
+            person = next;
+        }
+
+        return person;
+    }
+
     private static IEnumerable<string> DistinctNames(IEnumerable<string>? names)
     {
         return (names ?? Enumerable.Empty<string>())
@@ -815,12 +874,37 @@ public class EventExtractionService : IEventExtractionService
             var recentEvents = await _eventService.GetRecentEventsAsync(20);
             context.RecentEvents = recentEvents.Select(e => e.Title).ToList();
 
-            // Known people so extraction reuses canonical spellings (best-effort)
-            var persons = await _personService.GetAllPersonsAsync(PersonSortOption.MostEvents);
-            context.KnownPeople = persons
-                .Select(p => p.DisplayName)
-                .Where(n => !string.IsNullOrWhiteSpace(n))
+            // Known people so extraction reuses canonical spellings
+            // (best-effort). People with aliases are rendered as
+            // "CanonicalName (also: nickname, alias1, ...)" so Claude
+            // resolves "Bob" to "Robert" at extraction time; everyone else
+            // keeps the plain DisplayName ("Name (Nickname)").
+            var persons = (await _personService.GetAllPersonsAsync(PersonSortOption.MostEvents))
+                .Where(p => !string.IsNullOrWhiteSpace(p.Name))
                 .Take(100)
+                .ToList();
+
+            var aliasesByPerson = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            var personIds = persons.Select(p => p.PersonId).ToList();
+            await using (var dbContext = await _contextFactory.CreateDbContextAsync())
+            {
+                var aliasRows = await dbContext.PersonAliases.AsNoTracking()
+                    .Where(a => personIds.Contains(a.PersonId))
+                    .Select(a => new { a.PersonId, a.Alias })
+                    .ToListAsync();
+                foreach (var row in aliasRows)
+                {
+                    if (!aliasesByPerson.TryGetValue(row.PersonId, out var list))
+                    {
+                        list = new List<string>();
+                        aliasesByPerson[row.PersonId] = list;
+                    }
+                    list.Add(row.Alias);
+                }
+            }
+
+            context.KnownPeople = persons
+                .Select(p => FormatKnownPerson(p, aliasesByPerson))
                 .ToList();
 
             return context;
@@ -830,6 +914,47 @@ public class EventExtractionService : IEventExtractionService
             _logger.LogWarning(ex, "Error building extraction context, using minimal context");
             return context;
         }
+    }
+
+    /// <summary>
+    /// Formats one known-people prompt entry: "Name (also: nickname, alias1)"
+    /// when the person has aliases (the nickname joins the also-list so it is
+    /// not lost), otherwise the plain DisplayName ("Name (Nickname)").
+    /// Also-entries that only differ from the canonical name by case are
+    /// dropped as noise.
+    /// </summary>
+    private static string FormatKnownPerson(
+        PersonDto person,
+        Dictionary<string, List<string>> aliasesByPerson)
+    {
+        aliasesByPerson.TryGetValue(person.PersonId, out var aliases);
+        if (aliases == null || aliases.Count == 0)
+        {
+            return person.DisplayName;
+        }
+
+        var also = new List<string>();
+        if (!string.IsNullOrWhiteSpace(person.Nickname))
+        {
+            also.Add(person.Nickname.Trim());
+        }
+
+        foreach (var alias in aliases)
+        {
+            var trimmed = alias.Trim();
+            if (trimmed.Length == 0 ||
+                string.Equals(trimmed, person.Name.Trim(), StringComparison.OrdinalIgnoreCase) ||
+                also.Any(a => string.Equals(a, trimmed, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            also.Add(trimmed);
+        }
+
+        return also.Count == 0
+            ? person.DisplayName
+            : $"{person.Name} (also: {string.Join(", ", also)})";
     }
 
     /// <summary>

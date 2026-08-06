@@ -22,6 +22,7 @@ public class AppDbContext : DbContext
     public DbSet<EventTag> EventTags { get; set; } = null!;
     public DbSet<Person> People { get; set; } = null!;
     public DbSet<EventPerson> EventPeople { get; set; } = null!;
+    public DbSet<PersonAlias> PersonAliases { get; set; } = null!;
     public DbSet<Location> Locations { get; set; } = null!;
     public DbSet<EventLocation> EventLocations { get; set; } = null!;
     public DbSet<CrossReference> CrossReferences { get; set; } = null!;
@@ -208,6 +209,11 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Tag>(entity =>
         {
             entity.HasKey(t => t.TagId);
+            // NOCASE collation makes the unique index case-insensitive
+            // ("Family" and "family" are the same tag). Pre-existing databases
+            // are converted by SchemaUpgrader's case-insensitive identity
+            // repair (dedupe, then rebuild the index with COLLATE NOCASE).
+            entity.Property(t => t.TagName).UseCollation("NOCASE");
             entity.HasIndex(t => t.TagName).IsUnique();
         });
 
@@ -234,8 +240,29 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Person>(entity =>
         {
             entity.HasKey(p => p.PersonId);
+            // NOCASE collation makes the unique index case-insensitive
+            // ("Sarah" and "sarah" are the same person). Pre-existing databases
+            // are converted by SchemaUpgrader's case-insensitive identity
+            // repair (dedupe, then rebuild the index with COLLATE NOCASE).
+            entity.Property(p => p.Name).UseCollation("NOCASE");
             entity.HasIndex(p => p.Name).IsUnique();
             entity.HasIndex(p => p.IsFavorite);
+            entity.HasIndex(p => p.MergedIntoId);
+        });
+
+        // Configure PersonAlias entity
+        modelBuilder.Entity<PersonAlias>(entity =>
+        {
+            entity.HasKey(a => a.AliasId);
+            // An alias spelling belongs to at most one person, case-insensitively.
+            entity.Property(a => a.Alias).UseCollation("NOCASE");
+            entity.HasIndex(a => a.Alias).IsUnique();
+            entity.HasIndex(a => a.PersonId);
+
+            entity.HasOne(a => a.Person)
+                .WithMany(p => p.Aliases)
+                .HasForeignKey(a => a.PersonId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // Configure EventPerson junction entity
@@ -261,6 +288,11 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Location>(entity =>
         {
             entity.HasKey(l => l.LocationId);
+            // NOCASE collation makes the unique index case-insensitive
+            // ("Paris" and "paris" are the same location). Pre-existing
+            // databases are converted by SchemaUpgrader's case-insensitive
+            // identity repair.
+            entity.Property(l => l.Name).UseCollation("NOCASE");
             entity.HasIndex(l => l.Name).IsUnique();
         });
 

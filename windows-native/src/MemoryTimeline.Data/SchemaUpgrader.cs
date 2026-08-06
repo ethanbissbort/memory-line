@@ -233,6 +233,25 @@ public static class SchemaUpgrader
                 CREATE INDEX IF NOT EXISTS "IX_recall_prompts_kind_entity_id" ON "recall_prompts" ("kind", "entity_id");
                 """);
 
+            // Person aliases (2026-08 F9). The alias unique index is
+            // case-insensitive (COLLATE NOCASE): a spelling belongs to at most
+            // one person. New tables may carry their FK inline in CREATE TABLE
+            // (unlike ALTER TABLE ADD COLUMN, which cannot add one).
+            await EnsureTableAsync(connection, existingTables, "person_aliases", logger,
+                """
+                CREATE TABLE IF NOT EXISTS "person_aliases" (
+                    "alias_id" TEXT NOT NULL CONSTRAINT "PK_person_aliases" PRIMARY KEY,
+                    "person_id" TEXT NOT NULL,
+                    "alias" TEXT NOT NULL,
+                    "created_at" TEXT NOT NULL,
+                    CONSTRAINT "FK_person_aliases_people_person_id" FOREIGN KEY ("person_id") REFERENCES "people" ("person_id") ON DELETE CASCADE
+                );
+                """,
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS "IX_person_aliases_alias" ON "person_aliases" ("alias" COLLATE NOCASE);
+                CREATE INDEX IF NOT EXISTS "IX_person_aliases_person_id" ON "person_aliases" ("person_id");
+                """);
+
             // ---- Missing columns on pre-existing tables ----
             // Note: SQLite's ALTER TABLE ADD COLUMN cannot add foreign key
             // constraints, so eras.category_id is added without one; the FK is
@@ -295,6 +314,9 @@ public static class SchemaUpgrader
                 ("is_favorite",    "\"is_favorite\" INTEGER NOT NULL DEFAULT 0"),
                 ("first_met_date", "\"first_met_date\" TEXT NULL"),
                 ("updated_at",     "\"updated_at\" TEXT NOT NULL DEFAULT '2025-01-21 00:00:00'"),
+                // Merge tombstone (2026-08 F9): non-null means "merged into
+                // this person"; NULL keeps every pre-existing row living.
+                ("merged_into_id", "\"merged_into_id\" TEXT NULL"),
             });
 
             // Text/paste capture columns on recording_queue (2026-08 text-source
@@ -325,7 +347,23 @@ public static class SchemaUpgrader
             {
                 await ExecuteAsync(connection,
                     "CREATE INDEX IF NOT EXISTS \"IX_people_is_favorite\" ON \"people\" (\"is_favorite\");");
+
+                // Index on the (possibly just-added) people.merged_into_id
+                // column, mirroring OnModelCreating's HasIndex(p => p.MergedIntoId).
+                await ExecuteAsync(connection,
+                    "CREATE INDEX IF NOT EXISTS \"IX_people_merged_into_id\" ON \"people\" (\"merged_into_id\");");
             }
+
+            // ---- Case-insensitive identity (2026-08 F9) ----
+            // Older builds created the unique indexes on people.name,
+            // tags.tag_name and locations.name with BINARY collation, letting
+            // case-variant duplicates ("Sarah"/"sarah") coexist. The current
+            // model is NOCASE. Merge each case-variant duplicate group into
+            // the row with the most junction links, then rebuild the unique
+            // index with COLLATE NOCASE. Each table runs in its own
+            // transaction inside its own try/catch: a failure leaves that
+            // table untouched and never crashes startup.
+            await RepairCaseInsensitiveIdentityAsync(connection, existingTables, logger);
 
             // Seed parity with AppDbContext.SeedDefaultSettings (HasData);
             // EnsureCreated is a no-op on databases created by older builds, so
@@ -458,6 +496,321 @@ public static class SchemaUpgrader
         }
     }
 
+    /// <summary>
+    /// Rebuilds the unique name indexes of people/tags/locations with
+    /// COLLATE NOCASE, merging case-variant duplicate rows first. See the
+    /// call site comment for the full contract.
+    /// </summary>
+    private static async Task RepairCaseInsensitiveIdentityAsync(
+        DbConnection connection,
+        HashSet<string> existingTables,
+        ILogger? logger)
+    {
+        await RepairTableIdentityAsync(connection, existingTables, logger,
+            table: "people", idColumn: "person_id", nameColumn: "name",
+            junctionTable: "event_people", junctionFkColumn: "person_id",
+            isPeople: true);
+
+        await RepairTableIdentityAsync(connection, existingTables, logger,
+            table: "tags", idColumn: "tag_id", nameColumn: "tag_name",
+            junctionTable: "event_tags", junctionFkColumn: "tag_id",
+            isPeople: false);
+
+        await RepairTableIdentityAsync(connection, existingTables, logger,
+            table: "locations", idColumn: "location_id", nameColumn: "name",
+            junctionTable: "event_locations", junctionFkColumn: "location_id",
+            isPeople: false);
+    }
+
+    /// <summary>
+    /// One table's case-insensitive identity repair: skip when the unique
+    /// index over the name column is already NOCASE; otherwise merge
+    /// case-variant duplicate groups into the row with the most junction
+    /// links (repointing junctions dedup-safely; for people also keeping the
+    /// losers' names as aliases of the keeper), then drop the BINARY unique
+    /// index and recreate it with COLLATE NOCASE. All work happens inside a
+    /// single transaction so a failure leaves the table untouched; the
+    /// failure itself is logged and swallowed (never fatal), per this file's
+    /// contract.
+    /// </summary>
+    private static async Task RepairTableIdentityAsync(
+        DbConnection connection,
+        HashSet<string> existingTables,
+        ILogger? logger,
+        string table,
+        string idColumn,
+        string nameColumn,
+        string junctionTable,
+        string junctionFkColumn,
+        bool isPeople)
+    {
+        if (!existingTables.Contains(table))
+        {
+            return;
+        }
+
+        try
+        {
+            var (indexName, collation) = await FindUniqueIndexAsync(connection, table, nameColumn);
+            if (string.Equals(collation, "NOCASE", StringComparison.OrdinalIgnoreCase))
+            {
+                // Already case-insensitive (fresh EF database or a previous
+                // successful repair) - idempotent no-op.
+                return;
+            }
+
+            var junctionExists = existingTables.Contains(junctionTable);
+            var aliasTableExists = existingTables.Contains("person_aliases");
+            var mergedGroups = 0;
+
+            // Raw BEGIN/COMMIT instead of DbConnection.BeginTransaction:
+            // Microsoft.Data.Sqlite requires every command to carry the
+            // connection's ADO transaction object, which the shared
+            // ExecuteAsync helper does not do.
+            await ExecuteAsync(connection, "BEGIN IMMEDIATE;");
+            try
+            {
+                // 1. Merge case-variant duplicate groups (same lower(name)).
+                var groups = await LoadCaseVariantGroupsAsync(connection, table, idColumn, nameColumn);
+                foreach (var group in groups)
+                {
+                    // Keeper = the row with the most junction links (first
+                    // row wins ties, preserving insertion order).
+                    var keeper = group[0];
+                    if (junctionExists)
+                    {
+                        var bestLinks = -1L;
+                        foreach (var row in group)
+                        {
+                            var links = await ExecuteScalarLongAsync(connection,
+                                $"SELECT COUNT(*) FROM \"{junctionTable}\" WHERE \"{junctionFkColumn}\" = @id",
+                                ("@id", row.Id));
+                            if (links > bestLinks)
+                            {
+                                bestLinks = links;
+                                keeper = row;
+                            }
+                        }
+                    }
+
+                    foreach (var loser in group)
+                    {
+                        if (ReferenceEquals(loser, keeper))
+                        {
+                            continue;
+                        }
+
+                        if (junctionExists)
+                        {
+                            // Repoint junction rows dedup-safely: rows that
+                            // would duplicate an existing keeper link are
+                            // skipped by OR IGNORE, then deleted.
+                            await ExecuteAsync(connection,
+                                $"UPDATE OR IGNORE \"{junctionTable}\" SET \"{junctionFkColumn}\" = @keeper WHERE \"{junctionFkColumn}\" = @loser;",
+                                ("@keeper", keeper.Id), ("@loser", loser.Id));
+                            await ExecuteAsync(connection,
+                                $"DELETE FROM \"{junctionTable}\" WHERE \"{junctionFkColumn}\" = @loser;",
+                                ("@loser", loser.Id));
+                        }
+
+                        if (isPeople)
+                        {
+                            if (aliasTableExists)
+                            {
+                                // Move the loser's aliases to the keeper (OR
+                                // IGNORE tolerates NOCASE-unique collisions),
+                                // then keep the loser's own spelling as an
+                                // alias of the keeper.
+                                await ExecuteAsync(connection,
+                                    "UPDATE OR IGNORE \"person_aliases\" SET \"person_id\" = @keeper WHERE \"person_id\" = @loser;",
+                                    ("@keeper", keeper.Id), ("@loser", loser.Id));
+                                await ExecuteAsync(connection,
+                                    "DELETE FROM \"person_aliases\" WHERE \"person_id\" = @loser;",
+                                    ("@loser", loser.Id));
+                                await ExecuteAsync(connection,
+                                    "INSERT OR IGNORE INTO \"person_aliases\" (\"alias_id\", \"person_id\", \"alias\", \"created_at\") VALUES (@aliasId, @keeper, @alias, @createdAt);",
+                                    ("@aliasId", Guid.NewGuid().ToString()),
+                                    ("@keeper", keeper.Id),
+                                    ("@alias", loser.Name),
+                                    ("@createdAt", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss")));
+                            }
+
+                            // Keep merge chains resolvable: tombstones that
+                            // pointed at the loser now point at the keeper.
+                            await ExecuteAsync(connection,
+                                "UPDATE \"people\" SET \"merged_into_id\" = @keeper WHERE \"merged_into_id\" = @loser;",
+                                ("@keeper", keeper.Id), ("@loser", loser.Id));
+                        }
+
+                        await ExecuteAsync(connection,
+                            $"DELETE FROM \"{table}\" WHERE \"{idColumn}\" = @loser;",
+                            ("@loser", loser.Id));
+
+                        logger?.LogInformation(
+                            "SchemaUpgrader: merged case-variant {Table} row '{LoserName}' ({LoserId}) into '{KeeperName}' ({KeeperId}).",
+                            table, loser.Name, loser.Id, keeper.Name, keeper.Id);
+                    }
+
+                    mergedGroups++;
+                }
+
+                // 2. Rebuild the unique index with COLLATE NOCASE. SQLite
+                //    autoindexes (from inline UNIQUE constraints) cannot be
+                //    dropped; the additional NOCASE index is still created -
+                //    it is the stricter of the two, so both can coexist.
+                var canDropOldIndex = indexName != null &&
+                    !indexName.StartsWith("sqlite_autoindex", StringComparison.OrdinalIgnoreCase);
+                if (canDropOldIndex)
+                {
+                    await ExecuteAsync(connection, $"DROP INDEX IF EXISTS \"{indexName}\";");
+                }
+                var newIndexName = canDropOldIndex ? indexName! : $"IX_{table}_{nameColumn}";
+                await ExecuteAsync(connection,
+                    $"CREATE UNIQUE INDEX IF NOT EXISTS \"{newIndexName}\" ON \"{table}\" (\"{nameColumn}\" COLLATE NOCASE);");
+
+                await ExecuteAsync(connection, "COMMIT;");
+
+                logger?.LogInformation(
+                    "SchemaUpgrader: rebuilt unique index on {Table}.{Column} with COLLATE NOCASE ({Groups} case-variant duplicate group(s) merged).",
+                    table, nameColumn, mergedGroups);
+            }
+            catch
+            {
+                try
+                {
+                    await ExecuteAsync(connection, "ROLLBACK;");
+                }
+                catch
+                {
+                    // The transaction may already be gone; the outer catch
+                    // logs the original failure.
+                }
+                throw;
+            }
+        }
+        catch (Exception ex)
+        {
+            logger?.LogError(ex,
+                "SchemaUpgrader: case-insensitive identity repair failed for '{Table}'; table left unchanged.",
+                table);
+        }
+    }
+
+    /// <summary>One (id, name) row participating in the identity repair.</summary>
+    private sealed record IdentityRow(string Id, string Name);
+
+    /// <summary>
+    /// Loads groups of rows whose names differ only by case. Grouping uses
+    /// invariant lower-casing, a superset of SQLite's ASCII-only NOCASE
+    /// folding, so every group the NOCASE unique index would reject is merged.
+    /// </summary>
+    private static async Task<List<List<IdentityRow>>> LoadCaseVariantGroupsAsync(
+        DbConnection connection,
+        string table,
+        string idColumn,
+        string nameColumn)
+    {
+        var rows = new List<IdentityRow>();
+
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText =
+                $"SELECT \"{idColumn}\", \"{nameColumn}\" FROM \"{table}\" ORDER BY rowid";
+            await using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                rows.Add(new IdentityRow(reader.GetString(0), reader.GetString(1)));
+            }
+        }
+
+        return rows
+            .GroupBy(r => r.Name.ToLowerInvariant(), StringComparer.Ordinal)
+            .Where(g => g.Count() > 1)
+            .Select(g => g.ToList())
+            .ToList();
+    }
+
+    /// <summary>
+    /// Finds the unique index covering exactly the given column and reports
+    /// its collation (via PRAGMA index_list / index_info / index_xinfo).
+    /// Returns (null, null) when no such index exists.
+    /// </summary>
+    private static async Task<(string? IndexName, string? Collation)> FindUniqueIndexAsync(
+        DbConnection connection,
+        string table,
+        string column)
+    {
+        var uniqueIndexes = new List<string>();
+        using (var listCommand = connection.CreateCommand())
+        {
+            // PRAGMA index_list columns: seq, name, unique, origin, partial.
+            // Table names cannot be parameterized in PRAGMA statements; the
+            // names used here are compile-time constants.
+            listCommand.CommandText = $"PRAGMA index_list(\"{table}\")";
+            await using var reader = await listCommand.ExecuteReaderAsync();
+            var nameOrdinal = reader.GetOrdinal("name");
+            var uniqueOrdinal = reader.GetOrdinal("unique");
+            while (await reader.ReadAsync())
+            {
+                if (Convert.ToInt64(reader.GetValue(uniqueOrdinal)) == 1)
+                {
+                    uniqueIndexes.Add(reader.GetString(nameOrdinal));
+                }
+            }
+        }
+
+        foreach (var indexName in uniqueIndexes)
+        {
+            // PRAGMA index_xinfo columns: seqno, cid, name, desc, coll, key.
+            // key=1 rows are the indexed columns (key=0 rows are the rowid tail).
+            using var infoCommand = connection.CreateCommand();
+            infoCommand.CommandText = $"PRAGMA index_xinfo(\"{indexName}\")";
+            var keyColumns = new List<(string? Name, string Collation)>();
+            await using var reader = await infoCommand.ExecuteReaderAsync();
+            var nameOrdinal = reader.GetOrdinal("name");
+            var collOrdinal = reader.GetOrdinal("coll");
+            var keyOrdinal = reader.GetOrdinal("key");
+            while (await reader.ReadAsync())
+            {
+                if (Convert.ToInt64(reader.GetValue(keyOrdinal)) != 1)
+                {
+                    continue;
+                }
+
+                keyColumns.Add((
+                    reader.IsDBNull(nameOrdinal) ? null : reader.GetString(nameOrdinal),
+                    reader.GetString(collOrdinal)));
+            }
+
+            if (keyColumns.Count == 1 &&
+                string.Equals(keyColumns[0].Name, column, StringComparison.OrdinalIgnoreCase))
+            {
+                return (indexName, keyColumns[0].Collation);
+            }
+        }
+
+        return (null, null);
+    }
+
+    private static async Task<long> ExecuteScalarLongAsync(
+        DbConnection connection,
+        string sql,
+        params (string Name, object? Value)[] parameters)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        foreach (var (name, value) in parameters)
+        {
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = name;
+            parameter.Value = value ?? DBNull.Value;
+            command.Parameters.Add(parameter);
+        }
+
+        var result = await command.ExecuteScalarAsync();
+        return result == null || result is DBNull ? 0L : Convert.ToInt64(result);
+    }
+
     private static async Task<HashSet<string>> GetTableNamesAsync(DbConnection connection)
     {
         var tables = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -491,10 +844,21 @@ public static class SchemaUpgrader
         return columns;
     }
 
-    private static async Task ExecuteAsync(DbConnection connection, string sql)
+    private static async Task ExecuteAsync(
+        DbConnection connection,
+        string sql,
+        params (string Name, object? Value)[] parameters)
     {
         using var command = connection.CreateCommand();
         command.CommandText = sql;
+        foreach (var (name, value) in parameters)
+        {
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = name;
+            parameter.Value = value ?? DBNull.Value;
+            command.Parameters.Add(parameter);
+        }
+
         await command.ExecuteNonQueryAsync();
     }
 }

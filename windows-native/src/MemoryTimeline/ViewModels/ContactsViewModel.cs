@@ -66,6 +66,18 @@ public partial class ContactsViewModel : ObservableObject
     [ObservableProperty]
     private ObservableCollection<PersonEventSummary> _selectedPersonEvents = new();
 
+    /// <summary>Aliases ("also known as") of the selected person.</summary>
+    [ObservableProperty]
+    private ObservableCollection<string> _selectedPersonAliases = new();
+
+    /// <summary>Text of the add-alias box in the detail pane.</summary>
+    [ObservableProperty]
+    private string _newAliasText = string.Empty;
+
+    /// <summary>Inline error under the alias editor (ci-duplicate alias, etc.).</summary>
+    [ObservableProperty]
+    private string _aliasErrorMessage = string.Empty;
+
     [ObservableProperty]
     private string _searchText = string.Empty;
 
@@ -107,8 +119,17 @@ public partial class ContactsViewModel : ObservableObject
     /// <summary>True when <see cref="DuplicateMessage"/> is set.</summary>
     public bool HasDuplicates => !string.IsNullOrEmpty(DuplicateMessage);
 
-    /// <summary>The first potential-duplicate pair found, if any (for the Review action).</summary>
-    public PersonDuplicatePair? FirstDuplicatePair { get; private set; }
+    /// <summary>True when <see cref="AliasErrorMessage"/> is set.</summary>
+    public bool HasAliasError => !string.IsNullOrEmpty(AliasErrorMessage);
+
+    /// <summary>True when a person is selected but has no aliases yet.</summary>
+    public bool HasNoAliases => SelectedPerson != null && SelectedPersonAliases.Count == 0;
+
+    /// <summary>
+    /// The first merge suggestion found, if any (for the Review action).
+    /// First = suggested keeper/target, Second = suggested source.
+    /// </summary>
+    public MergeCandidate? FirstDuplicatePair { get; private set; }
 
     /// <summary>"No people yet" / "1 person" / "N people" for the page subtitle.</summary>
     public string ContactCountDisplay => _allPersons.Count switch
@@ -336,10 +357,15 @@ public partial class ContactsViewModel : ObservableObject
     partial void OnSelectedPersonChanged(PersonDto? value)
     {
         NotifySelectionChanged();
+        AliasErrorMessage = string.Empty;
+        NewAliasText = string.Empty;
         _ = LoadSelectedPersonEventsAsync();
+        _ = LoadSelectedPersonAliasesAsync();
     }
 
     partial void OnErrorMessageChanged(string value) => OnPropertyChanged(nameof(HasError));
+
+    partial void OnAliasErrorMessageChanged(string value) => OnPropertyChanged(nameof(HasAliasError));
 
     partial void OnInfoMessageChanged(string value) => OnPropertyChanged(nameof(HasInfo));
 
@@ -357,6 +383,7 @@ public partial class ContactsViewModel : ObservableObject
         OnPropertyChanged(nameof(HasSelection));
         OnPropertyChanged(nameof(ShowNoSelection));
         OnPropertyChanged(nameof(HasNoLinkedEvents));
+        OnPropertyChanged(nameof(HasNoAliases));
         OnPropertyChanged(nameof(SelectedFavoriteGlyph));
         OnPropertyChanged(nameof(SelectedFavoriteLabel));
         OnPropertyChanged(nameof(SelectedHasFirstMet));
@@ -404,6 +431,24 @@ public partial class ContactsViewModel : ObservableObject
             await RefreshCoreAsync(preserveSelection: false);
         }
 
+        if (!_allPersons.Any(p => p.PersonId == personId))
+        {
+            // The id may be a merge tombstone (e.g. a stale deep link);
+            // GetPersonAsync resolves the chain to the surviving person.
+            try
+            {
+                var resolved = await _personService.GetPersonAsync(personId);
+                if (resolved != null)
+                {
+                    personId = resolved.PersonId;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not resolve person id {PersonId} for selection", personId);
+            }
+        }
+
         var visible = Contacts.FirstOrDefault(p => p.PersonId == personId);
         if (visible == null && _allPersons.Any(p => p.PersonId == personId))
         {
@@ -447,6 +492,97 @@ public partial class ContactsViewModel : ObservableObject
         {
             _logger.LogError(ex, "Error loading events for person {PersonId}", person.PersonId);
             ErrorMessage = "Couldn't load this person's events.";
+        }
+    }
+
+    /// <summary>Loads the aliases ("also known as") for the selected person.</summary>
+    private async Task LoadSelectedPersonAliasesAsync()
+    {
+        var person = SelectedPerson;
+        SelectedPersonAliases = new ObservableCollection<string>();
+        OnPropertyChanged(nameof(HasNoAliases));
+
+        if (person == null)
+        {
+            return;
+        }
+
+        try
+        {
+            var aliases = await _personService.GetAliasesAsync(person.PersonId);
+            if (!ReferenceEquals(SelectedPerson, person))
+            {
+                return; // Selection moved on while loading.
+            }
+
+            SelectedPersonAliases = new ObservableCollection<string>(aliases);
+            OnPropertyChanged(nameof(HasNoAliases));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading aliases for person {PersonId}", person.PersonId);
+            ErrorMessage = "Couldn't load this person's aliases.";
+        }
+    }
+
+    /// <summary>
+    /// Adds <see cref="NewAliasText"/> as an alias of the selected person.
+    /// Business-rule failures (alias already taken, matches another living
+    /// person's name) surface inline via <see cref="AliasErrorMessage"/>.
+    /// </summary>
+    [RelayCommand]
+    private async Task AddAliasAsync()
+    {
+        var person = SelectedPerson;
+        var alias = NewAliasText.Trim();
+        if (person == null || alias.Length == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await _personService.AddAliasAsync(person.PersonId, alias);
+            NewAliasText = string.Empty;
+            AliasErrorMessage = string.Empty;
+            await LoadSelectedPersonAliasesAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            // ci-duplicate alias / living-person name collision; user-facing message.
+            AliasErrorMessage = ex.Message;
+        }
+        catch (ArgumentException ex)
+        {
+            AliasErrorMessage = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error adding alias '{Alias}' for person {PersonId}", alias, person.PersonId);
+            AliasErrorMessage = "Couldn't add the alias. Please try again.";
+        }
+    }
+
+    /// <summary>Removes an alias chip from the selected person.</summary>
+    [RelayCommand]
+    private async Task RemoveAliasAsync(string alias)
+    {
+        var person = SelectedPerson;
+        if (person == null || string.IsNullOrWhiteSpace(alias))
+        {
+            return;
+        }
+
+        try
+        {
+            await _personService.RemoveAliasAsync(person.PersonId, alias);
+            AliasErrorMessage = string.Empty;
+            await LoadSelectedPersonAliasesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error removing alias '{Alias}' from person {PersonId}", alias, person.PersonId);
+            AliasErrorMessage = "Couldn't remove the alias. Please try again.";
         }
     }
 
@@ -587,20 +723,21 @@ public partial class ContactsViewModel : ObservableObject
     #region Duplicates
 
     /// <summary>
-    /// Best-effort scan for potential duplicate persons; surfaces the first
-    /// pair via the dismissible duplicates InfoBar.
+    /// Best-effort scan for merge suggestions (near-duplicate names plus
+    /// alias collisions); surfaces the first suggestion — with the service's
+    /// human-readable reason — via the dismissible duplicates InfoBar.
     /// </summary>
     public async Task ScanForDuplicatesAsync()
     {
         try
         {
-            var pairs = await _personService.FindPotentialDuplicatesAsync();
-            var pair = pairs.FirstOrDefault(p => DuplicateKey(p) != _dismissedDuplicateKey);
+            var candidates = await _personService.SuggestMergesAsync();
+            var candidate = candidates.FirstOrDefault(c => DuplicateKey(c) != _dismissedDuplicateKey);
 
-            FirstDuplicatePair = pair;
-            DuplicateMessage = pair == null
+            FirstDuplicatePair = candidate;
+            DuplicateMessage = candidate == null
                 ? string.Empty
-                : $"Possible duplicates: {pair.First.Name} and {pair.Second.Name} — review to merge them.";
+                : $"{candidate.Reason} — review to merge them.";
         }
         catch (Exception ex)
         {
@@ -620,7 +757,7 @@ public partial class ContactsViewModel : ObservableObject
         DuplicateMessage = string.Empty;
     }
 
-    private static string DuplicateKey(PersonDuplicatePair pair) =>
+    private static string DuplicateKey(MergeCandidate pair) =>
         $"{pair.First.PersonId}|{pair.Second.PersonId}";
 
     #endregion
