@@ -875,4 +875,4 @@ These reflect the real post-audit follow-ups (see `HARDENING-FOLLOWUPS.md`).
 **Next Review:** After end-to-end runtime validation
 **Last Updated:** 2026-08-06
 
-<!-- CI retrigger 2026-08-06: runs 31117811806/31119588286/31121424093/31124292681 died (and the a4f25ca push event was dropped entirely) to runner/Actions-service infrastructure failures before reaching the code; tree identical to 0d365b2. -->
+<!-- CI retrigger 2026-08-06: runs 31117811806/31119588286/31121424093/31124292681 died (pushes a4f25ca/b9f4276 produced no runs at all — Actions event pipeline outage) to runner/Actions-service infrastructure failures before reaching the code; tree identical to 0d365b2. -->
