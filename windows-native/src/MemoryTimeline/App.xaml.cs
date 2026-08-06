@@ -165,6 +165,10 @@ public partial class App : Application
                     services.AddSingleton<INarrativeService, NarrativeService>();
                     // Guided recall: prompts generated from archive gaps (F6)
                     services.AddSingleton<IRecallPromptService, RecallPromptService>();
+                    // Geographic data (F10): opt-in Nominatim geocoding as a
+                    // typed HttpClient (same pattern as OpenAIEmbeddingService;
+                    // a plain AddSingleton would bypass the HttpClient factory).
+                    services.AddHttpClient<IGeocodingService, NominatimGeocodingService>();
 
                     // Phase 6: Export/Import & Windows Integration services
                     services.AddSingleton<IExportService, ExportService>();
@@ -196,6 +200,7 @@ public partial class App : Application
                     services.AddTransient<AnalyticsViewModel>();
                     services.AddTransient<ErasViewModel>();
                     services.AddTransient<ContactsViewModel>();
+                    services.AddTransient<MapViewModel>();
                     services.AddTransient<AskViewModel>();
                     services.AddTransient<NarrativeDialogViewModel>();
 

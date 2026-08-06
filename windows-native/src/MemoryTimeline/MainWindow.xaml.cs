@@ -78,6 +78,7 @@ public sealed partial class MainWindow : Window
         _navigationService.RegisterPage("People", typeof(ContactsPage));
         _navigationService.RegisterPage("Connections", typeof(ConnectionsPage));
         _navigationService.RegisterPage("Eras", typeof(ErasPage));
+        _navigationService.RegisterPage("Map", typeof(MapPage));
         _navigationService.RegisterPage("Search", typeof(SearchPage));
         _navigationService.RegisterPage("Analytics", typeof(AnalyticsPage));
         _navigationService.RegisterPage("Settings", typeof(SettingsPage));

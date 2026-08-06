@@ -51,6 +51,11 @@
                         <FontIcon Glyph="&#xE81C;"/>
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem Content="Map" Tag="Map">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE707;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Content="Search" Tag="Search" Icon="Find"/>
                 <NavigationViewItem Content="Analytics" Tag="Analytics">
                     <NavigationViewItem.Icon>

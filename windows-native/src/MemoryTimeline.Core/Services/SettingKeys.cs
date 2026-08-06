@@ -35,4 +35,9 @@ public static class SettingKeys
     public const string BackupSchedule = "backup_schedule";                 // matches DB seed: "off" | "daily" | "weekly"
     public const string LastBackupAt = "last_backup_at";                    // NOT seeded: absent = never backed up; invariant "o" round-trip format
     public const string RevisionHistoryEnabled = "revision_history_enabled"; // matches DB seed ("true")
+
+    // Map / geocoding (2026-08 F10)
+    public const string GeocodingEnabled = "geocoding_enabled";   // matches DB seed; "false" = no place name leaves the machine
+    public const string GeocodingProvider = "geocoding_provider"; // matches DB seed ("nominatim")
+    public const string MapDefaultZoom = "map_default_zoom";      // matches DB seed ("1.0" = whole world)
 }

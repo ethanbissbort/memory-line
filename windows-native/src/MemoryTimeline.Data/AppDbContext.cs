@@ -456,7 +456,12 @@ public class AppDbContext : DbContext
             new AppSetting { SettingKey = "backup_destination", SettingValue = "", UpdatedAt = SeedTimestamp },
             new AppSetting { SettingKey = "backup_include_media", SettingValue = "true", UpdatedAt = SeedTimestamp },
             new AppSetting { SettingKey = "backup_schedule", SettingValue = "off", UpdatedAt = SeedTimestamp },
-            new AppSetting { SettingKey = "revision_history_enabled", SettingValue = "true", UpdatedAt = SeedTimestamp }
+            new AppSetting { SettingKey = "revision_history_enabled", SettingValue = "true", UpdatedAt = SeedTimestamp },
+            // Map / geocoding (2026-08 F10). Geocoding is OFF by default:
+            // no place name leaves the machine until the user opts in.
+            new AppSetting { SettingKey = "geocoding_enabled", SettingValue = "false", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "geocoding_provider", SettingValue = "nominatim", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "map_default_zoom", SettingValue = "1.0", UpdatedAt = SeedTimestamp }
         );
 
         // Seed default era categories

@@ -318,6 +318,20 @@ public static class SchemaUpgrader
                 ("color", "\"color\" TEXT NULL"),
             });
 
+            // Geographic data on locations (2026-08 F10): nullable coordinates
+            // (REAL, decimal degrees), optional place classification, the
+            // geocoder's canonical display name, and the geocoded-at stamp
+            // (null = coordinates came from photo EXIF or a manual pin drop,
+            // i.e. the place name never left the machine).
+            await EnsureColumnsAsync(connection, existingTables, "locations", logger, new[]
+            {
+                ("latitude",       "\"latitude\" REAL NULL"),
+                ("longitude",      "\"longitude\" REAL NULL"),
+                ("place_type",     "\"place_type\" TEXT NULL"),
+                ("canonical_name", "\"canonical_name\" TEXT NULL"),
+                ("geocoded_at",    "\"geocoded_at\" TEXT NULL"),
+            });
+
             // Contact-book columns on people (2026-08 people feature). NOT NULL
             // columns must carry constant defaults - SQLite's ALTER TABLE ADD
             // COLUMN requirement.
@@ -431,7 +445,10 @@ public static class SchemaUpgrader
                         ('backup_destination',       '',                         '2025-01-21 00:00:00'),
                         ('backup_include_media',     'true',                     '2025-01-21 00:00:00'),
                         ('backup_schedule',          'off',                      '2025-01-21 00:00:00'),
-                        ('revision_history_enabled', 'true',                     '2025-01-21 00:00:00');
+                        ('revision_history_enabled', 'true',                     '2025-01-21 00:00:00'),
+                        ('geocoding_enabled',        'false',                    '2025-01-21 00:00:00'),
+                        ('geocoding_provider',       'nominatim',                '2025-01-21 00:00:00'),
+                        ('map_default_zoom',         '1.0',                      '2025-01-21 00:00:00');
                     """);
                 // Note: last_toast_date is deliberately NOT seeded (here or in
                 // AppDbContext.SeedDefaultSettings) - an absent row means "the

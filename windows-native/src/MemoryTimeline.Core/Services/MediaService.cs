@@ -300,6 +300,23 @@ public class MediaService : IMediaService
         _logger.LogInformation(
             "Attached media {MediaId} ({MediaType}) to event {EventId}.", mediaId, mediaType, eventId);
 
+        // EXIF GPS backfill (F10): a photo that knows where it was taken fills
+        // in the coordinates of the event's linked locations that have none.
+        // A backfill failure never turns a successful attach into an error.
+        if (latitude.HasValue && longitude.HasValue)
+        {
+            try
+            {
+                await BackfillEventLocationCoordinatesAsync(eventId, latitude.Value, longitude.Value, ct);
+            }
+            catch (Exception backfillEx)
+            {
+                _logger.LogError(backfillEx,
+                    "EXIF coordinate backfill failed for event {EventId}; the attachment itself succeeded.",
+                    eventId);
+            }
+        }
+
         // Notify subscribers (timeline badge/strip). A subscriber failure must
         // not turn a successful attach into an error.
         try
@@ -584,6 +601,48 @@ public class MediaService : IMediaService
     /// </summary>
     private static string NormalizeRelativePath(string path)
         => path.Replace('\\', '/').Trim();
+
+    /// <summary>
+    /// Fills the photo's EXIF GPS coordinates into every location linked to
+    /// the event that has no coordinates yet (Latitude or Longitude null).
+    /// Locations that already have coordinates are never overwritten, and
+    /// <see cref="Data.Models.Location.GeocodedAt"/> stays null - these
+    /// coordinates came from a photo, not a geocoder. Internal (not on
+    /// <see cref="IMediaService"/>) so tests can exercise the rule without a
+    /// binary GPS-tagged image fixture; production reaches it only through
+    /// <see cref="AttachAsync"/>.
+    /// </summary>
+    internal async Task BackfillEventLocationCoordinatesAsync(
+        string eventId,
+        double latitude,
+        double longitude,
+        CancellationToken ct = default)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync(ct);
+
+        var missingCoordinates = await context.Locations
+            .Where(l => l.EventLocations.Any(el => el.EventId == eventId))
+            .Where(l => l.Latitude == null || l.Longitude == null)
+            .ToListAsync(ct);
+
+        if (missingCoordinates.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var location in missingCoordinates)
+        {
+            location.Latitude = latitude;
+            location.Longitude = longitude;
+            location.GeocodedAt = null; // photo-sourced, not geocoded
+
+            _logger.LogInformation(
+                "Backfilled coordinates ({Latitude}, {Longitude}) for location '{Name}' ({LocationId}) from photo EXIF GPS on event {EventId}.",
+                latitude, longitude, location.Name, location.LocationId, eventId);
+        }
+
+        await context.SaveChangesAsync(ct);
+    }
 
     /// <summary>
     /// Reads EXIF DateTimeOriginal and GPS coordinates from an image via
