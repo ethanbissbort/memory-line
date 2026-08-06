@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using MemoryTimeline.Data.Models;
@@ -21,12 +22,17 @@ public class AppDbContext : DbContext
     public DbSet<EventTag> EventTags { get; set; } = null!;
     public DbSet<Person> People { get; set; } = null!;
     public DbSet<EventPerson> EventPeople { get; set; } = null!;
+    public DbSet<PersonAlias> PersonAliases { get; set; } = null!;
     public DbSet<Location> Locations { get; set; } = null!;
     public DbSet<EventLocation> EventLocations { get; set; } = null!;
     public DbSet<CrossReference> CrossReferences { get; set; } = null!;
     public DbSet<EventEmbedding> EventEmbeddings { get; set; } = null!;
+    public DbSet<EventMedia> EventMedia { get; set; } = null!;
     public DbSet<AppSetting> AppSettings { get; set; } = null!;
     public DbSet<SavedSearch> SavedSearches { get; set; } = null!;
+    public DbSet<Draft> Drafts { get; set; } = null!;
+    public DbSet<RecallPrompt> RecallPrompts { get; set; } = null!;
+    public DbSet<EventRevision> EventRevisions { get; set; } = null!;
 
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
     {
@@ -64,10 +70,33 @@ public class AppDbContext : DbContext
         private const string PragmaSql =
             "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;";
 
+        // journal_mode=WAL rewrites the database header, which fails with
+        // "attempt to write a readonly database" (SQLITE_READONLY) on the
+        // Mode=ReadOnly connections EF opens for existence probes
+        // (SqliteDatabaseCreator.Exists) when the file is still in the default
+        // DELETE journal mode. busy_timeout and foreign_keys are
+        // connection-local and safe everywhere.
+        private const string ReadOnlyPragmaSql =
+            "PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;";
+
+        private static string GetPragmaSql(DbConnection connection)
+        {
+            try
+            {
+                var builder = new SqliteConnectionStringBuilder(connection.ConnectionString);
+                return builder.Mode == SqliteOpenMode.ReadOnly ? ReadOnlyPragmaSql : PragmaSql;
+            }
+            catch (ArgumentException)
+            {
+                // Unparseable connection string: fall back to the full pragma set.
+                return PragmaSql;
+            }
+        }
+
         public override void ConnectionOpened(DbConnection connection, ConnectionEndEventData eventData)
         {
             using var command = connection.CreateCommand();
-            command.CommandText = PragmaSql;
+            command.CommandText = GetPragmaSql(connection);
             command.ExecuteNonQuery();
         }
 
@@ -77,7 +106,7 @@ public class AppDbContext : DbContext
             CancellationToken cancellationToken = default)
         {
             using var command = connection.CreateCommand();
-            command.CommandText = PragmaSql;
+            command.CommandText = GetPragmaSql(connection);
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
     }
@@ -181,6 +210,11 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Tag>(entity =>
         {
             entity.HasKey(t => t.TagId);
+            // NOCASE collation makes the unique index case-insensitive
+            // ("Family" and "family" are the same tag). Pre-existing databases
+            // are converted by SchemaUpgrader's case-insensitive identity
+            // repair (dedupe, then rebuild the index with COLLATE NOCASE).
+            entity.Property(t => t.TagName).UseCollation("NOCASE");
             entity.HasIndex(t => t.TagName).IsUnique();
         });
 
@@ -207,7 +241,29 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Person>(entity =>
         {
             entity.HasKey(p => p.PersonId);
+            // NOCASE collation makes the unique index case-insensitive
+            // ("Sarah" and "sarah" are the same person). Pre-existing databases
+            // are converted by SchemaUpgrader's case-insensitive identity
+            // repair (dedupe, then rebuild the index with COLLATE NOCASE).
+            entity.Property(p => p.Name).UseCollation("NOCASE");
             entity.HasIndex(p => p.Name).IsUnique();
+            entity.HasIndex(p => p.IsFavorite);
+            entity.HasIndex(p => p.MergedIntoId);
+        });
+
+        // Configure PersonAlias entity
+        modelBuilder.Entity<PersonAlias>(entity =>
+        {
+            entity.HasKey(a => a.AliasId);
+            // An alias spelling belongs to at most one person, case-insensitively.
+            entity.Property(a => a.Alias).UseCollation("NOCASE");
+            entity.HasIndex(a => a.Alias).IsUnique();
+            entity.HasIndex(a => a.PersonId);
+
+            entity.HasOne(a => a.Person)
+                .WithMany(p => p.Aliases)
+                .HasForeignKey(a => a.PersonId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // Configure EventPerson junction entity
@@ -233,6 +289,11 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Location>(entity =>
         {
             entity.HasKey(l => l.LocationId);
+            // NOCASE collation makes the unique index case-insensitive
+            // ("Paris" and "paris" are the same location). Pre-existing
+            // databases are converted by SchemaUpgrader's case-insensitive
+            // identity repair.
+            entity.Property(l => l.Name).UseCollation("NOCASE");
             entity.HasIndex(l => l.Name).IsUnique();
         });
 
@@ -282,6 +343,19 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => e.EmbeddingProvider);
         });
 
+        // Configure EventMedia entity
+        modelBuilder.Entity<EventMedia>(entity =>
+        {
+            entity.HasKey(m => m.MediaId);
+            entity.HasIndex(m => m.EventId);
+            entity.HasIndex(m => m.ContentHash);
+
+            entity.HasOne(m => m.Event)
+                .WithMany(e => e.Media)
+                .HasForeignKey(m => m.EventId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
         // Configure AppSetting entity
         modelBuilder.Entity<AppSetting>(entity =>
         {
@@ -295,6 +369,36 @@ public class AppDbContext : DbContext
             entity.HasIndex(s => s.Name);
             entity.HasIndex(s => s.IsFavorite);
             entity.HasIndex(s => s.LastUsedAt);
+        });
+
+        // Configure Draft entity
+        modelBuilder.Entity<Draft>(entity =>
+        {
+            entity.HasKey(d => d.DraftId);
+            entity.HasIndex(d => d.DraftType);
+            entity.HasIndex(d => d.UpdatedAt);
+        });
+
+        // Configure RecallPrompt entity
+        modelBuilder.Entity<RecallPrompt>(entity =>
+        {
+            entity.HasKey(p => p.PromptId);
+            entity.HasIndex(p => p.Status);
+            // Dedupe lookup: has this gap (of this kind, about this entity)
+            // ever been asked about, in any status?
+            entity.HasIndex(p => new { p.Kind, p.EntityId });
+        });
+
+        // Configure EventRevision entity (F12 revision history)
+        modelBuilder.Entity<EventRevision>(entity =>
+        {
+            entity.HasKey(r => r.RevisionId);
+            // Deliberately NO foreign key to events (and the entity has no
+            // navigation property that would create one by convention):
+            // revision history must outlive event deletion so a deleted
+            // event's past remains inspectable. History lookups run through
+            // this composite index, newest revision first.
+            entity.HasIndex(r => new { r.EventId, r.RevisedAt }).IsDescending(false, true);
         });
 
         // Seed default settings
@@ -323,12 +427,41 @@ public class AppDbContext : DbContext
             new AppSetting { SettingKey = "rag_auto_run_enabled", SettingValue = "false", UpdatedAt = SeedTimestamp },
             new AppSetting { SettingKey = "rag_schedule", SettingValue = "weekly", UpdatedAt = SeedTimestamp },
             new AppSetting { SettingKey = "rag_similarity_threshold", SettingValue = "0.75", UpdatedAt = SeedTimestamp },
+            // F11: embedding_model corrected from the never-implemented
+            // 'onnx-text-embedding' placeholder to the real local model.
+            // Existing databases keep whatever value their row already has
+            // (HasData / INSERT OR IGNORE never overwrite); routing keys off
+            // embedding_provider and treats unknown stored model strings
+            // gracefully, so the stale value is harmless.
             new AppSetting { SettingKey = "embedding_provider", SettingValue = "local", UpdatedAt = SeedTimestamp },
-            new AppSetting { SettingKey = "embedding_model", SettingValue = "onnx-text-embedding", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "embedding_model", SettingValue = "all-MiniLM-L6-v2", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "embedding_dimension", SettingValue = "384", UpdatedAt = SeedTimestamp },
             new AppSetting { SettingKey = "embedding_api_key", SettingValue = "", UpdatedAt = SeedTimestamp },
+            // F11: OpenAI-compatible LLM endpoint (Ollama / LM Studio / vLLM)
+            // and the optional local ONNX model directory override.
+            new AppSetting { SettingKey = "llm_base_url", SettingValue = "", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "local_model_path", SettingValue = "", UpdatedAt = SeedTimestamp },
             new AppSetting { SettingKey = "auto_generate_embeddings", SettingValue = "true", UpdatedAt = SeedTimestamp },
             new AppSetting { SettingKey = "send_transcripts_only", SettingValue = "true", UpdatedAt = SeedTimestamp },
-            new AppSetting { SettingKey = "require_confirmation", SettingValue = "true", UpdatedAt = SeedTimestamp }
+            new AppSetting { SettingKey = "require_confirmation", SettingValue = "true", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "ask_top_k", SettingValue = "12", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "ask_include_transcripts", SettingValue = "false", UpdatedAt = SeedTimestamp },
+            // Home / resurfacing (2026-08). last_toast_date is deliberately not
+            // seeded: an absent row means "the daily toast has never been shown".
+            new AppSetting { SettingKey = "home_is_default_page", SettingValue = "true", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "daily_toast_enabled", SettingValue = "true", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "weekly_digest_enabled", SettingValue = "true", UpdatedAt = SeedTimestamp },
+            // Backup & revision history (2026-08 F12). last_backup_at is
+            // deliberately not seeded: an absent row means "never backed up".
+            new AppSetting { SettingKey = "backup_destination", SettingValue = "", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "backup_include_media", SettingValue = "true", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "backup_schedule", SettingValue = "off", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "revision_history_enabled", SettingValue = "true", UpdatedAt = SeedTimestamp },
+            // Map / geocoding (2026-08 F10). Geocoding is OFF by default:
+            // no place name leaves the machine until the user opts in.
+            new AppSetting { SettingKey = "geocoding_enabled", SettingValue = "false", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "geocoding_provider", SettingValue = "nominatim", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "map_default_zoom", SettingValue = "1.0", UpdatedAt = SeedTimestamp }
         );
 
         // Seed default era categories
@@ -393,6 +526,18 @@ public class AppDbContext : DbContext
             else if (entry.Entity is AppSetting setting)
             {
                 setting.UpdatedAt = DateTime.UtcNow;
+            }
+            else if (entry.Entity is Person person)
+            {
+                person.UpdatedAt = DateTime.UtcNow;
+            }
+            else if (entry.Entity is Draft draft)
+            {
+                draft.UpdatedAt = DateTime.UtcNow;
+            }
+            else if (entry.Entity is RecallPrompt recallPrompt)
+            {
+                recallPrompt.UpdatedAt = DateTime.UtcNow;
             }
         }
     }

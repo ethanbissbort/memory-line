@@ -1,3 +1,5 @@
+using CommunityToolkit.Mvvm.ComponentModel;
+using MemoryTimeline.Core.Models;
 using MemoryTimeline.Data.Models;
 using Microsoft.UI;
 using Microsoft.UI.Xaml.Media;
@@ -6,9 +8,19 @@ using System.ComponentModel;
 namespace MemoryTimeline.Core.DTOs;
 
 /// <summary>
+/// How a timeline event is rendered: a fixed-size map pin centered on its
+/// start date, or a duration-proportional span bar anchored at its start date.
+/// </summary>
+public enum EventRenderMode
+{
+    Pin = 0,
+    Span = 1
+}
+
+/// <summary>
 /// DTO for timeline event display.
 /// </summary>
-public class TimelineEventDto
+public partial class TimelineEventDto : ObservableObject
 {
     public string EventId { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
@@ -21,13 +33,275 @@ public class TimelineEventDto
     public string? EraName { get; set; }
     public string? EraColor { get; set; }
 
-    // Display properties
-    public double PixelX { get; set; }
-    public double PixelY { get; set; }
-    public double Width { get; set; }
-    public double Height { get; set; }
-    public bool IsVisible { get; set; }
+    /// <summary>How much of <see cref="StartDate"/> to believe.</summary>
+    public DatePrecision DatePrecision { get; set; } = DatePrecision.Day;
+
+    /// <summary>
+    /// Precision-honest date text for tooltips/details (e.g. "Summer 1998"
+    /// instead of a fabricated exact day).
+    /// </summary>
+    public string DisplayDate => DateDisplay.FormatPrecise(StartDate, DatePrecision, EndDate);
+
+    /// <summary>
+    /// True when the precision is coarser than Month (Season/Year/Decade/Unknown);
+    /// drives the subtle visual cue on the timeline pin.
+    /// </summary>
+    public bool IsApproximate => DatePrecision >= DatePrecision.Season;
+
+    // Display properties. Observable so the timeline can reposition
+    // already-rendered items in place during pan/zoom gestures (compiled
+    // OneWay bindings) instead of rebuilding every item container per tick.
+    [ObservableProperty]
+    private double _pixelX;
+
+    [ObservableProperty]
+    private double _pixelY;
+
+    [ObservableProperty]
+    private double _width;
+
+    [ObservableProperty]
+    private double _height;
+
+    /// <summary>
+    /// Clamped X used for RENDERING a span bar: the true <see cref="PixelX"/>
+    /// limited to the viewport plus TimelineService.SpanRenderMargin, so a
+    /// decades-long span at Day zoom cannot materialize a multi-million-pixel
+    /// XAML element. Equals <see cref="PixelX"/> for pins and unclipped spans.
+    /// Set by the position calc.
+    /// </summary>
+    [ObservableProperty]
+    private double _renderX;
+
+    /// <summary>
+    /// Clamped width paired with <see cref="RenderX"/> (equals
+    /// <see cref="Width"/> for pins and unclipped spans). The true
+    /// <see cref="Width"/> keeps driving the track-overlap math.
+    /// </summary>
+    [ObservableProperty]
+    private double _renderWidth;
+
+    /// <summary>Pin or duration-proportional span; set by the position calc.</summary>
+    [ObservableProperty]
+    private EventRenderMode _renderMode = EventRenderMode.Pin;
+
+    /// <summary>
+    /// True when the event's date range overlaps the viewport. Set by the
+    /// position calc; combined with lane collapse into <see cref="IsVisible"/>.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isInViewport;
+
+    /// <summary>True when the event's swimlane is collapsed (lane modes only).</summary>
+    [ObservableProperty]
+    private bool _isLaneCollapsed;
+
+    /// <summary>
+    /// True when the event's PRECISION WINDOW overlaps the viewport, even if
+    /// the anchor date itself is outside it. Set by the position calc; gates
+    /// <see cref="ShowUncertaintyBand"/> so a wider-than-viewport band keeps
+    /// rendering while any part of its window is on screen.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isWindowInViewport;
+
+    /// <summary>
+    /// Whether the event should render: inside the viewport and not hidden by
+    /// a collapsed lane. Drives the item's Visibility binding.
+    /// </summary>
+    public bool IsVisible => IsInViewport && !IsLaneCollapsed;
+
+    partial void OnIsInViewportChanged(bool value)
+    {
+        OnPropertyChanged(nameof(IsVisible));
+    }
+
+    partial void OnIsWindowInViewportChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowUncertaintyBand));
+    }
+
+    partial void OnIsLaneCollapsedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(IsVisible));
+        OnPropertyChanged(nameof(ShowUncertaintyBand));
+    }
+
+    partial void OnWidthChanged(double value)
+    {
+        OnPropertyChanged(nameof(ShowSpanTitle));
+    }
+
     public bool IsDurationEvent => EndDate.HasValue;
+
+    /// <summary>Span bars show their title inline once they are wide enough.</summary>
+    public bool ShowSpanTitle => Width > 80;
+
+    /// <summary>Swimlane assignment (null in Auto mode); set by LaneAssignment.</summary>
+    public string? LaneKey { get; set; }
+
+    /// <summary>Index of the event's swimlane (0 in Auto mode); set by LaneAssignment.</summary>
+    public int LaneIndex { get; set; }
+
+    /// <summary>
+    /// Names of the tags linked to this event, ordered case-insensitively.
+    /// Populated from the EventTags navigation when it is loaded (the timeline
+    /// viewport query includes it for tag-lane grouping).
+    /// </summary>
+    public List<string> TagNames { get; set; } = new();
+
+    /// <summary>
+    /// Left pixel bound of the DatePrecision uncertainty window
+    /// (<see cref="DatePrecisionExtensions.GetWindow"/> at the current scale),
+    /// clamped to the viewport. 0 when the event is not approximate.
+    /// </summary>
+    [ObservableProperty]
+    private double _windowStartX;
+
+    /// <summary>Right pixel bound of the uncertainty window (viewport-clamped).</summary>
+    [ObservableProperty]
+    private double _windowEndX;
+
+    partial void OnWindowStartXChanged(double value)
+    {
+        OnPropertyChanged(nameof(WindowWidth));
+        OnPropertyChanged(nameof(HasUncertaintyWindow));
+        OnPropertyChanged(nameof(ShowUncertaintyBand));
+    }
+
+    partial void OnWindowEndXChanged(double value)
+    {
+        OnPropertyChanged(nameof(WindowWidth));
+        OnPropertyChanged(nameof(HasUncertaintyWindow));
+        OnPropertyChanged(nameof(ShowUncertaintyBand));
+    }
+
+    /// <summary>Pixel width of the uncertainty underlay.</summary>
+    public double WindowWidth => Math.Max(0, WindowEndX - WindowStartX);
+
+    /// <summary>True when a non-degenerate uncertainty window exists on screen.</summary>
+    public bool HasUncertaintyWindow => IsApproximate && WindowEndX > WindowStartX;
+
+    /// <summary>
+    /// The underlay renders only when non-degenerate, its WINDOW overlaps the
+    /// viewport (anchor visibility is irrelevant - the band must not pop off
+    /// mid-pan while the window still covers the screen), and the lane is not
+    /// collapsed.
+    /// </summary>
+    public bool ShowUncertaintyBand => HasUncertaintyWindow && IsWindowInViewport && !IsLaneCollapsed;
+
+    /// <summary>
+    /// How many pixels of the RENDERED span element stick out past the LEFT
+    /// viewport edge (0 when fully visible; caps at the span render margin
+    /// because the render geometry is clamped). Drives the span's left
+    /// end-cap chevron, whose inset is measured from the rendered edge.
+    /// </summary>
+    [ObservableProperty]
+    private double _spanLeftOverhang;
+
+    /// <summary>Rendered-element pixels past the RIGHT viewport edge (0 when fully visible; caps at the render margin).</summary>
+    [ObservableProperty]
+    private double _spanRightOverhang;
+
+    partial void OnSpanLeftOverhangChanged(double value)
+    {
+        OnPropertyChanged(nameof(ClipsViewportLeft));
+    }
+
+    partial void OnSpanRightOverhangChanged(double value)
+    {
+        OnPropertyChanged(nameof(ClipsViewportRight));
+    }
+
+    /// <summary>True when the span extends past the left viewport edge.</summary>
+    public bool ClipsViewportLeft => SpanLeftOverhang > 0;
+
+    /// <summary>True when the span extends past the right viewport edge.</summary>
+    public bool ClipsViewportRight => SpanRightOverhang > 0;
+
+    /// <summary>
+    /// Soft horizontal gradient for the uncertainty underlay: the category/era
+    /// color at low opacity, fading out at both edges. Built lazily on first
+    /// binding evaluation (UI thread); never touched by unit tests.
+    /// </summary>
+    public LinearGradientBrush UncertaintyBrush
+    {
+        get
+        {
+            var color = ParseHexColor(GetCategoryColor());
+            var mid = Windows.UI.Color.FromArgb(0x30, color.R, color.G, color.B);
+            var edge = Windows.UI.Color.FromArgb(0x00, color.R, color.G, color.B);
+
+            var brush = new LinearGradientBrush
+            {
+                StartPoint = new Windows.Foundation.Point(0, 0.5),
+                EndPoint = new Windows.Foundation.Point(1, 0.5)
+            };
+            brush.GradientStops.Add(new GradientStop { Color = edge, Offset = 0.0 });
+            brush.GradientStops.Add(new GradientStop { Color = mid, Offset = 0.12 });
+            brush.GradientStops.Add(new GradientStop { Color = mid, Offset = 0.88 });
+            brush.GradientStops.Add(new GradientStop { Color = edge, Offset = 1.0 });
+            return brush;
+        }
+    }
+
+    private static Windows.UI.Color ParseHexColor(string hex)
+    {
+        try
+        {
+            var value = hex.Replace("#", string.Empty);
+            if (value.Length == 6)
+            {
+                return Windows.UI.Color.FromArgb(
+                    255,
+                    Convert.ToByte(value.Substring(0, 2), 16),
+                    Convert.ToByte(value.Substring(2, 2), 16),
+                    Convert.ToByte(value.Substring(4, 2), 16));
+            }
+        }
+        catch
+        {
+            // Fall through to gray.
+        }
+
+        return Windows.UI.Color.FromArgb(255, 128, 128, 128);
+    }
+
+    /// <summary>
+    /// Names of the persons linked to this event, ordered by name. Populated
+    /// from the EventPeople navigation when it is loaded, or later by the UI
+    /// (e.g. when the event is selected).
+    /// </summary>
+    [ObservableProperty]
+    private List<string> _peopleNames = new();
+
+    /// <summary>True when at least one person is linked to this event.</summary>
+    public bool HasPeople => PeopleNames.Count > 0;
+
+    /// <summary>Comma-separated list of linked person names for display.</summary>
+    public string PeopleDisplay => string.Join(", ", PeopleNames);
+
+    partial void OnPeopleNamesChanged(List<string> value)
+    {
+        OnPropertyChanged(nameof(HasPeople));
+        OnPropertyChanged(nameof(PeopleDisplay));
+    }
+
+    /// <summary>
+    /// Number of media attachments; drives the pin's photo-count badge.
+    /// Populated in the timeline load path via one batched count query, and
+    /// kept live by the ViewModel when attachments change.
+    /// </summary>
+    [ObservableProperty]
+    private int _mediaCount;
+
+    /// <summary>True when the event has at least one media attachment.</summary>
+    public bool HasMedia => MediaCount > 0;
+
+    partial void OnMediaCountChanged(int value)
+    {
+        OnPropertyChanged(nameof(HasMedia));
+    }
 
     /// <summary>
     /// Creates a DTO from an Event entity.
@@ -45,7 +319,20 @@ public class TimelineEventDto
             Location = evt.Location,
             EraId = evt.EraId,
             EraName = evt.Era?.Name,
-            EraColor = evt.Era?.ColorCode
+            EraColor = evt.Era?.ColorCode,
+            DatePrecision = evt.DatePrecision,
+            PeopleNames = evt.EventPeople
+                .Select(ep => ep.Person?.Name)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Select(name => name!)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .ToList(),
+            TagNames = evt.EventTags
+                .Select(et => et.Tag?.TagName)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Select(name => name!)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .ToList()
         };
     }
 

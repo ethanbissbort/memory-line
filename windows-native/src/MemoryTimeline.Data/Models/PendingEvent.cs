@@ -58,6 +58,28 @@ public class PendingEvent
     [Column("confidence_score")]
     public double ConfidenceScore { get; set; } = 0.0;
 
+    /// <summary>
+    /// How much of <see cref="StartDate"/> to believe (assigned by extraction,
+    /// user-correctable on the Review page, copied to the real event on
+    /// approval). Defaults to Day, matching all pre-existing rows.
+    /// </summary>
+    [Column("date_precision")]
+    public DatePrecision DatePrecision { get; set; } = DatePrecision.Day;
+
+    /// <summary>
+    /// Optional explicit lower bound; null means derive from
+    /// StartDate + DatePrecision via <see cref="DatePrecisionExtensions.GetWindow"/>.
+    /// </summary>
+    [Column("earliest_possible")]
+    public DateTime? EarliestPossible { get; set; }
+
+    /// <summary>
+    /// Optional explicit upper bound; null means derive from
+    /// StartDate + DatePrecision.
+    /// </summary>
+    [Column("latest_possible")]
+    public DateTime? LatestPossible { get; set; }
+
     [Column("is_approved")]
     public bool IsApproved { get; set; } = false;
 

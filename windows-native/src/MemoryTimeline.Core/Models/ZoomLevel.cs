@@ -84,18 +84,32 @@ public static class TimelineScale
     /// </summary>
     public static double GetEventWidth(DateTime startDate, DateTime? endDate, ZoomLevel zoom)
     {
+        return GetEventWidth(startDate, endDate, GetPixelsPerDay(zoom), zoom);
+    }
+
+    /// <summary>
+    /// Gets the pixel width for an event at an explicit pixels-per-day scale.
+    /// The viewport's live scale can sit BETWEEN discrete zoom levels (the
+    /// cursor-anchored wheel zoom is continuous); this overload keeps span
+    /// widths consistent with pin positions at any scale, while the minimum
+    /// width still comes from the nearest discrete level. When
+    /// <paramref name="pixelsPerDay"/> equals
+    /// <see cref="GetPixelsPerDay"/>(<paramref name="zoomForMinimum"/>) the
+    /// result is identical to the ZoomLevel overload.
+    /// </summary>
+    public static double GetEventWidth(DateTime startDate, DateTime? endDate, double pixelsPerDay, ZoomLevel zoomForMinimum)
+    {
         if (!endDate.HasValue)
         {
             // Single-point event: minimum width
-            return GetMinimumEventWidth(zoom);
+            return GetMinimumEventWidth(zoomForMinimum);
         }
 
         var duration = (endDate.Value - startDate).TotalDays;
-        var pixelsPerDay = GetPixelsPerDay(zoom);
         var width = duration * pixelsPerDay;
 
         // Ensure minimum width for visibility
-        return Math.Max(width, GetMinimumEventWidth(zoom));
+        return Math.Max(width, GetMinimumEventWidth(zoomForMinimum));
     }
 
     /// <summary>
