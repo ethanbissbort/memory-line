@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using MemoryTimeline.Core.DTOs;
 using MemoryTimeline.Core.Models;
 using MemoryTimeline.Core.Services;
@@ -24,6 +25,7 @@ public partial class TimelineViewModel : ObservableObject
     private readonly IEventService _eventService;
     private readonly IPersonService _personService;
     private readonly IDraftService _draftService;
+    private readonly IMediaService _mediaService;
     private readonly IEraRepository _eraRepository;
     private readonly ITagRepository _tagRepository;
     private readonly ILogger<TimelineViewModel> _logger;
@@ -63,6 +65,90 @@ public partial class TimelineViewModel : ObservableObject
 
     private int _eraBarTrackCount = 1;
 
+    /// <summary>
+    /// Duration events rendered as span bars (RenderMode == Span). Pins stay
+    /// in <see cref="Events"/>; the control renders the two layers separately.
+    /// </summary>
+    public ObservableCollection<TimelineEventDto> SpanEvents { get; } = new();
+
+    /// <summary>
+    /// Events with approximate dates (precision coarser than Month) that get a
+    /// soft gradient uncertainty underlay behind their pin/span.
+    /// </summary>
+    public ObservableCollection<TimelineEventDto> UncertainEvents { get; } = new();
+
+    /// <summary>Rows of the swimlane gutter panel (empty in Auto mode).</summary>
+    public ObservableCollection<LaneGutterRowDto> LaneGutterRows { get; } = new();
+
+    /// <summary>
+    /// The active swimlane mode. Auto keeps the classic track stacking; other
+    /// modes re-layout the ALREADY-LOADED events into horizontal lanes without
+    /// a database reload (no flicker, no scroll-position loss).
+    /// </summary>
+    [ObservableProperty]
+    private LaneMode _laneMode = LaneMode.Auto;
+
+    /// <summary>True when a swimlane mode (not Auto) is active; shows the gutter.</summary>
+    public bool IsLaneModeActive => LaneMode != LaneMode.Auto;
+
+    partial void OnLaneModeChanged(LaneMode value)
+    {
+        OnPropertyChanged(nameof(IsLaneModeActive));
+        _collapsedLaneKeys.Clear();
+
+        // Lane switches re-layout from the cached DTOs - no DB work here.
+        // Positions update in place through the DTOs' observable properties,
+        // so nothing is torn down and the scroll position is untouched.
+        if (Viewport != null && _loadedEventDtos.Count > 0)
+        {
+            // Restore the Auto stacking geometry first; lane geometry (if any)
+            // then overrides PixelY per lane.
+            _timelineService.CalculateEventPositions(_loadedEventDtos, Viewport);
+        }
+
+        RecomputeLanes();
+        ApplyLaneGeometry();
+        RebuildLaneGutter();
+
+        // Notify other views; a subscriber failure must not break the switch.
+        try
+        {
+            WeakReferenceMessenger.Default.Send(new LaneModeChangedMessage(value.ToString()));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error publishing LaneModeChangedMessage");
+        }
+    }
+
+    // All DTOs fetched by the last settled reload (including the ±30-day
+    // buffer); the pin/span/uncertainty collections are projections of this.
+    private List<TimelineEventDto> _loadedEventDtos = new();
+
+    // All era DTOs fetched by the last settled reload.
+    private List<TimelineEraDto> _loadedEras = new();
+
+    // Lane membership computed on the reload path (never per scroll tick);
+    // pan/zoom ticks only re-apply the cached assignment's geometry.
+    private List<TimelineLane> _lanes = new();
+
+    // Collapsed lane keys for the CURRENT mode; cleared on mode change,
+    // deliberately not persisted anywhere.
+    private readonly HashSet<string> _collapsedLaneKeys = new(StringComparer.OrdinalIgnoreCase);
+
+    // Last-request-wins debounce for viewport reloads: pan/zoom ticks shift
+    // the already-loaded DTOs synchronously and the DB reload fires once,
+    // ~150ms after the LAST tick (O(gestures) reloads instead of O(ticks)).
+    private readonly ReloadCoalescer _reloadCoalescer = new();
+
+    // Monotonic sequences: a load that completes after a newer load started
+    // drops its stale results instead of clobbering them.
+    private long _eventLoadSequence;
+    private long _eraLoadSequence;
+
+    /// <summary>Number of loaded events currently visible in the viewport.</summary>
+    private int VisibleEventCount => _loadedEventDtos.Count(e => e.IsVisible);
+
     [ObservableProperty]
     private ZoomLevel _currentZoomLevel = ZoomLevel.Month;
 
@@ -98,6 +184,25 @@ public partial class TimelineViewModel : ObservableObject
     [ObservableProperty]
     private TimelineEventDto? _selectedEvent;
 
+    /// <summary>
+    /// Media attachments of the selected event, shown as the details-panel
+    /// photo strip (ordered by sort order). Loaded lazily on selection.
+    /// </summary>
+    public ObservableCollection<EventMediaThumbDto> SelectedEventMedia { get; } = new();
+
+    /// <summary>Header text for the details-panel photo strip ("Photos (3)").</summary>
+    [ObservableProperty]
+    private string _selectedEventMediaHeader = "Photos";
+
+    partial void OnSelectedEventChanged(TimelineEventDto? value)
+    {
+        if (value == null)
+        {
+            SelectedEventMedia.Clear();
+            SelectedEventMediaHeader = "Photos";
+        }
+    }
+
     // Viewport dimensions
     [ObservableProperty]
     private int _viewportWidth = 1000;
@@ -119,6 +224,7 @@ public partial class TimelineViewModel : ObservableObject
         IEventService eventService,
         IPersonService personService,
         IDraftService draftService,
+        IMediaService mediaService,
         IEraRepository eraRepository,
         ITagRepository tagRepository,
         ILogger<TimelineViewModel> logger)
@@ -127,6 +233,7 @@ public partial class TimelineViewModel : ObservableObject
         _eventService = eventService;
         _personService = personService;
         _draftService = draftService;
+        _mediaService = mediaService;
         _eraRepository = eraRepository;
         _tagRepository = tagRepository;
         _logger = logger;
@@ -141,6 +248,73 @@ public partial class TimelineViewModel : ObservableObject
         {
             ((TimelineViewModel)recipient).OnEventCreated(message);
         });
+
+        // React to edits/deletes made elsewhere (e.g. the Search page) so the
+        // timeline never shows stale or ghost events. Our own CRUD paths run
+        // with IsLoading set and reload themselves, so the handlers skip them.
+        WeakReferenceMessenger.Default.Register<EventUpdatedMessage>(this, static (recipient, message) =>
+        {
+            ((TimelineViewModel)recipient).OnEventUpdated(message);
+        });
+
+        WeakReferenceMessenger.Default.Register<EventDeletedMessage>(this, static (recipient, message) =>
+        {
+            ((TimelineViewModel)recipient).OnEventDeleted(message);
+        });
+
+        // React to media attachments made anywhere in the app so the pin's
+        // photo-count badge and the details-panel strip stay current.
+        WeakReferenceMessenger.Default.Register<MediaAttachedMessage>(this, static (recipient, message) =>
+        {
+            ((TimelineViewModel)recipient).OnMediaAttached(message);
+        });
+    }
+
+    /// <summary>
+    /// Handles a <see cref="MediaAttachedMessage"/> from any thread by
+    /// marshalling the refresh onto the UI thread.
+    /// </summary>
+    private void OnMediaAttached(MediaAttachedMessage message)
+    {
+        void Handle() => _ = HandleMediaAttachedAsync(message);
+
+        if (_dispatcherQueue == null || _dispatcherQueue.HasThreadAccess)
+        {
+            Handle();
+        }
+        else
+        {
+            _dispatcherQueue.TryEnqueue(Handle);
+        }
+    }
+
+    /// <summary>
+    /// Refreshes the media count badge for the event a file was just attached
+    /// to and, when that event is selected, rebuilds the details-panel strip.
+    /// Re-queries the exact count instead of incrementing so overlapping
+    /// notifications converge on the true value.
+    /// </summary>
+    private async Task HandleMediaAttachedAsync(MediaAttachedMessage message)
+    {
+        try
+        {
+            var media = await _mediaService.GetForEventAsync(message.EventId);
+
+            var dto = FindLoadedEvent(message.EventId);
+            if (dto != null)
+            {
+                dto.MediaCount = media.Count;
+            }
+
+            if (SelectedEvent?.EventId == message.EventId)
+            {
+                ApplySelectedEventMedia(media);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error refreshing media for event {EventId} after attach", message.EventId);
+        }
     }
 
     /// <summary>
@@ -196,6 +370,116 @@ public partial class TimelineViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Handles an <see cref="EventUpdatedMessage"/> from any thread by marshalling
+    /// the viewport reload onto the UI thread.
+    /// </summary>
+    private void OnEventUpdated(EventUpdatedMessage message)
+    {
+        void Handle() => _ = HandleEventUpdatedAsync(message);
+
+        if (_dispatcherQueue == null || _dispatcherQueue.HasThreadAccess)
+        {
+            Handle();
+        }
+        else
+        {
+            _dispatcherQueue.TryEnqueue(Handle);
+        }
+    }
+
+    /// <summary>
+    /// Reloads the viewport after an event was edited elsewhere in the app
+    /// (e.g. the Search page) so the timeline reflects the change without
+    /// renavigation. Our own UpdateEventAsync publishes while IsLoading is set
+    /// and reloads itself, so it is skipped here.
+    /// </summary>
+    private async Task HandleEventUpdatedAsync(EventUpdatedMessage message)
+    {
+        if (IsLoading || Viewport == null)
+            return;
+
+        try
+        {
+            await LoadEventsForViewportAsync();
+
+            if (SelectedEvent?.EventId == message.EventId)
+            {
+                // Re-point the details panel at the reloaded DTO (null when the
+                // edit moved the event outside the current viewport).
+                SelectedEvent = FindLoadedEvent(message.EventId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error refreshing timeline after event updated: {EventId}", message.EventId);
+        }
+    }
+
+    /// <summary>
+    /// Handles an <see cref="EventDeletedMessage"/> from any thread by marshalling
+    /// the removal onto the UI thread.
+    /// </summary>
+    private void OnEventDeleted(EventDeletedMessage message)
+    {
+        void Handle() => _ = HandleEventDeletedAsync(message);
+
+        if (_dispatcherQueue == null || _dispatcherQueue.HasThreadAccess)
+        {
+            Handle();
+        }
+        else
+        {
+            _dispatcherQueue.TryEnqueue(Handle);
+        }
+    }
+
+    /// <summary>
+    /// Removes an event deleted elsewhere in the app (e.g. the Search page)
+    /// from the timeline. Our own DeleteEventAsync runs with IsLoading set and
+    /// reloads itself, so it is skipped here.
+    /// </summary>
+    private async Task HandleEventDeletedAsync(EventDeletedMessage message)
+    {
+        if (IsLoading)
+            return;
+
+        try
+        {
+            var dto = FindLoadedEvent(message.EventId);
+            if (dto != null)
+            {
+                _loadedEventDtos.Remove(dto);
+                Events.Remove(dto);
+                SpanEvents.Remove(dto);
+                UncertainEvents.Remove(dto);
+
+                // In a lane mode the removal changes lane membership:
+                // recompute lanes, geometry, and the gutter (mirroring the
+                // settled-reload path) so row counts stay accurate, a
+                // now-empty lane row disappears, and _lanes stops holding
+                // the removed DTO.
+                if (LaneMode != LaneMode.Auto)
+                {
+                    RecomputeLanes();
+                    ApplyLaneGeometry();
+                    RebuildLaneGutter();
+                }
+            }
+
+            if (SelectedEvent?.EventId == message.EventId)
+            {
+                SelectedEvent = null;
+            }
+
+            TotalEventCount = await _eventService.GetTotalEventCountAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating timeline after event deleted: {EventId}", message.EventId);
+        }
+    }
+
+    /// <summary>
     /// Initializes the timeline with default viewport.
     /// </summary>
     public async Task InitializeAsync()
@@ -210,7 +494,7 @@ public partial class TimelineViewModel : ObservableObject
             // Create initial viewport
             await CreateViewportAsync(CurrentZoomLevel, DateTime.Now);
 
-            StatusText = $"Loaded {Events.Count} events";
+            StatusText = $"Loaded {VisibleEventCount} events";
         }
         catch (Exception ex)
         {
@@ -253,28 +537,178 @@ public partial class TimelineViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Loads events for the current viewport.
+    /// Loads events for the current viewport (the settled-reload path). All
+    /// fetched DTOs - including the ±30-day buffer - are kept and rendered
+    /// with a Visibility binding, so intra-buffer pans reveal them instantly
+    /// without waiting for the next reload.
     /// </summary>
     private async Task LoadEventsForViewportAsync()
     {
         if (Viewport == null) return;
 
+        // Last-request-wins: if another load starts while this query is in
+        // flight, this one's stale results are dropped on completion.
+        var sequence = ++_eventLoadSequence;
+
         try
         {
-            var events = await _timelineService.GetEventsForViewportAsync(Viewport);
-            Events.Clear();
-            foreach (var evt in events.Where(e => e.IsVisible))
+            var events = (await _timelineService.GetEventsForViewportAsync(Viewport)).ToList();
+            if (sequence != _eventLoadSequence)
+                return;
+
+            _loadedEventDtos = events;
+
+            var viewport = Viewport;
+            if (viewport != null)
             {
-                Events.Add(evt);
+                // The viewport may have moved while the query ran (the user
+                // kept panning); re-anchor the DTOs to the live viewport.
+                _timelineService.CalculateEventPositions(_loadedEventDtos, viewport);
             }
 
-            _logger.LogDebug("Loaded {Count} visible events", Events.Count);
+            // Lane membership recomputes on this settled path only - never per
+            // scroll tick (ticks just re-apply the cached assignment).
+            RecomputeLanes();
+            ApplyLaneGeometry();
+            RebuildEventCollections();
+            RebuildLaneGutter();
+
+            _logger.LogDebug(
+                "Loaded {Count} events for the viewport ({Visible} visible)",
+                _loadedEventDtos.Count,
+                VisibleEventCount);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error loading events for viewport");
             ErrorMessage = $"Could not load events: {ex.Message}";
         }
+    }
+
+    /// <summary>Finds a loaded event DTO (pin or span) by id.</summary>
+    private TimelineEventDto? FindLoadedEvent(string eventId)
+        => _loadedEventDtos.FirstOrDefault(e => e.EventId == eventId);
+
+    /// <summary>
+    /// Rebuilds the pin/span/uncertainty layer collections from the loaded
+    /// DTOs. Only called on the settled reload path (or when a zoom shift
+    /// actually flipped an event between pin and span) - never on plain pans.
+    /// </summary>
+    private void RebuildEventCollections()
+    {
+        Events.Clear();
+        SpanEvents.Clear();
+        UncertainEvents.Clear();
+
+        foreach (var evt in _loadedEventDtos)
+        {
+            if (evt.RenderMode == EventRenderMode.Span)
+            {
+                SpanEvents.Add(evt);
+            }
+            else
+            {
+                Events.Add(evt);
+            }
+
+            if (evt.IsApproximate)
+            {
+                UncertainEvents.Add(evt);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Recomputes lane membership for the current mode from the loaded DTOs.
+    /// Runs on the settled reload path and on mode changes only.
+    /// </summary>
+    private void RecomputeLanes()
+    {
+        _lanes = LaneAssignment.ComputeLanes(_loadedEventDtos, LaneMode).ToList();
+    }
+
+    /// <summary>
+    /// Applies lane geometry (rows from the top of the events area) over the
+    /// stacking positions the pure calc produced. In Auto mode this is a no-op
+    /// apart from clearing any leftover collapse flags, so Auto renders
+    /// exactly as the classic stacked layout.
+    /// </summary>
+    private void ApplyLaneGeometry()
+    {
+        if (LaneMode == LaneMode.Auto)
+        {
+            foreach (var evt in _loadedEventDtos)
+            {
+                evt.IsLaneCollapsed = false;
+            }
+
+            return;
+        }
+
+        double top = 0;
+        foreach (var lane in _lanes)
+        {
+            var collapsed = _collapsedLaneKeys.Contains(lane.LaneKey);
+            var rowHeight = collapsed
+                ? LaneAssignment.CollapsedLaneRowHeight
+                : LaneAssignment.LaneRowHeight;
+
+            foreach (var evt in lane.Events)
+            {
+                evt.IsLaneCollapsed = collapsed;
+                evt.PixelY = top + Math.Max(0, (LaneAssignment.LaneRowHeight - evt.Height) / 2.0);
+            }
+
+            top += rowHeight;
+        }
+    }
+
+    /// <summary>
+    /// Rebuilds the gutter row DTOs (labels, counts, collapse chevrons) from
+    /// the cached lanes. Row heights match the lane geometry constants so the
+    /// gutter rows stay aligned with the lane rows.
+    /// </summary>
+    private void RebuildLaneGutter()
+    {
+        LaneGutterRows.Clear();
+        if (LaneMode == LaneMode.Auto)
+            return;
+
+        for (var i = 0; i < _lanes.Count; i++)
+        {
+            var lane = _lanes[i];
+            var collapsed = _collapsedLaneKeys.Contains(lane.LaneKey);
+            LaneGutterRows.Add(new LaneGutterRowDto
+            {
+                LaneKey = lane.LaneKey,
+                Label = lane.Label,
+                EventCount = lane.Events.Count,
+                RowHeight = collapsed
+                    ? LaneAssignment.CollapsedLaneRowHeight
+                    : LaneAssignment.LaneRowHeight,
+                IsCollapsed = collapsed,
+                IsAlternate = i % 2 == 1
+            });
+        }
+    }
+
+    /// <summary>
+    /// Collapses or expands one lane: its events hide and the row shrinks,
+    /// rows below shift up. Pure re-layout of cached data - no reload, and
+    /// nothing is persisted.
+    /// </summary>
+    public void ToggleLaneCollapse(string laneKey)
+    {
+        if (string.IsNullOrEmpty(laneKey))
+            return;
+
+        if (!_collapsedLaneKeys.Remove(laneKey))
+        {
+            _collapsedLaneKeys.Add(laneKey);
+        }
+
+        ApplyLaneGeometry();
+        RebuildLaneGutter();
     }
 
     /// <summary>
@@ -284,17 +718,32 @@ public partial class TimelineViewModel : ObservableObject
     {
         if (Viewport == null) return;
 
+        // Last-request-wins: drop stale results if a newer load started.
+        var sequence = ++_eraLoadSequence;
+
         try
         {
-            var eras = await _timelineService.GetErasForViewportAsync(Viewport);
+            var eras = (await _timelineService.GetErasForViewportAsync(Viewport)).ToList();
+            if (sequence != _eraLoadSequence)
+                return;
+
+            _loadedEras = eras;
+
+            var viewport = Viewport;
+            if (viewport != null)
+            {
+                // Re-anchor to the live viewport (it may have moved mid-query).
+                _timelineService.CalculateEraPositions(_loadedEras, viewport);
+            }
+
             Eras.Clear();
-            foreach (var era in eras.Where(e => e.IsVisible))
+            foreach (var era in _loadedEras.Where(e => e.IsVisible))
             {
                 Eras.Add(era);
             }
 
             // Generate era bars and update filters
-            GenerateEraBars(eras);
+            GenerateEraBars(_loadedEras);
 
             _logger.LogDebug("Loaded {Count} visible eras", Eras.Count);
         }
@@ -536,9 +985,9 @@ public partial class TimelineViewModel : ObservableObject
     /// </summary>
     /// <param name="cursorScreenX">Cursor X position in pixels relative to viewport</param>
     /// <param name="wheelDelta">Raw mouse wheel delta (typically ±120 per tick)</param>
-    public async Task CursorAnchoredZoomAsync(double cursorScreenX, double wheelDelta)
+    public Task CursorAnchoredZoomAsync(double cursorScreenX, double wheelDelta)
     {
-        if (Viewport == null) return;
+        if (Viewport == null) return Task.CompletedTask;
 
         try
         {
@@ -566,17 +1015,24 @@ public partial class TimelineViewModel : ObservableObject
             // Update current zoom level display
             CurrentZoomLevel = Viewport.ZoomLevel;
 
-            // Reload events and ticks
-            await LoadEventsForViewportAsync();
-            await LoadErasForViewportAsync();
-            GenerateTimeRulerTicks();
+            // Immediate visual scale change on the loaded DTOs; the DB reload
+            // is debounced until the wheel stops (~150ms after the last tick).
+            ApplyViewportShift();
+            ScheduleViewportReload();
+
+            // The viewport instance was mutated in place - re-raise the
+            // notification so the proportional scrollbar tracks the zoom.
+            OnPropertyChanged(nameof(Viewport));
 
             StatusText = $"Zoom: {newPixelsPerDay:F2} px/day";
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error performing cursor-anchored zoom");
+            ErrorMessage = $"Could not zoom the timeline: {ex.Message}";
         }
+
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -636,23 +1092,118 @@ public partial class TimelineViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Pans the timeline by pixel offset.
+    /// Pans the timeline by pixel offset. The shift itself is cheap and
+    /// synchronous - viewport dates move and the ALREADY-LOADED DTOs are
+    /// repositioned via the pure position calc (no DB) - while the database
+    /// reload is debounced to fire once, ~150ms after the LAST pan/zoom tick.
+    /// There is deliberately no IsLoading bail-out here: the old guard dropped
+    /// ticks mid-load and lost the final position; the coalescer supersedes
+    /// pending reloads instead, so the settled position always reloads.
     /// </summary>
     public async Task PanAsync(double pixelOffset)
     {
-        if (Viewport == null || IsLoading) return;
+        if (Viewport == null) return;
 
         try
         {
+            // Pure viewport math (Task.FromResult inside) - no DB work.
             Viewport = await _timelineService.PanAsync(Viewport, pixelOffset);
+            ApplyViewportShift();
+            ScheduleViewportReload();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error panning timeline");
+            ErrorMessage = $"Could not pan the timeline: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Cheap synchronous re-layout after a viewport change: repositions the
+    /// already-loaded event and era DTOs with the pure calcs and regenerates
+    /// the ruler ticks. Never touches the database.
+    /// </summary>
+    private void ApplyViewportShift()
+    {
+        var viewport = Viewport;
+        if (viewport == null) return;
+
+        if (_loadedEventDtos.Count > 0)
+        {
+            _timelineService.CalculateEventPositions(_loadedEventDtos, viewport);
+            ApplyLaneGeometry();
+
+            // A zoom shift can flip events between pin and span; repartition
+            // the render layers only when that actually happened (plain pans
+            // never change widths, so this stays a cheap scan).
+            var needsRepartition =
+                SpanEvents.Any(e => e.RenderMode != EventRenderMode.Span) ||
+                Events.Any(e => e.RenderMode != EventRenderMode.Pin);
+            if (needsRepartition)
+            {
+                RebuildEventCollections();
+            }
+        }
+
+        if (_loadedEras.Count > 0)
+        {
+            _timelineService.CalculateEraPositions(_loadedEras, viewport);
+            GenerateEraBars(_loadedEras);
+        }
+
+        GenerateTimeRulerTicks();
+    }
+
+    /// <summary>
+    /// Schedules the trailing debounced reload for the current gesture burst.
+    /// Each tick supersedes the previous ticket; only the LAST tick's task
+    /// survives the quiet period and performs the single coalesced reload.
+    /// </summary>
+    private void ScheduleViewportReload()
+    {
+        var ticket = _reloadCoalescer.RecordTick();
+        _ = ReloadWhenSettledAsync(ticket);
+    }
+
+    /// <summary>
+    /// Waits out the quiet period and, if no newer tick superseded this one,
+    /// reloads events/eras/ruler for the settled viewport. Reads the LIVE
+    /// viewport at fire time, so the final position always wins.
+    /// </summary>
+    private async Task ReloadWhenSettledAsync(long ticket)
+    {
+        try
+        {
+            await Task.Delay(_reloadCoalescer.QuietPeriod);
+            if (!_reloadCoalescer.IsCurrent(ticket) || Viewport == null)
+                return;
+
             await LoadEventsForViewportAsync();
             await LoadErasForViewportAsync();
             GenerateTimeRulerTicks();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error panning timeline");
+            _logger.LogError(ex, "Error during debounced viewport reload");
+            ErrorMessage = $"Could not refresh the timeline: {ex.Message}";
         }
+    }
+
+    /// <summary>
+    /// Called by the control after it mutated the viewport instance directly
+    /// (proportional-scrollbar edge drags): applies the immediate visual
+    /// scale/position change, schedules the debounced reload, and re-raises
+    /// the Viewport notification so dependents stay in sync.
+    /// </summary>
+    public void NotifyViewportChangedExternally()
+    {
+        var viewport = Viewport;
+        if (viewport == null) return;
+
+        CurrentZoomLevel = viewport.ZoomLevel;
+        ApplyViewportShift();
+        ScheduleViewportReload();
+        OnPropertyChanged(nameof(Viewport));
     }
 
     /// <summary>
@@ -792,7 +1343,7 @@ public partial class TimelineViewModel : ObservableObject
                 GenerateTimeRulerTicks();
             }
 
-            StatusText = $"Refreshed - {Events.Count} events shown";
+            StatusText = $"Refreshed - {VisibleEventCount} events shown";
         }
         catch (Exception ex)
         {
@@ -818,7 +1369,10 @@ public partial class TimelineViewModel : ObservableObject
 
         if (eventDto != null && !string.IsNullOrEmpty(eventDto.EventId))
         {
+            SelectedEventMedia.Clear();
+            SelectedEventMediaHeader = "Photos";
             _ = LoadPeopleForEventAsync(eventDto);
+            _ = LoadMediaForSelectedEventAsync(eventDto);
         }
     }
 
@@ -853,6 +1407,345 @@ public partial class TimelineViewModel : ObservableObject
             _logger.LogDebug(ex, "Could not load people for event: {EventId}", eventDto.EventId);
         }
     }
+
+    #region Media Attachments (details-panel strip, lightbox, dialog staging)
+
+    /// <summary>
+    /// Loads the media attachments for the selected event (best-effort) and
+    /// applies them on the UI thread so the details-panel strip updates.
+    /// </summary>
+    private async Task LoadMediaForSelectedEventAsync(TimelineEventDto eventDto)
+    {
+        try
+        {
+            var media = await _mediaService.GetForEventAsync(eventDto.EventId);
+
+            void Apply()
+            {
+                // The selection may have moved on while the query ran.
+                if (SelectedEvent?.EventId != eventDto.EventId)
+                    return;
+
+                ApplySelectedEventMedia(media);
+                eventDto.MediaCount = media.Count;
+            }
+
+            if (_dispatcherQueue == null || _dispatcherQueue.HasThreadAccess)
+            {
+                Apply();
+            }
+            else
+            {
+                _dispatcherQueue.TryEnqueue(Apply);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not load media for event: {EventId}", eventDto.EventId);
+        }
+    }
+
+    /// <summary>
+    /// Replaces the details-panel strip contents. Must run on the UI thread.
+    /// </summary>
+    private void ApplySelectedEventMedia(List<EventMedia> media)
+    {
+        SelectedEventMedia.Clear();
+        foreach (var item in media)
+        {
+            SelectedEventMedia.Add(EventMediaThumbDto.FromMedia(item, _mediaService));
+        }
+
+        SelectedEventMediaHeader = media.Count == 0 ? "Photos" : $"Photos ({media.Count})";
+    }
+
+    /// <summary>
+    /// Attaches files to the selected event, reporting progress in the status
+    /// bar. Failures surface in the timeline error InfoBar; successes refresh
+    /// the strip via <see cref="MediaAttachedMessage"/>. Returns the attached
+    /// media (empty on failure) so the view can offer the EXIF-date
+    /// reconciliation (F2: photo taken outside the event's date window).
+    /// </summary>
+    public async Task<List<EventMedia>> AttachMediaToSelectedEventAsync(IReadOnlyList<string> paths)
+    {
+        var target = SelectedEvent;
+        if (target == null || paths.Count == 0)
+            return new List<EventMedia>();
+
+        try
+        {
+            ErrorMessage = null;
+            var progress = new Progress<(int done, int total)>(p =>
+                StatusText = $"Attaching photos... {p.done}/{p.total}");
+
+            var attached = await _mediaService.AttachManyAsync(target.EventId, paths, progress);
+
+            StatusText = attached.Count == 1
+                ? "1 photo attached"
+                : $"{attached.Count} photos attached";
+            return attached;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error attaching media to event {EventId}", target.EventId);
+            StatusText = "Error attaching photos";
+            ErrorMessage = $"Could not attach photos: {ex.Message}";
+            return new List<EventMedia>();
+        }
+    }
+
+    /// <summary>
+    /// Attaches files to an event and THROWS on failure - used by the
+    /// Add/Edit dialog, which shows the error in its own in-dialog InfoBar.
+    /// (Files that did attach before a partial failure remain attached.)
+    /// </summary>
+    public Task<List<EventMedia>> AttachMediaAsync(string eventId, IReadOnlyList<string> paths)
+    {
+        var progress = new Progress<(int done, int total)>(p =>
+            StatusText = $"Attaching photos... {p.done}/{p.total}");
+        return _mediaService.AttachManyAsync(eventId, paths, progress);
+    }
+
+    /// <summary>
+    /// Removes a media attachment (row + managed file + thumbnail) and updates
+    /// the strip and badge. Throws on failure so the lightbox can show the
+    /// reason and stay open.
+    /// </summary>
+    public async Task RemoveMediaAsync(EventMediaThumbDto media)
+    {
+        try
+        {
+            await _mediaService.RemoveAsync(media.MediaId, deleteFile: true);
+
+            SelectedEventMedia.Remove(media);
+            SelectedEventMediaHeader = SelectedEventMedia.Count == 0
+                ? "Photos"
+                : $"Photos ({SelectedEventMedia.Count})";
+
+            var dto = FindLoadedEvent(media.EventId);
+            if (dto != null && dto.MediaCount > 0)
+            {
+                dto.MediaCount--;
+            }
+
+            StatusText = "Photo removed";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error removing media {MediaId}", media.MediaId);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Updates a media attachment's caption. Throws on failure so the lightbox
+    /// can show the reason.
+    /// </summary>
+    public async Task UpdateMediaCaptionAsync(EventMediaThumbDto media, string? caption)
+    {
+        try
+        {
+            await _mediaService.UpdateCaptionAsync(media.MediaId, caption);
+            media.Caption = string.IsNullOrWhiteSpace(caption) ? null : caption.Trim();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating caption for media {MediaId}", media.MediaId);
+            throw;
+        }
+    }
+
+    // Photos picked/dropped in the Add Event dialog BEFORE the event exists;
+    // attached right after the save creates the event id.
+    private readonly List<string> _dialogPendingPhotoPaths = new();
+
+    /// <summary>Pending-photos label shown in the event dialog's photo row.</summary>
+    [ObservableProperty]
+    private string _dialogPendingPhotosLabel = "";
+
+    /// <summary>
+    /// Stages photo paths for a NEW event (attached after save). Duplicate
+    /// paths are ignored.
+    /// </summary>
+    public void AddDialogPendingPhotos(IEnumerable<string> paths)
+    {
+        foreach (var path in paths)
+        {
+            if (!string.IsNullOrWhiteSpace(path) &&
+                !_dialogPendingPhotoPaths.Contains(path, StringComparer.OrdinalIgnoreCase))
+            {
+                _dialogPendingPhotoPaths.Add(path);
+            }
+        }
+
+        UpdateDialogPendingPhotosLabel();
+    }
+
+    /// <summary>Clears the staged photos (dialog reset).</summary>
+    public void ClearDialogPendingPhotos()
+    {
+        _dialogPendingPhotoPaths.Clear();
+        DialogPendingPhotosLabel = "";
+    }
+
+    private void UpdateDialogPendingPhotosLabel()
+    {
+        DialogPendingPhotosLabel = _dialogPendingPhotoPaths.Count == 0
+            ? ""
+            : _dialogPendingPhotoPaths.Count == 1
+                ? "1 photo will be attached on save"
+                : $"{_dialogPendingPhotoPaths.Count} photos will be attached on save";
+    }
+
+    /// <summary>
+    /// Attaches the staged dialog photos to the just-created event. The event
+    /// itself already saved, so attachment failures are surfaced in the
+    /// timeline InfoBar without failing the save.
+    /// </summary>
+    private async Task AttachPendingDialogPhotosAsync(string eventId)
+    {
+        if (_dialogPendingPhotoPaths.Count == 0)
+            return;
+
+        var paths = _dialogPendingPhotoPaths.ToList();
+        ClearDialogPendingPhotos();
+
+        try
+        {
+            StatusText = "Attaching photos...";
+            var progress = new Progress<(int done, int total)>(p =>
+                StatusText = $"Attaching photos... {p.done}/{p.total}");
+            await _mediaService.AttachManyAsync(eventId, paths, progress);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error attaching staged photos to event {EventId}", eventId);
+            ErrorMessage = $"The event was saved, but some photos could not be attached: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// F2 EXIF-date reconciliation, decision half (the ContentDialog itself
+    /// lives in the view — Core and the ViewModel stay dialog-free here).
+    /// Given the media just attached to an event, returns the earliest EXIF
+    /// CapturedAt when that date falls OUTSIDE the event's precision window
+    /// (<see cref="DatePrecisionExtensions.GetWindow"/>), meaning the view
+    /// should offer to update the event date — or null when no offer is
+    /// warranted (no CapturedAt anywhere, date inside the window, event gone,
+    /// or the check itself failed). Media without CapturedAt never trigger an
+    /// offer. A batch yields at most ONE offer, keyed on the earliest capture.
+    /// </summary>
+    public async Task<DateTime?> GetExifDateOfferAsync(string eventId, IReadOnlyList<EventMedia> newlyAttached)
+    {
+        try
+        {
+            var capturedDates = newlyAttached
+                .Where(m => m.CapturedAt.HasValue)
+                .Select(m => m.CapturedAt!.Value)
+                .ToList();
+            if (capturedDates.Count == 0)
+                return null;
+
+            var earliest = capturedDates.Min();
+
+            var existingEvent = await _eventService.GetEventByIdAsync(eventId);
+            if (existingEvent == null)
+                return null;
+
+            // Compare at day granularity against the window the event's
+            // precision implies (a "Summer 1998" event covers the whole
+            // season - a photo from July 1998 needs no offer). For Unknown
+            // precision the window is degenerate (the placeholder anchor), so
+            // a dated photo practically always triggers the offer - which is
+            // exactly right for an event with no usable date.
+            var (windowStart, windowEnd) = DatePrecisionExtensions.GetWindow(
+                existingEvent.StartDate, existingEvent.DatePrecision);
+
+            return earliest.Date < windowStart.Date || earliest.Date > windowEnd.Date
+                ? earliest
+                : null;
+        }
+        catch (Exception ex)
+        {
+            // The attach itself already succeeded; a failed offer check must
+            // not turn it into an error. Skipping the offer is safe.
+            _logger.LogWarning(ex, "Could not evaluate EXIF date offer for event {EventId}", eventId);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Applies an accepted EXIF-date offer: moves the event to the photo's
+    /// capture day (DatePrecision becomes Day - the EXIF timestamp pins the
+    /// calendar day) and persists through the same service + messenger path
+    /// as the Edit dialog, so every subscribed view refreshes via
+    /// <see cref="EventUpdatedMessage"/>. Failures surface in the timeline
+    /// error InfoBar.
+    /// </summary>
+    public async Task ApplyExifEventDateAsync(string eventId, DateTime capturedAt)
+    {
+        if (string.IsNullOrEmpty(eventId)) return;
+        if (IsLoading)
+        {
+            ErrorMessage = "The timeline is busy with another operation. Please try again.";
+            return;
+        }
+
+        try
+        {
+            IsLoading = true;
+            StatusText = "Updating event date...";
+            ErrorMessage = null;
+
+            var existingEvent = await _eventService.GetEventByIdAsync(eventId);
+            if (existingEvent == null)
+            {
+                StatusText = "Event not found";
+                ErrorMessage = "The event could not be found. It may have been deleted.";
+                return;
+            }
+
+            var newDate = capturedAt.Date;
+            existingEvent.StartDate = newDate;
+            existingEvent.DatePrecision = DatePrecision.Day;
+
+            await _eventService.UpdateEventAsync(existingEvent);
+
+            // Notify other views; a subscriber failure must not fail the update.
+            try
+            {
+                WeakReferenceMessenger.Default.Send(new EventUpdatedMessage(eventId, newDate));
+            }
+            catch (Exception messengerEx)
+            {
+                _logger.LogWarning(messengerEx, "Error publishing EventUpdatedMessage for event {EventId}", eventId);
+            }
+
+            // Refresh the timeline; re-point the selection at the reloaded DTO
+            // (null when the new date moved the event out of the viewport).
+            await LoadEventsForViewportAsync();
+            if (SelectedEvent?.EventId == eventId)
+            {
+                SelectedEvent = Events.FirstOrDefault(e => e.EventId == eventId);
+            }
+
+            StatusText = $"Event date updated to {newDate.ToString("d MMM yyyy", System.Globalization.CultureInfo.InvariantCulture)}";
+            _logger.LogInformation(
+                "Event {EventId} date updated to {Date} from photo EXIF", eventId, newDate);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error applying EXIF date to event {EventId}", eventId);
+            StatusText = "Error updating event date";
+            ErrorMessage = $"Could not update the event date: {ex.Message}";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    #endregion
 
     /// <summary>
     /// Updates viewport dimensions when window is resized.
@@ -900,7 +1793,8 @@ public partial class TimelineViewModel : ObservableObject
         string? description,
         string? category,
         string? location,
-        string? eraId)
+        string? eraId,
+        DatePrecision datePrecision = DatePrecision.Day)
     {
         // Don't silently return when busy: the Add Event dialog awaits this call
         // and would close as if the save succeeded. Throw so it stays open.
@@ -918,6 +1812,7 @@ public partial class TimelineViewModel : ObservableObject
                 Title = title,
                 StartDate = date,
                 EndDate = endDate,
+                DatePrecision = datePrecision,
                 Description = description,
                 // Categories are canonically lowercase (EventCategory constants).
                 Category = category?.ToLowerInvariant() ?? EventCategory.Other,
@@ -934,6 +1829,9 @@ public partial class TimelineViewModel : ObservableObject
 
             // A successful real save consumes the draft the dialog was opened from.
             await ClearCurrentDraftAsync();
+
+            // Attach photos staged in the dialog before the event id existed.
+            await AttachPendingDialogPhotosAsync(createdEvent.EventId);
 
             TotalEventCount = await _eventService.GetTotalEventCountAsync();
 
@@ -984,7 +1882,8 @@ public partial class TimelineViewModel : ObservableObject
         string? description,
         string? category,
         string? location,
-        string? eraId)
+        string? eraId,
+        DatePrecision datePrecision = DatePrecision.Day)
     {
         if (string.IsNullOrEmpty(eventId)) return;
 
@@ -1009,6 +1908,7 @@ public partial class TimelineViewModel : ObservableObject
             existingEvent.Title = title;
             existingEvent.StartDate = date;
             existingEvent.EndDate = endDate;
+            existingEvent.DatePrecision = datePrecision;
             existingEvent.Description = description;
             // Categories are canonically lowercase (EventCategory constants).
             existingEvent.Category = category?.ToLowerInvariant() ?? EventCategory.Other;
@@ -1027,7 +1927,7 @@ public partial class TimelineViewModel : ObservableObject
             // Notify other views; a subscriber failure must not fail the save.
             try
             {
-                WeakReferenceMessenger.Default.Send(new EventUpdatedMessage(eventId));
+                WeakReferenceMessenger.Default.Send(new EventUpdatedMessage(eventId, date));
             }
             catch (Exception messengerEx)
             {
@@ -1042,7 +1942,7 @@ public partial class TimelineViewModel : ObservableObject
             // Update selected event if it was the one edited
             if (SelectedEvent?.EventId == eventId)
             {
-                SelectedEvent = Events.FirstOrDefault(e => e.EventId == eventId);
+                SelectedEvent = FindLoadedEvent(eventId);
             }
 
             StatusText = $"Event '{title}' updated";
@@ -1143,6 +2043,7 @@ public partial class TimelineViewModel : ObservableObject
         _originalPeopleIds.Clear();
         _originalTagIds.Clear();
         CurrentDraftId = null;
+        ClearDialogPendingPhotos();
 
         // Load era choices ("None" + all eras by start date).
         DialogEraChoices.Clear();
@@ -1240,6 +2141,30 @@ public partial class TimelineViewModel : ObservableObject
                 AddTagChip(tagName);
             }
 
+            // Re-stage the photos that were pending when the draft was saved
+            // (AddDialogPendingPhotos refreshes the "N photos will be attached
+            // on save" label). Paths whose files no longer exist are dropped
+            // with a visible status note instead of failing the attach later.
+            if (payload.PendingPhotoPaths is { Count: > 0 })
+            {
+                var stillPresent = payload.PendingPhotoPaths
+                    .Where(p => !string.IsNullOrWhiteSpace(p) && File.Exists(p))
+                    .ToList();
+
+                if (stillPresent.Count > 0)
+                {
+                    AddDialogPendingPhotos(stillPresent);
+                }
+
+                var dropped = payload.PendingPhotoPaths.Count - stillPresent.Count;
+                if (dropped > 0)
+                {
+                    StatusText = dropped == 1
+                        ? "1 photo staged in this draft could no longer be found and was skipped"
+                        : $"{dropped} photos staged in this draft could no longer be found and were skipped";
+                }
+            }
+
             return payload;
         }
         catch (Exception ex)
@@ -1262,7 +2187,8 @@ public partial class TimelineViewModel : ObservableObject
         DateTime? endDate,
         string? category,
         string? eraId,
-        string? location)
+        string? location,
+        DatePrecision datePrecision = DatePrecision.Day)
     {
         try
         {
@@ -1272,6 +2198,7 @@ public partial class TimelineViewModel : ObservableObject
                 Description = string.IsNullOrWhiteSpace(description) ? null : description,
                 StartDate = startDate,
                 EndDate = endDate,
+                DatePrecision = datePrecision,
                 Category = category,
                 EraId = string.IsNullOrWhiteSpace(eraId) ? null : eraId,
                 Location = string.IsNullOrWhiteSpace(location) ? null : location,
@@ -1283,7 +2210,12 @@ public partial class TimelineViewModel : ObservableObject
                 PersonNames = DialogPeople
                     .Where(c => string.IsNullOrEmpty(c.PersonId))
                     .Select(c => c.Name)
-                    .ToList()
+                    .ToList(),
+                // Photos staged for attach-on-save must survive "Save as
+                // Draft" - the label promised they would be attached.
+                PendingPhotoPaths = _dialogPendingPhotoPaths.Count == 0
+                    ? null
+                    : _dialogPendingPhotoPaths.ToList()
             };
 
             var json = JsonSerializer.Serialize(payload);
@@ -1555,7 +2487,7 @@ public partial class TimelineViewModel : ObservableObject
     /// </summary>
     private void ApplyPeopleNamesToLoadedEvent(string eventId, IEnumerable<string> names)
     {
-        var dto = Events.FirstOrDefault(e => e.EventId == eventId);
+        var dto = FindLoadedEvent(eventId);
         if (dto != null)
         {
             dto.PeopleNames = names
@@ -1663,4 +2595,142 @@ public sealed class EventTagChipDto
 {
     /// <summary>The tag name.</summary>
     public string Name { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// One row of the swimlane gutter panel. Immutable - the gutter collection is
+/// rebuilt on reload/mode-change/collapse-toggle (never per scroll tick), so
+/// no change notification is needed.
+/// </summary>
+public sealed class LaneGutterRowDto
+{
+    public string LaneKey { get; init; } = string.Empty;
+
+    public string Label { get; init; } = string.Empty;
+
+    public int EventCount { get; init; }
+
+    /// <summary>Row height in pixels; matches the lane row the events use.</summary>
+    public double RowHeight { get; init; }
+
+    public bool IsCollapsed { get; init; }
+
+    /// <summary>Every other row gets a subtle stripe.</summary>
+    public bool IsAlternate { get; init; }
+
+    /// <summary>Chevron: down when expanded, right when collapsed.</summary>
+    public string ChevronGlyph => IsCollapsed ? "\uE70E" : "\uE70D";
+
+    public string CountDisplay => EventCount == 1 ? "1 event" : $"{EventCount} events";
+
+    /// <summary>Stripe layer opacity (rows alternate 0 / 1 over a subtle brush).</summary>
+    public double StripeOpacity => IsAlternate ? 1.0 : 0.0;
+
+    public string AutomationLabel => $"Collapse or expand the {Label} lane";
+}
+
+/// <summary>
+/// A media attachment shown in the event details photo strip and lightbox.
+/// Paths are absolute, resolved through <see cref="IMediaService"/> from the
+/// relative paths stored in the database.
+/// </summary>
+public sealed partial class EventMediaThumbDto : ObservableObject
+{
+    public string MediaId { get; init; } = string.Empty;
+
+    public string EventId { get; init; } = string.Empty;
+
+    public MediaType MediaType { get; init; }
+
+    /// <summary>Absolute path of the copied file in the managed media tree.</summary>
+    public string AbsolutePath { get; init; } = string.Empty;
+
+    /// <summary>Absolute path of the generated thumbnail, or null.</summary>
+    public string? AbsoluteThumbnailPath { get; init; }
+
+    /// <summary>User caption (editable in the lightbox).</summary>
+    [ObservableProperty]
+    private string? _caption;
+
+    public bool IsImage => MediaType == MediaType.Image;
+
+    public string FileName => Path.GetFileName(AbsolutePath);
+
+    /// <summary>Placeholder glyph for non-image attachments.</summary>
+    public string FileGlyph => MediaType switch
+    {
+        MediaType.Video => "\uE714",    // Video
+        MediaType.Audio => "\uE8D6",    // Audio
+        MediaType.Document => "\uE8A5", // Document
+        _ => "\uEB9F"                   // Photo
+    };
+
+    private BitmapImage? _thumbnailImage;
+    private bool _thumbnailResolved;
+
+    /// <summary>
+    /// Strip thumbnail: the generated 256px JPEG when available, else the
+    /// original image decoded small, else null (non-images show the glyph).
+    /// Created lazily on first binding evaluation, which happens on the UI
+    /// thread (BitmapImage is a DependencyObject and must not be constructed
+    /// on a background thread).
+    /// </summary>
+    public BitmapImage? ThumbnailImage
+    {
+        get
+        {
+            if (!_thumbnailResolved)
+            {
+                _thumbnailResolved = true;
+                _thumbnailImage = TryCreateImage(
+                    AbsoluteThumbnailPath ?? (IsImage ? AbsolutePath : null),
+                    decodePixelWidth: 144);
+            }
+
+            return _thumbnailImage;
+        }
+    }
+
+    /// <summary>True when a strip thumbnail image could be created.</summary>
+    public bool HasImage => ThumbnailImage != null;
+
+    /// <summary>Full-resolution image for the lightbox (null for non-images).</summary>
+    public BitmapImage? CreateFullImage()
+        => IsImage ? TryCreateImage(AbsolutePath, decodePixelWidth: null) : null;
+
+    /// <summary>Creates a display DTO from an entity, resolving absolute paths.</summary>
+    public static EventMediaThumbDto FromMedia(EventMedia media, IMediaService mediaService) => new()
+    {
+        MediaId = media.MediaId,
+        EventId = media.EventId,
+        MediaType = media.MediaType,
+        AbsolutePath = mediaService.GetAbsolutePath(media),
+        AbsoluteThumbnailPath = mediaService.GetAbsoluteThumbnailPath(media),
+        Caption = media.Caption
+    };
+
+    private static BitmapImage? TryCreateImage(string? path, int? decodePixelWidth)
+    {
+        // Defensive display formatting (mirrors EventPersonChipDto.CreateBrush):
+        // a missing/unreadable file falls back to the glyph placeholder.
+        if (string.IsNullOrEmpty(path) || !File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            var image = new BitmapImage { UriSource = new Uri(path) };
+            if (decodePixelWidth.HasValue)
+            {
+                image.DecodePixelWidth = decodePixelWidth.Value;
+            }
+
+            return image;
+        }
+        catch
+        {
+            return null;
+        }
+    }
 }

@@ -117,4 +117,60 @@ public class LocationRepository : ILocationRepository
         await using var context = await _contextFactory.CreateDbContextAsync();
         return await context.EventLocations.CountAsync(el => el.LocationId == locationId);
     }
+
+    public async Task SetCoordinatesAsync(string locationId, double latitude, double longitude, string? source)
+    {
+        if (double.IsNaN(latitude) || latitude < -90.0 || latitude > 90.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(latitude), latitude,
+                "Latitude must be between -90 and 90 decimal degrees.");
+        }
+
+        if (double.IsNaN(longitude) || longitude < -180.0 || longitude > 180.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(longitude), longitude,
+                "Longitude must be between -180 and 180 decimal degrees.");
+        }
+
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        var location = await context.Locations.FirstOrDefaultAsync(l => l.LocationId == locationId)
+            ?? throw new InvalidOperationException($"Location not found: {locationId}");
+
+        location.Latitude = latitude;
+        location.Longitude = longitude;
+        // Only a geocoding lookup stamps GeocodedAt; EXIF/manual coordinates
+        // leave it null (and clear a stale stamp - the coordinates no longer
+        // come from a geocoder).
+        location.GeocodedAt = string.Equals(source, "geocoded", StringComparison.OrdinalIgnoreCase)
+            ? DateTime.UtcNow
+            : null;
+
+        await context.SaveChangesAsync();
+    }
+
+    public async Task<IEnumerable<Location>> GetLocatedAsync()
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.Locations.AsNoTracking()
+            .Where(l => l.Latitude != null && l.Longitude != null)
+            .OrderBy(l => l.Name)
+            .ToListAsync();
+    }
+
+    public async Task<IEnumerable<Location>> GetUnlocatedAsync()
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.Locations.AsNoTracking()
+            .Where(l => l.Latitude == null || l.Longitude == null)
+            .OrderBy(l => l.Name)
+            .ToListAsync();
+    }
+
+    public async Task<IEnumerable<EventLocation>> GetEventLocationLinksAsync()
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.EventLocations.AsNoTracking()
+            .Include(el => el.Event)
+            .ToListAsync();
+    }
 }

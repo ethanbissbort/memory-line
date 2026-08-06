@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using MemoryTimeline.Data.Models;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
@@ -7,15 +8,22 @@ using Microsoft.UI.Xaml.Media;
 namespace MemoryTimeline.Core.DTOs;
 
 /// <summary>
-/// DTO for audio recording information.
+/// DTO for a queue capture source (audio recording or pasted/imported text).
 /// </summary>
 public partial class AudioRecordingDto : ObservableObject
 {
     [ObservableProperty]
     private string _queueId = string.Empty;
 
+    /// <summary>Empty for non-audio sources (see RecordingQueue.AudioFilePath).</summary>
     [ObservableProperty]
     private string _audioFilePath = string.Empty;
+
+    [ObservableProperty]
+    private QueueSourceType _sourceType = QueueSourceType.Audio;
+
+    [ObservableProperty]
+    private string? _sourceLabel;
 
     [ObservableProperty]
     private string _status = string.Empty;
@@ -57,6 +65,28 @@ public partial class AudioRecordingDto : ObservableObject
     private static readonly SolidColorBrush DefaultBrush = new(Colors.Gray);
 
     // Display properties
+
+    /// <summary>
+    /// Card headline: the user's source label when present, otherwise a friendly
+    /// local timestamp like "5 Aug 2026, 14:03" (never a raw DateTime dump).
+    /// </summary>
+    public string DisplayTitle => !string.IsNullOrWhiteSpace(SourceLabel)
+        ? SourceLabel!
+        : FormatCreatedAt(CreatedAt);
+
+    /// <summary>Source icon: microphone for audio, document for text/imported.</summary>
+    public string SourceGlyph => SourceType == QueueSourceType.Audio
+        ? "\uE720"  // Microphone
+        : "\uE8A5"; // Document
+
+    /// <summary>
+    /// True when this item is a real audio recording with a file path. Text
+    /// sources store an empty AudioFilePath (NOT NULL column convention), so
+    /// playback/duration affordances must be hidden for them.
+    /// </summary>
+    public bool IsAudioSource => SourceType == QueueSourceType.Audio
+        && !string.IsNullOrEmpty(AudioFilePath);
+
     public string DurationDisplay => DurationSeconds.HasValue
         ? TimeSpan.FromSeconds(DurationSeconds.Value).ToString(@"mm\:ss")
         : "Unknown";
@@ -102,7 +132,8 @@ public partial class AudioRecordingDto : ObservableObject
 
     public bool HasError => !string.IsNullOrEmpty(ErrorMessage);
 
-    public bool CanPlay => Status is "pending" or "completed" or "failed";
+    // Text sources have no audio to play; hide the play affordance for them.
+    public bool CanPlay => IsAudioSource && Status is "pending" or "completed" or "failed";
 
     public bool CanRetry => Status == "failed";
 
@@ -116,6 +147,29 @@ public partial class AudioRecordingDto : ObservableObject
         OnPropertyChanged(nameof(IsProcessing));
         OnPropertyChanged(nameof(CanPlay));
         OnPropertyChanged(nameof(CanRetry));
+    }
+
+    partial void OnSourceTypeChanged(QueueSourceType value)
+    {
+        OnPropertyChanged(nameof(SourceGlyph));
+        OnPropertyChanged(nameof(IsAudioSource));
+        OnPropertyChanged(nameof(CanPlay));
+    }
+
+    partial void OnSourceLabelChanged(string? value)
+    {
+        OnPropertyChanged(nameof(DisplayTitle));
+    }
+
+    partial void OnCreatedAtChanged(DateTime value)
+    {
+        OnPropertyChanged(nameof(DisplayTitle));
+    }
+
+    partial void OnAudioFilePathChanged(string value)
+    {
+        OnPropertyChanged(nameof(IsAudioSource));
+        OnPropertyChanged(nameof(CanPlay));
     }
 
     partial void OnDurationSecondsChanged(double? value)
@@ -147,18 +201,38 @@ public partial class AudioRecordingDto : ObservableObject
         return $"{len:0.##} {sizes[order]}";
     }
 
+    /// <summary>
+    /// Formats a stored-UTC timestamp as a friendly local date/time, e.g.
+    /// "5 Aug 2026, 14:03". Rows round-tripped through SQLite come back with
+    /// DateTimeKind.Unspecified, so treat those as UTC before converting.
+    /// </summary>
+    private static string FormatCreatedAt(DateTime createdAt)
+    {
+        var local = createdAt.Kind switch
+        {
+            DateTimeKind.Local => createdAt,
+            DateTimeKind.Utc => createdAt.ToLocalTime(),
+            _ => DateTime.SpecifyKind(createdAt, DateTimeKind.Utc).ToLocalTime()
+        };
+
+        return local.ToString("d MMM yyyy, HH:mm");
+    }
+
     public static AudioRecordingDto FromRecordingQueue(Data.Models.RecordingQueue queue)
     {
         return new AudioRecordingDto
         {
             QueueId = queue.QueueId,
             AudioFilePath = queue.AudioFilePath,
+            SourceType = queue.SourceType,
+            SourceLabel = queue.SourceLabel,
             Status = queue.Status,
             DurationSeconds = queue.DurationSeconds,
             FileSizeBytes = queue.FileSizeBytes,
             CreatedAt = queue.CreatedAt,
             ProcessedAt = queue.ProcessedAt,
             ErrorMessage = queue.ErrorMessage,
+            TranscriptionText = queue.Transcript,
             PendingEventCount = queue.PendingEvents.Count
         };
     }

@@ -22,8 +22,10 @@ public class EventExtractionService : IEventExtractionService
     private readonly IPersonService _personService;
     private readonly IDbContextFactory<Data.AppDbContext> _contextFactory;
     private readonly ILogger<EventExtractionService> _logger;
+    private readonly EventRevisionWriter? _revisionWriter;
 
     private const string MissingApiKeyMessage = "Anthropic API key not configured — add it in Settings";
+    private const string MissingBaseUrlMessage = "LLM base URL not configured — add it in Settings (e.g. http://localhost:11434/v1 for Ollama)";
 
     public EventExtractionService(
         ILlmService llmService,
@@ -33,7 +35,8 @@ public class EventExtractionService : IEventExtractionService
         IRecordingQueueRepository queueRepository,
         IPersonService personService,
         IDbContextFactory<Data.AppDbContext> contextFactory,
-        ILogger<EventExtractionService> logger)
+        ILogger<EventExtractionService> logger,
+        EventRevisionWriter? revisionWriter = null)
     {
         _llmService = llmService;
         _sttService = sttService;
@@ -43,22 +46,24 @@ public class EventExtractionService : IEventExtractionService
         _personService = personService;
         _contextFactory = contextFactory;
         _logger = logger;
+        _revisionWriter = revisionWriter;
     }
 
     /// <summary>
-    /// Processes a recording: transcribe audio and extract events.
+    /// Processes a queue source: resolve its transcript (inline text for
+    /// Text/Imported sources, speech-to-text for Audio sources) and extract events.
     /// </summary>
     public async Task<int> ProcessRecordingAsync(string queueId, IProgress<(int, string)>? progress = null)
     {
         try
         {
-            _logger.LogInformation("Processing recording {QueueId}", queueId);
+            _logger.LogInformation("Processing queue source {QueueId}", queueId);
 
             // API-key pre-flight BEFORE any work (transcription is wasted effort
             // if extraction can never run). ConfigurationException is non-retryable.
             await EnsureLlmConfiguredAsync();
 
-            progress?.Report((10, "Loading recording..."));
+            progress?.Report((10, "Loading source..."));
 
             var queueItem = await _queueRepository.GetByIdAsync(queueId);
             if (queueItem == null)
@@ -66,23 +71,66 @@ public class EventExtractionService : IEventExtractionService
                 throw new Exception($"Queue item {queueId} not found");
             }
 
-            // Step 1: Transcribe audio
-            progress?.Report((20, "Transcribing audio..."));
-            _logger.LogInformation("Transcribing audio file: {FilePath}", queueItem.AudioFilePath);
-
-            var transcriptionResult = await _sttService.TranscribeAsync(queueItem.AudioFilePath);
-
-            if (!transcriptionResult.Success || string.IsNullOrWhiteSpace(transcriptionResult.Text))
+            // Step 1: resolve the transcript. Text/Imported sources carry their
+            // content inline and never run speech-to-text; Audio sources are
+            // transcribed ONCE and the transcript is persisted on the queue row
+            // so retries (e.g. after a flaky LLM call) skip Whisper entirely.
+            string transcript;
+            if (queueItem.SourceType != QueueSourceType.Audio)
             {
-                throw new Exception($"Transcription failed: {transcriptionResult.ErrorMessage}");
-            }
+                if (string.IsNullOrWhiteSpace(queueItem.Transcript))
+                {
+                    throw new Exception($"Queue item {queueId} is a text source but has no stored text");
+                }
 
-            _logger.LogInformation("Transcription completed: {Length} characters", transcriptionResult.Text.Length);
+                progress?.Report((20, "Using saved text..."));
+                transcript = queueItem.Transcript;
+                _logger.LogInformation("Using stored text for {QueueId}: {Length} characters",
+                    queueId, transcript.Length);
+            }
+            else if (!string.IsNullOrWhiteSpace(queueItem.Transcript))
+            {
+                progress?.Report((20, "Using saved transcript..."));
+                transcript = queueItem.Transcript;
+                _logger.LogInformation("Reusing persisted transcript for {QueueId}: {Length} characters",
+                    queueId, transcript.Length);
+            }
+            else
+            {
+                progress?.Report((20, "Transcribing audio..."));
+                _logger.LogInformation("Transcribing audio file: {FilePath}", queueItem.AudioFilePath);
+
+                var transcriptionResult = await _sttService.TranscribeAsync(queueItem.AudioFilePath);
+
+                if (!transcriptionResult.Success || string.IsNullOrWhiteSpace(transcriptionResult.Text))
+                {
+                    throw new Exception($"Transcription failed: {transcriptionResult.ErrorMessage}");
+                }
+
+                transcript = transcriptionResult.Text;
+                _logger.LogInformation("Transcription completed: {Length} characters", transcript.Length);
+
+                // Persist the transcript on the queue row BEFORE extraction so a
+                // failed LLM call (and the queue's retry loop, which re-enters
+                // this method) reuses it instead of re-running Whisper.
+                try
+                {
+                    queueItem.Transcript = transcript;
+                    await _queueRepository.UpdateAsync(queueItem);
+                }
+                catch (Exception persistEx)
+                {
+                    // Non-fatal by design: extraction proceeds with the in-memory
+                    // transcript; only the retry optimization is lost.
+                    _logger.LogWarning(persistEx,
+                        "Failed to persist transcript for {QueueId}; a retry may re-transcribe", queueId);
+                }
+            }
 
             // Step 2: Extract events using LLM (transcript + audio path are persisted
             // on every pending event so nothing lives only in memory)
             progress?.Report((50, "Extracting events..."));
-            var pendingEvents = await ExtractAndCreatePendingEventsAsync(queueId, transcriptionResult.Text);
+            var pendingEvents = await ExtractAndCreatePendingEventsAsync(queueId, transcript);
 
             progress?.Report((100, $"Extracted {pendingEvents.Count} events"));
             _logger.LogInformation("Successfully extracted {Count} events from recording {QueueId}",
@@ -107,9 +155,14 @@ public class EventExtractionService : IEventExtractionService
         {
             _logger.LogInformation("Extracting events from transcript for queue {QueueId}", queueId);
 
-            // Resolve the source audio file path so it can be persisted with each pending event
+            // Resolve the source audio file path so it can be persisted with each
+            // pending event. Text sources store string.Empty in the NOT NULL
+            // audio_file_path column (see RecordingQueue.AudioFilePath); map that
+            // to null so pending/approved events never claim a phantom audio file.
             var queueItem = await _queueRepository.GetByIdAsync(queueId);
-            var audioFilePath = queueItem?.AudioFilePath;
+            var audioFilePath = string.IsNullOrEmpty(queueItem?.AudioFilePath)
+                ? null
+                : queueItem!.AudioFilePath;
 
             // Build extraction context
             var context = await BuildExtractionContextAsync();
@@ -140,6 +193,8 @@ public class EventExtractionService : IEventExtractionService
                     Description = extracted.Description,
                     StartDate = extracted.StartDate,
                     EndDate = extracted.EndDate,
+                    // Defensive parse: null/garbage precision strings fall back to Day.
+                    DatePrecision = DatePrecisionParser.Parse(extracted.DatePrecision),
                     Category = ParseCategory(extracted.Category),
                     ConfidenceScore = extracted.Confidence,
                     ExtractedData = System.Text.Json.JsonSerializer.Serialize(extracted),
@@ -221,6 +276,9 @@ public class EventExtractionService : IEventExtractionService
                 Description = pendingEvent.Description,
                 StartDate = pendingEvent.StartDate,
                 EndDate = pendingEvent.EndDate,
+                DatePrecision = pendingEvent.DatePrecision,
+                EarliestPossible = pendingEvent.EarliestPossible,
+                LatestPossible = pendingEvent.LatestPossible,
                 Category = NormalizeCategory(pendingEvent.Category),
                 Confidence = pendingEvent.ConfidenceScore,
                 AudioFilePath = pendingEvent.AudioFilePath,
@@ -245,6 +303,16 @@ public class EventExtractionService : IEventExtractionService
             pendingEvent.IsApproved = true;
             pendingEvent.Status = PendingStatus.Approved.ToStringValue();
             pendingEvent.ReviewedAt = DateTime.UtcNow;
+
+            // Revision history (F12): record the Approved snapshot INSIDE the
+            // approve transaction (same context, same commit) with the junction
+            // names MapExtractedMetadataAsync just added. Gated on the
+            // revision_history_enabled setting; failures are logged and never
+            // affect the approve itself.
+            if (_revisionWriter != null)
+            {
+                await _revisionWriter.TryAddApprovedToContextAsync(dbContext, realEvent);
+            }
 
             await dbContext.SaveChangesAsync();
             await transaction.CommitAsync();
@@ -309,6 +377,9 @@ public class EventExtractionService : IEventExtractionService
             tracked.Description = pendingEvent.Description;
             tracked.StartDate = pendingEvent.StartDate;
             tracked.EndDate = pendingEvent.EndDate;
+            tracked.DatePrecision = pendingEvent.DatePrecision;
+            tracked.EarliestPossible = pendingEvent.EarliestPossible;
+            tracked.LatestPossible = pendingEvent.LatestPossible;
             tracked.Category = pendingEvent.Category;
             tracked.ConfidenceScore = pendingEvent.ConfidenceScore;
 
@@ -579,12 +650,26 @@ public class EventExtractionService : IEventExtractionService
     #region Private Methods
 
     /// <summary>
-    /// Verifies the LLM API key is configured; throws a non-retryable
-    /// ConfigurationException when it is missing so the queue fails the
-    /// item immediately instead of burning retries.
+    /// Verifies the ACTIVE LLM provider is configured; throws a non-retryable
+    /// ConfigurationException when it is not, so the queue fails the item
+    /// immediately instead of burning retries. Provider-aware (F11): the
+    /// OpenAI-compatible provider needs a base URL (no API key), Anthropic
+    /// needs its API key.
     /// </summary>
     private async Task EnsureLlmConfiguredAsync()
     {
+        var provider = LlmProviderKeys.Normalize(await _settingsService.GetLlmProviderAsync());
+
+        if (provider == LlmProviderKeys.OpenAiCompatible)
+        {
+            var baseUrl = await _settingsService.GetSettingAsync<string>(SettingKeys.LlmBaseUrl, string.Empty);
+            if (string.IsNullOrWhiteSpace(baseUrl))
+            {
+                throw new ConfigurationException(MissingBaseUrlMessage);
+            }
+            return;
+        }
+
         var apiKey = await _settingsService.GetSettingAsync<string>(SettingKeys.AnthropicApiKey, string.Empty);
 
         if (string.IsNullOrWhiteSpace(apiKey))
@@ -654,13 +739,15 @@ public class EventExtractionService : IEventExtractionService
             });
         }
 
-        // People -> people + event_people
+        // People -> people + event_people. The lookup must be alias-aware and
+        // tombstone-aware BEFORE creating: under the NOCASE unique name index
+        // a case-variant create ("sarah" next to "Sarah") throws, and a name
+        // matching an alias ("Bob" for "Robert") must link the existing
+        // contact instead of minting a duplicate.
+        var linkedPersonIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var rawPerson in DistinctNames(extracted.People))
         {
-            var person = dbContext.People.Local
-                    .FirstOrDefault(p => string.Equals(p.Name, rawPerson, StringComparison.OrdinalIgnoreCase))
-                ?? await dbContext.People
-                    .FirstOrDefaultAsync(p => p.Name.ToLower() == rawPerson.ToLower());
+            var person = await ResolvePersonForApprovalAsync(dbContext, rawPerson);
 
             if (person == null)
             {
@@ -676,6 +763,47 @@ public class EventExtractionService : IEventExtractionService
                     CreatedAt = DateTime.UtcNow
                 };
                 dbContext.People.Add(person);
+
+                try
+                {
+                    // Flush the insert now (still inside the caller's approve
+                    // transaction) so a NOCASE unique-index collision surfaces
+                    // here instead of failing the whole approval at the final
+                    // SaveChanges.
+                    await dbContext.SaveChangesAsync();
+                }
+                catch (DbUpdateException ex)
+                {
+                    // SQLite's NOCASE folding is ASCII-only while the C#
+                    // lookup above pre-folds the parameter with full-Unicode
+                    // ToLowerInvariant, so for some non-ASCII case pairs
+                    // (e.g. 'İ' U+0130) the lookup misses a row the unique
+                    // index still treats as equal. Drop the rejected insert
+                    // and link the existing row instead, re-running the
+                    // lookup with the index's own folding (COLLATE NOCASE).
+                    dbContext.Entry(person).State = EntityState.Detached;
+
+                    var existing = await dbContext.People
+                        .FirstOrDefaultAsync(p => EF.Functions.Collate(p.Name, "NOCASE") == rawPerson);
+                    if (existing == null)
+                    {
+                        // Not a name collision after all - surface the
+                        // original failure.
+                        throw;
+                    }
+
+                    _logger.LogWarning(ex,
+                        "Person insert for '{RawName}' hit the NOCASE unique index; linking existing person '{ExistingName}' ({PersonId}) instead",
+                        rawPerson, existing.Name, existing.PersonId);
+                    person = await FollowMergeChainAsync(dbContext, existing);
+                }
+            }
+
+            // Two extracted spellings ("Bob" and "Robert") can resolve to the
+            // same contact; guard the composite (event, person) primary key.
+            if (!linkedPersonIds.Add(person.PersonId))
+            {
+                continue;
             }
 
             dbContext.EventPeople.Add(new EventPerson
@@ -718,6 +846,67 @@ public class EventExtractionService : IEventExtractionService
         }
     }
 
+    /// <summary>
+    /// Resolves an extracted person name to an existing contact for the
+    /// approval path: rows already added to this context (case-insensitive),
+    /// then a case-insensitive name lookup, then a case-insensitive alias
+    /// lookup — finally following any merge-tombstone chain to the living
+    /// person (visited set guards a malformed cycle; a broken chain returns
+    /// the last person reached rather than creating a name that would
+    /// collide with the NOCASE unique index). Null means "genuinely new".
+    /// </summary>
+    private async Task<Person?> ResolvePersonForApprovalAsync(Data.AppDbContext dbContext, string rawName)
+    {
+        var lowered = rawName.ToLowerInvariant();
+
+        var person = dbContext.People.Local
+                .FirstOrDefault(p => string.Equals(p.Name, rawName, StringComparison.OrdinalIgnoreCase))
+            ?? await dbContext.People
+                .FirstOrDefaultAsync(p => p.Name.ToLower() == lowered);
+
+        if (person == null)
+        {
+            var aliasOwnerId = await dbContext.PersonAliases.AsNoTracking()
+                .Where(a => a.Alias.ToLower() == lowered)
+                .Select(a => a.PersonId)
+                .FirstOrDefaultAsync();
+            if (aliasOwnerId != null)
+            {
+                person = await dbContext.People
+                    .FirstOrDefaultAsync(p => p.PersonId == aliasOwnerId);
+            }
+        }
+
+        return person == null ? null : await FollowMergeChainAsync(dbContext, person);
+    }
+
+    /// <summary>
+    /// Follows a person's merge-tombstone chain to the living person. The
+    /// visited set guards a malformed cycle; a broken chain returns the last
+    /// person reached (linking the tombstone beats creating a row whose name
+    /// the NOCASE unique index already holds).
+    /// </summary>
+    private static async Task<Person> FollowMergeChainAsync(Data.AppDbContext dbContext, Person person)
+    {
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        while (person.MergedIntoId != null && visited.Add(person.PersonId))
+        {
+            var nextId = person.MergedIntoId;
+            var next = await dbContext.People
+                .FirstOrDefaultAsync(p => p.PersonId == nextId);
+            if (next == null)
+            {
+                // Broken chain: link the tombstone rather than create a row
+                // whose name the unique index already holds.
+                break;
+            }
+
+            person = next;
+        }
+
+        return person;
+    }
+
     private static IEnumerable<string> DistinctNames(IEnumerable<string>? names)
     {
         return (names ?? Enumerable.Empty<string>())
@@ -758,12 +947,37 @@ public class EventExtractionService : IEventExtractionService
             var recentEvents = await _eventService.GetRecentEventsAsync(20);
             context.RecentEvents = recentEvents.Select(e => e.Title).ToList();
 
-            // Known people so extraction reuses canonical spellings (best-effort)
-            var persons = await _personService.GetAllPersonsAsync(PersonSortOption.MostEvents);
-            context.KnownPeople = persons
-                .Select(p => p.DisplayName)
-                .Where(n => !string.IsNullOrWhiteSpace(n))
+            // Known people so extraction reuses canonical spellings
+            // (best-effort). People with aliases are rendered as
+            // "CanonicalName (also: nickname, alias1, ...)" so Claude
+            // resolves "Bob" to "Robert" at extraction time; everyone else
+            // keeps the plain DisplayName ("Name (Nickname)").
+            var persons = (await _personService.GetAllPersonsAsync(PersonSortOption.MostEvents))
+                .Where(p => !string.IsNullOrWhiteSpace(p.Name))
                 .Take(100)
+                .ToList();
+
+            var aliasesByPerson = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            var personIds = persons.Select(p => p.PersonId).ToList();
+            await using (var dbContext = await _contextFactory.CreateDbContextAsync())
+            {
+                var aliasRows = await dbContext.PersonAliases.AsNoTracking()
+                    .Where(a => personIds.Contains(a.PersonId))
+                    .Select(a => new { a.PersonId, a.Alias })
+                    .ToListAsync();
+                foreach (var row in aliasRows)
+                {
+                    if (!aliasesByPerson.TryGetValue(row.PersonId, out var list))
+                    {
+                        list = new List<string>();
+                        aliasesByPerson[row.PersonId] = list;
+                    }
+                    list.Add(row.Alias);
+                }
+            }
+
+            context.KnownPeople = persons
+                .Select(p => FormatKnownPerson(p, aliasesByPerson))
                 .ToList();
 
             return context;
@@ -773,6 +987,47 @@ public class EventExtractionService : IEventExtractionService
             _logger.LogWarning(ex, "Error building extraction context, using minimal context");
             return context;
         }
+    }
+
+    /// <summary>
+    /// Formats one known-people prompt entry: "Name (also: nickname, alias1)"
+    /// when the person has aliases (the nickname joins the also-list so it is
+    /// not lost), otherwise the plain DisplayName ("Name (Nickname)").
+    /// Also-entries that only differ from the canonical name by case are
+    /// dropped as noise.
+    /// </summary>
+    private static string FormatKnownPerson(
+        PersonDto person,
+        Dictionary<string, List<string>> aliasesByPerson)
+    {
+        aliasesByPerson.TryGetValue(person.PersonId, out var aliases);
+        if (aliases == null || aliases.Count == 0)
+        {
+            return person.DisplayName;
+        }
+
+        var also = new List<string>();
+        if (!string.IsNullOrWhiteSpace(person.Nickname))
+        {
+            also.Add(person.Nickname.Trim());
+        }
+
+        foreach (var alias in aliases)
+        {
+            var trimmed = alias.Trim();
+            if (trimmed.Length == 0 ||
+                string.Equals(trimmed, person.Name.Trim(), StringComparison.OrdinalIgnoreCase) ||
+                also.Any(a => string.Equals(a, trimmed, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            also.Add(trimmed);
+        }
+
+        return also.Count == 0
+            ? person.DisplayName
+            : $"{person.Name} (also: {string.Join(", ", also)})";
     }
 
     /// <summary>

@@ -59,6 +59,14 @@ public interface IEmbeddingService
     string ModelName { get; }
 
     /// <summary>
+    /// Canonical provider identity persisted on event_embeddings rows
+    /// (embedding_provider column) — one of <see cref="EmbeddingProviderKeys"/>
+    /// ("openai", "local"). Kept separate from <see cref="ModelName"/> so the
+    /// stored provenance survives model-name changes within a provider.
+    /// </summary>
+    string ProviderKey { get; }
+
+    /// <summary>
     /// Gets whether the service requires internet connectivity.
     /// </summary>
     bool RequiresInternet { get; }

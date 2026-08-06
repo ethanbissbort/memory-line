@@ -178,6 +178,101 @@ public static class SchemaUpgrader
                 CREATE INDEX IF NOT EXISTS "IX_drafts_updated_at" ON "drafts" ("updated_at");
                 """);
 
+            // Media attachments (2026-08 F2). New tables may carry their FK
+            // inline in CREATE TABLE (unlike ALTER TABLE ADD COLUMN, which
+            // cannot add one). media_type is an INTEGER enum
+            // (0=Image 1=Video 2=Audio 3=Document).
+            await EnsureTableAsync(connection, existingTables, "event_media", logger,
+                """
+                CREATE TABLE IF NOT EXISTS "event_media" (
+                    "media_id" TEXT NOT NULL CONSTRAINT "PK_event_media" PRIMARY KEY,
+                    "event_id" TEXT NOT NULL,
+                    "file_path" TEXT NOT NULL,
+                    "thumbnail_path" TEXT NULL,
+                    "media_type" INTEGER NOT NULL,
+                    "caption" TEXT NULL,
+                    "captured_at" TEXT NULL,
+                    "latitude" REAL NULL,
+                    "longitude" REAL NULL,
+                    "file_size_bytes" INTEGER NULL,
+                    "content_hash" TEXT NULL,
+                    "sort_order" INTEGER NOT NULL,
+                    "created_at" TEXT NOT NULL,
+                    CONSTRAINT "FK_event_media_events_event_id" FOREIGN KEY ("event_id") REFERENCES "events" ("event_id") ON DELETE CASCADE
+                );
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS "IX_event_media_event_id" ON "event_media" ("event_id");
+                CREATE INDEX IF NOT EXISTS "IX_event_media_content_hash" ON "event_media" ("content_hash");
+                """);
+
+            // Guided recall prompts (2026-08 F6). kind/status/dismiss_reason
+            // are INTEGER enums (RecallPromptKind / RecallPromptStatus /
+            // DismissReason); the (kind, entity_id) index backs the dedupe
+            // lookup that keeps the app from ever re-asking a question.
+            await EnsureTableAsync(connection, existingTables, "recall_prompts", logger,
+                """
+                CREATE TABLE IF NOT EXISTS "recall_prompts" (
+                    "prompt_id" TEXT NOT NULL CONSTRAINT "PK_recall_prompts" PRIMARY KEY,
+                    "kind" INTEGER NOT NULL,
+                    "question" TEXT NOT NULL,
+                    "anchor_start" TEXT NULL,
+                    "anchor_end" TEXT NULL,
+                    "entity_id" TEXT NULL,
+                    "entity_name" TEXT NULL,
+                    "status" INTEGER NOT NULL,
+                    "dismiss_reason" INTEGER NOT NULL,
+                    "snoozed_until" TEXT NULL,
+                    "queue_id" TEXT NULL,
+                    "created_at" TEXT NOT NULL,
+                    "updated_at" TEXT NOT NULL
+                );
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS "IX_recall_prompts_status" ON "recall_prompts" ("status");
+                CREATE INDEX IF NOT EXISTS "IX_recall_prompts_kind_entity_id" ON "recall_prompts" ("kind", "entity_id");
+                """);
+
+            // Person aliases (2026-08 F9). The alias unique index is
+            // case-insensitive (COLLATE NOCASE): a spelling belongs to at most
+            // one person. New tables may carry their FK inline in CREATE TABLE
+            // (unlike ALTER TABLE ADD COLUMN, which cannot add one).
+            await EnsureTableAsync(connection, existingTables, "person_aliases", logger,
+                """
+                CREATE TABLE IF NOT EXISTS "person_aliases" (
+                    "alias_id" TEXT NOT NULL CONSTRAINT "PK_person_aliases" PRIMARY KEY,
+                    "person_id" TEXT NOT NULL,
+                    "alias" TEXT NOT NULL,
+                    "created_at" TEXT NOT NULL,
+                    CONSTRAINT "FK_person_aliases_people_person_id" FOREIGN KEY ("person_id") REFERENCES "people" ("person_id") ON DELETE CASCADE
+                );
+                """,
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS "IX_person_aliases_alias" ON "person_aliases" ("alias" COLLATE NOCASE);
+                CREATE INDEX IF NOT EXISTS "IX_person_aliases_person_id" ON "person_aliases" ("person_id");
+                """);
+
+            // Event revision history (2026-08 F12). Deliberately NO foreign
+            // key to events - history must outlive event deletion (matches
+            // OnModelCreating, which configures no relationship). revision_kind
+            // is an INTEGER enum (RevisionKind: 0=Created 1=Edited 2=Approved
+            // 3=Imported 4=Merged 5=Restored). The composite index is
+            // descending on revised_at to serve newest-first history reads.
+            await EnsureTableAsync(connection, existingTables, "event_revisions", logger,
+                """
+                CREATE TABLE IF NOT EXISTS "event_revisions" (
+                    "revision_id" TEXT NOT NULL CONSTRAINT "PK_event_revisions" PRIMARY KEY,
+                    "event_id" TEXT NOT NULL,
+                    "revised_at" TEXT NOT NULL,
+                    "revision_kind" INTEGER NOT NULL,
+                    "snapshot_json" TEXT NOT NULL,
+                    "changed_fields_csv" TEXT NULL
+                );
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS "IX_event_revisions_event_id_revised_at" ON "event_revisions" ("event_id", "revised_at" DESC);
+                """);
+
             // ---- Missing columns on pre-existing tables ----
             // Note: SQLite's ALTER TABLE ADD COLUMN cannot add foreign key
             // constraints, so eras.category_id is added without one; the FK is
@@ -197,11 +292,44 @@ public static class SchemaUpgrader
             {
                 ("location",   "\"location\" TEXT NULL"),
                 ("confidence", "\"confidence\" REAL NULL"),
+                // Date precision & uncertainty (2026-08). DEFAULT 1 = DatePrecision.Day
+                // preserves the meaning of every pre-existing row.
+                ("date_precision",    "\"date_precision\" INTEGER NOT NULL DEFAULT 1"),
+                ("earliest_possible", "\"earliest_possible\" TEXT NULL"),
+                ("latest_possible",   "\"latest_possible\" TEXT NULL"),
+                // On This Day resurfacing (2026-08): view tracking for the
+                // neglected-memory random bias. DEFAULT 0 keeps every
+                // pre-existing row "never viewed".
+                ("last_viewed_at",    "\"last_viewed_at\" TEXT NULL"),
+                ("view_count",        "\"view_count\" INTEGER NOT NULL DEFAULT 0"),
+            });
+
+            // Date precision & uncertainty on pending events (2026-08), mirroring
+            // the events columns so approval can copy them straight across.
+            await EnsureColumnsAsync(connection, existingTables, "pending_events", logger, new[]
+            {
+                ("date_precision",    "\"date_precision\" INTEGER NOT NULL DEFAULT 1"),
+                ("earliest_possible", "\"earliest_possible\" TEXT NULL"),
+                ("latest_possible",   "\"latest_possible\" TEXT NULL"),
             });
 
             await EnsureColumnsAsync(connection, existingTables, "tags", logger, new[]
             {
                 ("color", "\"color\" TEXT NULL"),
+            });
+
+            // Geographic data on locations (2026-08 F10): nullable coordinates
+            // (REAL, decimal degrees), optional place classification, the
+            // geocoder's canonical display name, and the geocoded-at stamp
+            // (null = coordinates came from photo EXIF or a manual pin drop,
+            // i.e. the place name never left the machine).
+            await EnsureColumnsAsync(connection, existingTables, "locations", logger, new[]
+            {
+                ("latitude",       "\"latitude\" REAL NULL"),
+                ("longitude",      "\"longitude\" REAL NULL"),
+                ("place_type",     "\"place_type\" TEXT NULL"),
+                ("canonical_name", "\"canonical_name\" TEXT NULL"),
+                ("geocoded_at",    "\"geocoded_at\" TEXT NULL"),
             });
 
             // Contact-book columns on people (2026-08 people feature). NOT NULL
@@ -221,6 +349,23 @@ public static class SchemaUpgrader
                 ("is_favorite",    "\"is_favorite\" INTEGER NOT NULL DEFAULT 0"),
                 ("first_met_date", "\"first_met_date\" TEXT NULL"),
                 ("updated_at",     "\"updated_at\" TEXT NOT NULL DEFAULT '2025-01-21 00:00:00'"),
+                // Merge tombstone (2026-08 F9): non-null means "merged into
+                // this person"; NULL keeps every pre-existing row living.
+                ("merged_into_id", "\"merged_into_id\" TEXT NULL"),
+            });
+
+            // Text/paste capture columns on recording_queue (2026-08 text-source
+            // feature): source_type discriminator (INTEGER enum, 0 = Audio, so
+            // every pre-existing row stays an audio source), optional label and
+            // the persisted transcript (pasted text for Text/Imported sources,
+            // cached Whisper output for Audio sources). NOT NULL added columns
+            // must carry constant defaults - SQLite's ALTER TABLE ADD COLUMN
+            // requirement.
+            await EnsureColumnsAsync(connection, existingTables, "recording_queue", logger, new[]
+            {
+                ("source_type",  "\"source_type\" INTEGER NOT NULL DEFAULT 0"),
+                ("source_label", "\"source_label\" TEXT NULL"),
+                ("transcript",   "\"transcript\" TEXT NULL"),
             });
 
             // Index on the (possibly just-added) eras.category_id column,
@@ -237,6 +382,78 @@ public static class SchemaUpgrader
             {
                 await ExecuteAsync(connection,
                     "CREATE INDEX IF NOT EXISTS \"IX_people_is_favorite\" ON \"people\" (\"is_favorite\");");
+
+                // Index on the (possibly just-added) people.merged_into_id
+                // column, mirroring OnModelCreating's HasIndex(p => p.MergedIntoId).
+                await ExecuteAsync(connection,
+                    "CREATE INDEX IF NOT EXISTS \"IX_people_merged_into_id\" ON \"people\" (\"merged_into_id\");");
+            }
+
+            // ---- Case-insensitive identity (2026-08 F9) ----
+            // Older builds created the unique indexes on people.name,
+            // tags.tag_name and locations.name with BINARY collation, letting
+            // case-variant duplicates ("Sarah"/"sarah") coexist. The current
+            // model is NOCASE. Merge each case-variant duplicate group into
+            // the row with the most junction links (backfilling the keeper's
+            // empty contact columns from each loser, in MergeAsync's spirit,
+            // so user-entered data survives), then rebuild the unique index
+            // with COLLATE NOCASE. Each table runs in its own transaction
+            // inside its own try/catch: a failure leaves that table untouched
+            // and never crashes startup.
+            await RepairCaseInsensitiveIdentityAsync(connection, existingTables, logger);
+
+            // Seed parity with AppDbContext.SeedDefaultSettings (HasData);
+            // EnsureCreated is a no-op on databases created by older builds, so
+            // any settings row seeded after that build is missing there.
+            // INSERT OR IGNORE keeps this idempotent and never overwrites a
+            // value the user has since changed. NOTE (F11): embedding_model was
+            // corrected from 'onnx-text-embedding' to 'all-MiniLM-L6-v2';
+            // databases that already carry the old value keep it (never
+            // overwritten) — the embedding router keys off embedding_provider
+            // and ignores unknown stored model strings.
+            if (existingTables.Contains("app_settings"))
+            {
+                await ExecuteAsync(connection,
+                    """
+                    INSERT OR IGNORE INTO "app_settings" ("setting_key", "setting_value", "updated_at") VALUES
+                        ('theme',                    'light',                    '2025-01-21 00:00:00'),
+                        ('default_zoom_level',       'month',                    '2025-01-21 00:00:00'),
+                        ('audio_quality',            'high',                     '2025-01-21 00:00:00'),
+                        ('llm_provider',             'anthropic',                '2025-01-21 00:00:00'),
+                        ('llm_model',                'claude-sonnet-4-20250514', '2025-01-21 00:00:00'),
+                        ('llm_max_tokens',           '4000',                     '2025-01-21 00:00:00'),
+                        ('llm_temperature',          '0.3',                      '2025-01-21 00:00:00'),
+                        ('stt_engine',               'windows',                  '2025-01-21 00:00:00'),
+                        ('stt_config',               '{}',                       '2025-01-21 00:00:00'),
+                        ('rag_auto_run_enabled',     'false',                    '2025-01-21 00:00:00'),
+                        ('rag_schedule',             'weekly',                   '2025-01-21 00:00:00'),
+                        ('rag_similarity_threshold', '0.75',                     '2025-01-21 00:00:00'),
+                        ('embedding_provider',       'local',                    '2025-01-21 00:00:00'),
+                        ('embedding_model',          'all-MiniLM-L6-v2',         '2025-01-21 00:00:00'),
+                        ('embedding_dimension',      '384',                      '2025-01-21 00:00:00'),
+                        ('embedding_api_key',        '',                         '2025-01-21 00:00:00'),
+                        ('llm_base_url',             '',                         '2025-01-21 00:00:00'),
+                        ('local_model_path',         '',                         '2025-01-21 00:00:00'),
+                        ('auto_generate_embeddings', 'true',                     '2025-01-21 00:00:00'),
+                        ('send_transcripts_only',    'true',                     '2025-01-21 00:00:00'),
+                        ('require_confirmation',     'true',                     '2025-01-21 00:00:00'),
+                        ('ask_top_k',                '12',                       '2025-01-21 00:00:00'),
+                        ('ask_include_transcripts',  'false',                    '2025-01-21 00:00:00'),
+                        ('home_is_default_page',     'true',                     '2025-01-21 00:00:00'),
+                        ('daily_toast_enabled',      'true',                     '2025-01-21 00:00:00'),
+                        ('weekly_digest_enabled',    'true',                     '2025-01-21 00:00:00'),
+                        ('backup_destination',       '',                         '2025-01-21 00:00:00'),
+                        ('backup_include_media',     'true',                     '2025-01-21 00:00:00'),
+                        ('backup_schedule',          'off',                      '2025-01-21 00:00:00'),
+                        ('revision_history_enabled', 'true',                     '2025-01-21 00:00:00'),
+                        ('geocoding_enabled',        'false',                    '2025-01-21 00:00:00'),
+                        ('geocoding_provider',       'nominatim',                '2025-01-21 00:00:00'),
+                        ('map_default_zoom',         '1.0',                      '2025-01-21 00:00:00');
+                    """);
+                // Note: last_toast_date is deliberately NOT seeded (here or in
+                // AppDbContext.SeedDefaultSettings) - an absent row means "the
+                // On This Day toast has never been shown". Likewise
+                // last_backup_at is NOT seeded - absent means "never backed up".
             }
         }
         finally
@@ -331,6 +548,434 @@ public static class SchemaUpgrader
         }
     }
 
+    /// <summary>
+    /// Rebuilds the unique name indexes of people/tags/locations with
+    /// COLLATE NOCASE, merging case-variant duplicate rows first. See the
+    /// call site comment for the full contract.
+    /// </summary>
+    private static async Task RepairCaseInsensitiveIdentityAsync(
+        DbConnection connection,
+        HashSet<string> existingTables,
+        ILogger? logger)
+    {
+        await RepairTableIdentityAsync(connection, existingTables, logger,
+            table: "people", idColumn: "person_id", nameColumn: "name",
+            junctionTable: "event_people", junctionFkColumn: "person_id",
+            isPeople: true,
+            // The contact columns PersonService.MergeAsync preserves: each
+            // loser's values backfill the keeper's empty columns before the
+            // loser row is deleted, and is_favorite ORs together via MAX.
+            backfillCoalesceColumns: new[]
+            {
+                "nickname", "relationship", "email", "phone", "birthday",
+                "company", "notes", "photo_path", "avatar_color",
+                "first_met_date"
+            },
+            backfillMaxColumns: new[] { "is_favorite" });
+
+        await RepairTableIdentityAsync(connection, existingTables, logger,
+            table: "tags", idColumn: "tag_id", nameColumn: "tag_name",
+            junctionTable: "event_tags", junctionFkColumn: "tag_id",
+            isPeople: false,
+            backfillCoalesceColumns: new[] { "color" },
+            backfillMaxColumns: Array.Empty<string>());
+
+        await RepairTableIdentityAsync(connection, existingTables, logger,
+            table: "locations", idColumn: "location_id", nameColumn: "name",
+            junctionTable: "event_locations", junctionFkColumn: "location_id",
+            isPeople: false,
+            backfillCoalesceColumns: Array.Empty<string>(),
+            backfillMaxColumns: Array.Empty<string>());
+    }
+
+    /// <summary>
+    /// One table's case-insensitive identity repair: skip when the unique
+    /// index over the name column is already NOCASE; otherwise merge
+    /// case-variant duplicate groups into the row with the most junction
+    /// links (ties prefer the row with the most populated backfill columns,
+    /// then the first row), repointing junctions dedup-safely, backfilling
+    /// the keeper's empty backfill columns from each loser before that loser
+    /// is deleted (for people also keeping the losers' names as aliases of
+    /// the keeper), then drop the BINARY unique index and recreate it with
+    /// COLLATE NOCASE. All work happens inside a single transaction so a
+    /// failure leaves the table untouched; the failure itself is logged and
+    /// swallowed (never fatal), per this file's contract.
+    /// </summary>
+    private static async Task RepairTableIdentityAsync(
+        DbConnection connection,
+        HashSet<string> existingTables,
+        ILogger? logger,
+        string table,
+        string idColumn,
+        string nameColumn,
+        string junctionTable,
+        string junctionFkColumn,
+        bool isPeople,
+        string[] backfillCoalesceColumns,
+        string[] backfillMaxColumns)
+    {
+        if (!existingTables.Contains(table))
+        {
+            return;
+        }
+
+        try
+        {
+            var (indexName, collation) = await FindUniqueIndexAsync(connection, table, nameColumn);
+            if (string.Equals(collation, "NOCASE", StringComparison.OrdinalIgnoreCase))
+            {
+                // Already case-insensitive (fresh EF database or a previous
+                // successful repair) - idempotent no-op.
+                return;
+            }
+
+            var junctionExists = existingTables.Contains(junctionTable);
+            var aliasTableExists = existingTables.Contains("person_aliases");
+            var mergedGroups = 0;
+
+            // Backfill columns filtered against the live schema: a partially
+            // repaired older database (some contact columns still missing)
+            // must still get its index fixed rather than failing the whole
+            // per-table transaction on an absent column.
+            var coalesceColumns = new List<string>();
+            var maxColumns = new List<string>();
+            if (backfillCoalesceColumns.Length > 0 || backfillMaxColumns.Length > 0)
+            {
+                var tableColumns = await GetColumnNamesAsync(connection, table);
+                coalesceColumns.AddRange(backfillCoalesceColumns.Where(tableColumns.Contains));
+                maxColumns.AddRange(backfillMaxColumns.Where(tableColumns.Contains));
+            }
+
+            // Raw BEGIN/COMMIT instead of DbConnection.BeginTransaction:
+            // Microsoft.Data.Sqlite requires every command to carry the
+            // connection's ADO transaction object, which the shared
+            // ExecuteAsync helper does not do.
+            await ExecuteAsync(connection, "BEGIN IMMEDIATE;");
+            try
+            {
+                // 1. Merge case-variant duplicate groups (same lower(name)).
+                var groups = await LoadCaseVariantGroupsAsync(connection, table, idColumn, nameColumn);
+                foreach (var group in groups)
+                {
+                    // Keeper = the row with the most junction links; ties
+                    // prefer the row with the most populated (non-null)
+                    // backfill columns - a user-enriched contact card beats
+                    // an extraction-created bare row - and the first row wins
+                    // remaining ties, preserving insertion order.
+                    var keeper = group[0];
+                    var bestLinks = -1L;
+                    var bestFilled = -1L;
+                    foreach (var row in group)
+                    {
+                        var links = junctionExists
+                            ? await ExecuteScalarLongAsync(connection,
+                                $"SELECT COUNT(*) FROM \"{junctionTable}\" WHERE \"{junctionFkColumn}\" = @id",
+                                ("@id", row.Id))
+                            : 0L;
+                        var filled = await CountFilledColumnsAsync(
+                            connection, table, idColumn, row.Id, coalesceColumns);
+                        if (links > bestLinks || (links == bestLinks && filled > bestFilled))
+                        {
+                            bestLinks = links;
+                            bestFilled = filled;
+                            keeper = row;
+                        }
+                    }
+
+                    foreach (var loser in group)
+                    {
+                        if (ReferenceEquals(loser, keeper))
+                        {
+                            continue;
+                        }
+
+                        // Backfill the keeper the way the in-app MergeAsync
+                        // would have: each empty (NULL) contact column takes
+                        // the loser's value and flag columns OR together via
+                        // MAX, so user-entered data survives the loser row's
+                        // deletion below.
+                        await BackfillKeeperFromLoserAsync(
+                            connection, table, idColumn, keeper.Id, loser.Id,
+                            coalesceColumns, maxColumns);
+
+                        if (junctionExists)
+                        {
+                            // Repoint junction rows dedup-safely: rows that
+                            // would duplicate an existing keeper link are
+                            // skipped by OR IGNORE, then deleted.
+                            await ExecuteAsync(connection,
+                                $"UPDATE OR IGNORE \"{junctionTable}\" SET \"{junctionFkColumn}\" = @keeper WHERE \"{junctionFkColumn}\" = @loser;",
+                                ("@keeper", keeper.Id), ("@loser", loser.Id));
+                            await ExecuteAsync(connection,
+                                $"DELETE FROM \"{junctionTable}\" WHERE \"{junctionFkColumn}\" = @loser;",
+                                ("@loser", loser.Id));
+                        }
+
+                        if (isPeople)
+                        {
+                            if (aliasTableExists)
+                            {
+                                // Move the loser's aliases to the keeper (OR
+                                // IGNORE tolerates NOCASE-unique collisions),
+                                // then keep the loser's own spelling as an
+                                // alias of the keeper.
+                                await ExecuteAsync(connection,
+                                    "UPDATE OR IGNORE \"person_aliases\" SET \"person_id\" = @keeper WHERE \"person_id\" = @loser;",
+                                    ("@keeper", keeper.Id), ("@loser", loser.Id));
+                                await ExecuteAsync(connection,
+                                    "DELETE FROM \"person_aliases\" WHERE \"person_id\" = @loser;",
+                                    ("@loser", loser.Id));
+                                await ExecuteAsync(connection,
+                                    "INSERT OR IGNORE INTO \"person_aliases\" (\"alias_id\", \"person_id\", \"alias\", \"created_at\") VALUES (@aliasId, @keeper, @alias, @createdAt);",
+                                    ("@aliasId", Guid.NewGuid().ToString()),
+                                    ("@keeper", keeper.Id),
+                                    ("@alias", loser.Name),
+                                    ("@createdAt", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss")));
+                            }
+
+                            // Keep merge chains resolvable: tombstones that
+                            // pointed at the loser now point at the keeper.
+                            await ExecuteAsync(connection,
+                                "UPDATE \"people\" SET \"merged_into_id\" = @keeper WHERE \"merged_into_id\" = @loser;",
+                                ("@keeper", keeper.Id), ("@loser", loser.Id));
+                        }
+
+                        await ExecuteAsync(connection,
+                            $"DELETE FROM \"{table}\" WHERE \"{idColumn}\" = @loser;",
+                            ("@loser", loser.Id));
+
+                        logger?.LogInformation(
+                            "SchemaUpgrader: merged case-variant {Table} row '{LoserName}' ({LoserId}) into '{KeeperName}' ({KeeperId}).",
+                            table, loser.Name, loser.Id, keeper.Name, keeper.Id);
+                    }
+
+                    mergedGroups++;
+                }
+
+                // 2. Rebuild the unique index with COLLATE NOCASE. SQLite
+                //    autoindexes (from inline UNIQUE constraints) cannot be
+                //    dropped; the additional NOCASE index is still created -
+                //    it is the stricter of the two, so both can coexist.
+                var canDropOldIndex = indexName != null &&
+                    !indexName.StartsWith("sqlite_autoindex", StringComparison.OrdinalIgnoreCase);
+                if (canDropOldIndex)
+                {
+                    await ExecuteAsync(connection, $"DROP INDEX IF EXISTS \"{indexName}\";");
+                }
+                var newIndexName = canDropOldIndex ? indexName! : $"IX_{table}_{nameColumn}";
+                await ExecuteAsync(connection,
+                    $"CREATE UNIQUE INDEX IF NOT EXISTS \"{newIndexName}\" ON \"{table}\" (\"{nameColumn}\" COLLATE NOCASE);");
+
+                await ExecuteAsync(connection, "COMMIT;");
+
+                logger?.LogInformation(
+                    "SchemaUpgrader: rebuilt unique index on {Table}.{Column} with COLLATE NOCASE ({Groups} case-variant duplicate group(s) merged).",
+                    table, nameColumn, mergedGroups);
+            }
+            catch
+            {
+                try
+                {
+                    await ExecuteAsync(connection, "ROLLBACK;");
+                }
+                catch
+                {
+                    // The transaction may already be gone; the outer catch
+                    // logs the original failure.
+                }
+                throw;
+            }
+        }
+        catch (Exception ex)
+        {
+            logger?.LogError(ex,
+                "SchemaUpgrader: case-insensitive identity repair failed for '{Table}'; table left unchanged.",
+                table);
+        }
+    }
+
+    /// <summary>One (id, name) row participating in the identity repair.</summary>
+    private sealed record IdentityRow(string Id, string Name);
+
+    /// <summary>
+    /// Loads groups of rows whose names differ only by case. Grouping uses
+    /// invariant lower-casing, a superset of SQLite's ASCII-only NOCASE
+    /// folding, so every group the NOCASE unique index would reject is merged.
+    /// </summary>
+    private static async Task<List<List<IdentityRow>>> LoadCaseVariantGroupsAsync(
+        DbConnection connection,
+        string table,
+        string idColumn,
+        string nameColumn)
+    {
+        var rows = new List<IdentityRow>();
+
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText =
+                $"SELECT \"{idColumn}\", \"{nameColumn}\" FROM \"{table}\" ORDER BY rowid";
+            await using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                rows.Add(new IdentityRow(reader.GetString(0), reader.GetString(1)));
+            }
+        }
+
+        return rows
+            .GroupBy(r => r.Name.ToLowerInvariant(), StringComparer.Ordinal)
+            .Where(g => g.Count() > 1)
+            .Select(g => g.ToList())
+            .ToList();
+    }
+
+    /// <summary>
+    /// Counts how many of the given columns hold a non-null value on one row
+    /// (keeper-selection tie-break). Returns 0 when no columns are given.
+    /// Column/table names are compile-time constants (never user input); the
+    /// row id is data and is parameterized.
+    /// </summary>
+    private static async Task<long> CountFilledColumnsAsync(
+        DbConnection connection,
+        string table,
+        string idColumn,
+        string rowId,
+        List<string> columns)
+    {
+        if (columns.Count == 0)
+        {
+            return 0;
+        }
+
+        // In SQLite ("col" IS NOT NULL) evaluates to 0/1, so the sum is the
+        // populated-column count.
+        var filledExpression = string.Join(" + ", columns.Select(c => $"(\"{c}\" IS NOT NULL)"));
+        return await ExecuteScalarLongAsync(connection,
+            $"SELECT {filledExpression} FROM \"{table}\" WHERE \"{idColumn}\" = @id",
+            ("@id", rowId));
+    }
+
+    /// <summary>
+    /// Copies a loser row's values onto the keeper before the loser is
+    /// deleted, mirroring PersonService.MergeAsync: COALESCE fills only the
+    /// keeper's NULL columns, MAX ORs flag columns (is_favorite). One
+    /// parameterized UPDATE per loser; the loser's values flow through
+    /// per-column subqueries so no data value is ever interpolated into SQL
+    /// (column/table names are compile-time constants). Idempotent: once a
+    /// keeper column is non-null, COALESCE leaves it alone.
+    /// </summary>
+    private static async Task BackfillKeeperFromLoserAsync(
+        DbConnection connection,
+        string table,
+        string idColumn,
+        string keeperId,
+        string loserId,
+        List<string> coalesceColumns,
+        List<string> maxColumns)
+    {
+        var assignments = new List<string>();
+        foreach (var column in coalesceColumns)
+        {
+            assignments.Add(
+                $"\"{column}\" = COALESCE(\"{column}\", (SELECT \"{column}\" FROM \"{table}\" WHERE \"{idColumn}\" = @loser))");
+        }
+
+        foreach (var column in maxColumns)
+        {
+            assignments.Add(
+                $"\"{column}\" = MAX(\"{column}\", COALESCE((SELECT \"{column}\" FROM \"{table}\" WHERE \"{idColumn}\" = @loser), 0))");
+        }
+
+        if (assignments.Count == 0)
+        {
+            return;
+        }
+
+        await ExecuteAsync(connection,
+            $"UPDATE \"{table}\" SET {string.Join(", ", assignments)} WHERE \"{idColumn}\" = @keeper;",
+            ("@keeper", keeperId), ("@loser", loserId));
+    }
+
+    /// <summary>
+    /// Finds the unique index covering exactly the given column and reports
+    /// its collation (via PRAGMA index_list / index_info / index_xinfo).
+    /// Returns (null, null) when no such index exists.
+    /// </summary>
+    private static async Task<(string? IndexName, string? Collation)> FindUniqueIndexAsync(
+        DbConnection connection,
+        string table,
+        string column)
+    {
+        var uniqueIndexes = new List<string>();
+        using (var listCommand = connection.CreateCommand())
+        {
+            // PRAGMA index_list columns: seq, name, unique, origin, partial.
+            // Table names cannot be parameterized in PRAGMA statements; the
+            // names used here are compile-time constants.
+            listCommand.CommandText = $"PRAGMA index_list(\"{table}\")";
+            await using var reader = await listCommand.ExecuteReaderAsync();
+            var nameOrdinal = reader.GetOrdinal("name");
+            var uniqueOrdinal = reader.GetOrdinal("unique");
+            while (await reader.ReadAsync())
+            {
+                if (Convert.ToInt64(reader.GetValue(uniqueOrdinal)) == 1)
+                {
+                    uniqueIndexes.Add(reader.GetString(nameOrdinal));
+                }
+            }
+        }
+
+        foreach (var indexName in uniqueIndexes)
+        {
+            // PRAGMA index_xinfo columns: seqno, cid, name, desc, coll, key.
+            // key=1 rows are the indexed columns (key=0 rows are the rowid tail).
+            using var infoCommand = connection.CreateCommand();
+            infoCommand.CommandText = $"PRAGMA index_xinfo(\"{indexName}\")";
+            var keyColumns = new List<(string? Name, string Collation)>();
+            await using var reader = await infoCommand.ExecuteReaderAsync();
+            var nameOrdinal = reader.GetOrdinal("name");
+            var collOrdinal = reader.GetOrdinal("coll");
+            var keyOrdinal = reader.GetOrdinal("key");
+            while (await reader.ReadAsync())
+            {
+                if (Convert.ToInt64(reader.GetValue(keyOrdinal)) != 1)
+                {
+                    continue;
+                }
+
+                keyColumns.Add((
+                    reader.IsDBNull(nameOrdinal) ? null : reader.GetString(nameOrdinal),
+                    reader.GetString(collOrdinal)));
+            }
+
+            if (keyColumns.Count == 1 &&
+                string.Equals(keyColumns[0].Name, column, StringComparison.OrdinalIgnoreCase))
+            {
+                return (indexName, keyColumns[0].Collation);
+            }
+        }
+
+        return (null, null);
+    }
+
+    private static async Task<long> ExecuteScalarLongAsync(
+        DbConnection connection,
+        string sql,
+        params (string Name, object? Value)[] parameters)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        foreach (var (name, value) in parameters)
+        {
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = name;
+            parameter.Value = value ?? DBNull.Value;
+            command.Parameters.Add(parameter);
+        }
+
+        var result = await command.ExecuteScalarAsync();
+        return result == null || result is DBNull ? 0L : Convert.ToInt64(result);
+    }
+
     private static async Task<HashSet<string>> GetTableNamesAsync(DbConnection connection)
     {
         var tables = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -364,10 +1009,21 @@ public static class SchemaUpgrader
         return columns;
     }
 
-    private static async Task ExecuteAsync(DbConnection connection, string sql)
+    private static async Task ExecuteAsync(
+        DbConnection connection,
+        string sql,
+        params (string Name, object? Value)[] parameters)
     {
         using var command = connection.CreateCommand();
         command.CommandText = sql;
+        foreach (var (name, value) in parameters)
+        {
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = name;
+            parameter.Value = value ?? DBNull.Value;
+            command.Parameters.Add(parameter);
+        }
+
         await command.ExecuteNonQueryAsync();
     }
 }

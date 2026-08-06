@@ -57,6 +57,16 @@ public interface IEventService
     // Embeddings
     Task<bool> HasEmbeddingAsync(string eventId);
     Task GenerateEmbeddingAsync(string eventId);
+
+    /// <summary>
+    /// Regenerates embeddings for ALL events with the CURRENTLY configured
+    /// embedding provider. Rows stored with a different dimension than the
+    /// current provider produces are deleted up front, so a cancelled run can
+    /// never leave a cross-dimension mix that corrupts similarity math.
+    /// Reports (done, total) progress and honors cancellation between events.
+    /// </summary>
+    /// <returns>The number of events re-embedded.</returns>
+    Task<int> ReEmbedAllAsync(IProgress<(int done, int total)>? progress = null, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -66,6 +76,8 @@ public class EventService : IEventService
 {
     private readonly IEventRepository _eventRepository;
     private readonly IEmbeddingService? _embeddingService;
+    private readonly IMediaService? _mediaService;
+    private readonly EventRevisionWriter? _revisionWriter;
     private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly ILogger<EventService> _logger;
 
@@ -73,12 +85,16 @@ public class EventService : IEventService
         IEventRepository eventRepository,
         IDbContextFactory<AppDbContext> contextFactory,
         ILogger<EventService> logger,
-        IEmbeddingService? embeddingService = null)
+        IEmbeddingService? embeddingService = null,
+        IMediaService? mediaService = null,
+        EventRevisionWriter? revisionWriter = null)
     {
         _eventRepository = eventRepository;
         _contextFactory = contextFactory;
         _logger = logger;
         _embeddingService = embeddingService;
+        _mediaService = mediaService;
+        _revisionWriter = revisionWriter;
     }
 
     // CRUD operations
@@ -96,6 +112,18 @@ public class EventService : IEventService
 
             var createdEvent = await _eventRepository.AddAsync(eventData);
             _logger.LogInformation("Event created: {EventId} - {Title}", createdEvent.EventId, createdEvent.Title);
+
+            // Revision history (F12): record the creation-time state. Junctions
+            // are always empty at this moment (tags/people/locations attach
+            // afterwards via the association APIs). Gated on the
+            // revision_history_enabled setting inside the writer; never throws.
+            if (_revisionWriter != null)
+            {
+                await _revisionWriter.TryWriteSnapshotAsync(
+                    EventRevisionWriter.BuildSnapshot(
+                        createdEvent, Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>()),
+                    RevisionKind.Created);
+            }
 
             // Notify subscribers (e.g. TimelineViewModel) that a new event exists.
             // A subscriber failure must not turn a successful create into an error.
@@ -173,8 +201,43 @@ public class EventService : IEventService
                 throw new InvalidOperationException($"Event not found: {eventData.EventId}");
             }
 
+            // Revision history (F12): capture the PRE-edit state (scalars +
+            // junction names, loaded fresh) BEFORE the update overwrites it,
+            // plus a field-by-field changed-fields csv. Failures here are
+            // logged and must never fail the update itself.
+            EventSnapshot? preEditSnapshot = null;
+            string? changedFieldsCsv = null;
+            if (_revisionWriter != null)
+            {
+                try
+                {
+                    if (await _revisionWriter.IsEnabledAsync())
+                    {
+                        preEditSnapshot = await _revisionWriter.BuildSnapshotFromDatabaseAsync(eventData.EventId);
+                        if (preEditSnapshot != null)
+                        {
+                            changedFieldsCsv = EventRevisionWriter.ComputeChangedFieldsCsv(preEditSnapshot, eventData);
+                        }
+                    }
+                }
+                catch (Exception revisionEx)
+                {
+                    preEditSnapshot = null;
+                    _logger.LogWarning(revisionEx,
+                        "Could not capture the pre-edit revision snapshot for event {EventId}; the update proceeds without one.",
+                        eventData.EventId);
+                }
+            }
+
             eventData.UpdatedAt = DateTime.UtcNow;
             await _eventRepository.UpdateAsync(eventData);
+
+            // The revision is written only after the update succeeded, so a
+            // failed save never leaves a phantom Edited revision.
+            if (_revisionWriter != null && preEditSnapshot != null)
+            {
+                await _revisionWriter.TryWriteSnapshotAsync(preEditSnapshot, RevisionKind.Edited, changedFieldsCsv);
+            }
 
             _logger.LogInformation("Event updated: {EventId} - {Title}", eventData.EventId, eventData.Title);
             return eventData;
@@ -196,8 +259,44 @@ public class EventService : IEventService
                 throw new InvalidOperationException($"Event not found: {eventId}");
             }
 
+            // Media files live outside the database: capture the event's media
+            // rows BEFORE the delete (the FK cascade removes the rows but
+            // cannot touch the files), then clean the files up afterwards.
+            // Lookup failure must not block the delete itself.
+            IReadOnlyList<EventMedia> mediaToClean = Array.Empty<EventMedia>();
+            if (_mediaService != null)
+            {
+                try
+                {
+                    mediaToClean = await _mediaService.GetForEventAsync(eventId);
+                }
+                catch (Exception mediaEx)
+                {
+                    _logger.LogWarning(mediaEx,
+                        "Could not enumerate media for event {EventId} before delete; managed files may be orphaned.",
+                        eventId);
+                }
+            }
+
             await _eventRepository.DeleteAsync(eventToDelete);
             _logger.LogInformation("Event deleted: {EventId}", eventId);
+
+            if (_mediaService != null && mediaToClean.Count > 0)
+            {
+                // Best-effort physical cleanup; DeleteFiles logs any failures.
+                _mediaService.DeleteFiles(mediaToClean);
+            }
+
+            // Notify subscribers (e.g. TimelineViewModel) that the event is gone.
+            // A subscriber failure must not turn a successful delete into an error.
+            try
+            {
+                WeakReferenceMessenger.Default.Send(new EventDeletedMessage(eventId));
+            }
+            catch (Exception messengerEx)
+            {
+                _logger.LogWarning(messengerEx, "Error publishing EventDeletedMessage for event {EventId}", eventId);
+            }
         }
         catch (Exception ex)
         {
@@ -694,31 +793,56 @@ public class EventService : IEventService
         _logger.LogInformation("Generating embedding for event {EventId}", eventData.EventId);
 
         // Create text representation of event
-        var text = string.IsNullOrWhiteSpace(eventData.Description)
-            ? eventData.Title
-            : $"{eventData.Title}. {eventData.Description}";
+        var text = ComposeEmbeddingText(eventData);
 
         // Generate embedding
         var embedding = await _embeddingService.GenerateEmbeddingAsync(text);
 
-        // Save embedding to database using a dedicated context (safe from any thread)
+        // Persist the ACTIVE provider's identity (IEmbeddingService.ProviderKey,
+        // e.g. "openai" / "local") instead of the old hard-coded "openai" string,
+        // so the dimension/provider guards in RagService can trust stored rows.
+        // ProviderKey (not ModelName) is the provenance field: it stays stable
+        // across model-name changes within a provider.
+        var providerKey = _embeddingService.ProviderKey;
+
         var eventEmbedding = new EventEmbedding
         {
             EmbeddingId = Guid.NewGuid().ToString(),
             EventId = eventData.EventId,
             EmbeddingVector = System.Text.Json.JsonSerializer.Serialize(embedding),
-            EmbeddingProvider = "openai",
+            EmbeddingProvider = string.IsNullOrWhiteSpace(providerKey) ? "unknown" : providerKey,
             EmbeddingModel = _embeddingService.ModelName,
             EmbeddingDimension = embedding.Length,
             CreatedAt = DateTime.UtcNow
         };
 
+        // Save embedding to database using a dedicated context (safe from any thread).
+        // Replace-then-add in ONE SaveChanges: event_id carries a unique index, so
+        // re-embedding an event must remove any previous row (possibly from a
+        // different provider) instead of violating the index.
         await using var context = await _contextFactory.CreateDbContextAsync();
+        var existingRows = await context.EventEmbeddings
+            .Where(ee => ee.EventId == eventData.EventId)
+            .ToListAsync();
+        if (existingRows.Count > 0)
+        {
+            context.EventEmbeddings.RemoveRange(existingRows);
+        }
         context.EventEmbeddings.Add(eventEmbedding);
         await context.SaveChangesAsync();
 
         _logger.LogInformation("Embedding generated and saved for event {EventId}", eventData.EventId);
     }
+
+    /// <summary>
+    /// The text an event is embedded from: title, or "title. description".
+    /// Shared by the per-event embedding path and the re-embed dimension probe
+    /// so both always embed identical input.
+    /// </summary>
+    private static string ComposeEmbeddingText(Event eventData)
+        => string.IsNullOrWhiteSpace(eventData.Description)
+            ? eventData.Title
+            : $"{eventData.Title}. {eventData.Description}";
 
     // Embeddings
 
@@ -757,6 +881,91 @@ public class EventService : IEventService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error generating embedding for event: {EventId}", eventId);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Regenerates embeddings for every event with the CURRENT provider (used by
+    /// the Settings "Re-embed all events" action after a provider switch).
+    /// The current dimension is resolved from an actual probe embedding (never
+    /// the router's lagging EmbeddingDimension display property), stale-dimension
+    /// rows are deleted before anything is persisted so a cancelled run never
+    /// leaves a cross-dimension mix, and each event is then re-embedded one at a
+    /// time (the per-event upsert replaces same-dimension rows too).
+    /// </summary>
+    public async Task<int> ReEmbedAllAsync(IProgress<(int done, int total)>? progress = null, CancellationToken ct = default)
+    {
+        if (_embeddingService == null)
+        {
+            throw new InvalidOperationException("Embedding service is not configured");
+        }
+
+        try
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var events = (await _eventRepository.GetAllAsync()).ToList();
+            var total = events.Count;
+            var done = 0;
+            progress?.Report((0, total));
+
+            if (total == 0)
+            {
+                _logger.LogInformation("Re-embed requested but the archive has no events");
+                return 0;
+            }
+
+            // Resolve the ACTIVE provider's true dimension by generating a
+            // probe embedding (nothing is persisted). The routing facade's
+            // EmbeddingDimension display property lags behind a just-persisted
+            // provider switch (it reflects the provider of the LAST embedding
+            // call), so keying the stale delete on it would delete nothing
+            // right after a switch — and a cancelled run could then leave the
+            // cross-dimension mix this method promises to prevent. The probe
+            // also fails fast (bad key, missing model) BEFORE any row is
+            // deleted, and its actual vector length is authoritative for any
+            // provider. Cost: the first event's text is embedded twice.
+            var probeEmbedding = await _embeddingService.GenerateEmbeddingAsync(
+                ComposeEmbeddingText(events[0]));
+            var currentDimension = probeEmbedding.Length;
+
+            await using (var context = await _contextFactory.CreateDbContextAsync(ct))
+            {
+                var staleRows = await context.EventEmbeddings
+                    .Where(ee => ee.EmbeddingDimension != currentDimension)
+                    .ToListAsync(ct);
+                if (staleRows.Count > 0)
+                {
+                    context.EventEmbeddings.RemoveRange(staleRows);
+                    await context.SaveChangesAsync(ct);
+                    _logger.LogInformation(
+                        "Deleted {Count} stale embedding row(s) (dimension != {Dimension}) before re-embedding",
+                        staleRows.Count, currentDimension);
+                }
+            }
+
+            foreach (var eventData in events)
+            {
+                ct.ThrowIfCancellationRequested();
+                await GenerateEmbeddingForEventAsync(eventData);
+                done++;
+                progress?.Report((done, total));
+            }
+
+            _logger.LogInformation(
+                "Re-embedded {Done}/{Total} events with provider '{Provider}' ({Model})",
+                done, total, _embeddingService.ProviderKey, _embeddingService.ModelName);
+            return done;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Re-embed of all events was cancelled");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error re-embedding all events");
             throw;
         }
     }

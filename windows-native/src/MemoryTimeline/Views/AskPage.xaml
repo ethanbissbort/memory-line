@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="MemoryTimeline.Views.AskPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:viewmodels="using:MemoryTimeline.ViewModels"
+    mc:Ignorable="d"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Grid Padding="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,16">
+            <TextBlock Text="Ask your timeline"
+                      Style="{StaticResource TitleTextBlockStyle}"
+                      Margin="0,0,0,8"/>
+            <TextBlock Text="Ask questions about your memories — answers come only from your own archive, with citations."
+                      Style="{StaticResource BodyTextBlockStyle}"
+                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+
+            <!-- Degraded mode banner (no embedding key: keyword retrieval only) -->
+            <InfoBar IsOpen="{x:Bind ViewModel.ShowDegradedBanner, Mode=OneWay}"
+                    Severity="Informational"
+                    IsClosable="False"
+                    Title="Semantic search is off"
+                    Message="Semantic search is off — answers use keyword retrieval only."
+                    Margin="0,12,0,0">
+                <InfoBar.ActionButton>
+                    <Button Content="Open Settings"
+                           Command="{x:Bind ViewModel.OpenSettingsCommand}"/>
+                </InfoBar.ActionButton>
+            </InfoBar>
+
+            <!-- Error surface (e.g. no Anthropic API key) -->
+            <InfoBar IsOpen="{x:Bind ViewModel.ErrorMessage, Converter={StaticResource NullToFalseConverter}, Mode=OneWay}"
+                    Severity="Error"
+                    Title="Could not answer"
+                    Message="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
+                    Closed="ErrorBar_Closed"
+                    Margin="0,12,0,0"/>
+        </StackPanel>
+
+        <!-- Question input -->
+        <Grid Grid.Row="1" Margin="0,0,0,16" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBox x:Name="QuestionBox"
+                    Grid.Column="0"
+                    Text="{x:Bind ViewModel.QuestionText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                    PlaceholderText="Ask a question about your memories — press Enter to send"
+                    KeyDown="QuestionBox_KeyDown"/>
+
+            <Button Grid.Column="1"
+                   Style="{StaticResource AccentButtonStyle}"
+                   Command="{x:Bind ViewModel.AskCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE724;" FontSize="16"/>
+                    <TextBlock Text="Ask"/>
+                </StackPanel>
+            </Button>
+
+            <Button Grid.Column="2"
+                   Content="Stop"
+                   Command="{x:Bind ViewModel.StopCommand}"
+                   Visibility="{x:Bind ViewModel.IsBusy, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}"/>
+        </Grid>
+
+        <!-- Conversation / empty state -->
+        <Grid Grid.Row="2">
+
+            <!-- Conversation -->
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <ItemsControl ItemsSource="{x:Bind ViewModel.Exchanges}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="viewmodels:AskExchangeViewModel">
+                            <StackPanel Margin="0,0,0,20" Spacing="8">
+
+                                <!-- Question bubble -->
+                                <Border Background="{ThemeResource AccentFillColorDefaultBrush}"
+                                       CornerRadius="8"
+                                       Padding="12"
+                                       HorizontalAlignment="Right"
+                                       MaxWidth="640">
+                                    <TextBlock Text="{x:Bind Question}"
+                                              TextWrapping="Wrap"
+                                              Foreground="White"/>
+                                </Border>
+
+                                <!-- Answer bubble (text grows as streaming chunks append) -->
+                                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                       BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                       BorderThickness="1"
+                                       CornerRadius="8"
+                                       Padding="12"
+                                       HorizontalAlignment="Left"
+                                       MaxWidth="720">
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Text="{x:Bind Answer, Mode=OneWay}"
+                                                  TextWrapping="Wrap"/>
+
+                                        <!-- Citation chips -->
+                                        <ItemsControl ItemsSource="{x:Bind Citations}"
+                                                     Visibility="{x:Bind HasCitations, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="viewmodels:AskCitationDto">
+                                                    <Button Content="{x:Bind Label}"
+                                                           Command="{x:Bind OpenCommand}"
+                                                           Margin="0,2,0,0"/>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+
+            <!-- Empty state: example questions generated from real data.
+                 Declared last so it sits on top while visible (the conversation
+                 is empty then) and collapses once the first question is asked. -->
+            <StackPanel HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       Spacing="12"
+                       Visibility="{x:Bind ViewModel.ShowExamples, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
+                <FontIcon Glyph="&#xE9CE;"
+                         FontSize="48"
+                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                         HorizontalAlignment="Center"/>
+                <TextBlock Text="Ask anything about your own history"
+                          Style="{StaticResource SubtitleTextBlockStyle}"
+                          HorizontalAlignment="Center"/>
+                <TextBlock Text="Try one of these to get started:"
+                          Style="{StaticResource BodyTextBlockStyle}"
+                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                          HorizontalAlignment="Center"/>
+                <Button Content="{x:Bind ViewModel.ExampleQuestion1, Mode=OneWay}"
+                       HorizontalAlignment="Center"
+                       Command="{x:Bind ViewModel.AskExampleCommand}"
+                       CommandParameter="{x:Bind ViewModel.ExampleQuestion1, Mode=OneWay}"/>
+                <Button Content="{x:Bind ViewModel.ExampleQuestion2, Mode=OneWay}"
+                       HorizontalAlignment="Center"
+                       Command="{x:Bind ViewModel.AskExampleCommand}"
+                       CommandParameter="{x:Bind ViewModel.ExampleQuestion2, Mode=OneWay}"/>
+                <Button Content="{x:Bind ViewModel.ExampleQuestion3, Mode=OneWay}"
+                       HorizontalAlignment="Center"
+                       Command="{x:Bind ViewModel.AskExampleCommand}"
+                       CommandParameter="{x:Bind ViewModel.ExampleQuestion3, Mode=OneWay}"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Page>

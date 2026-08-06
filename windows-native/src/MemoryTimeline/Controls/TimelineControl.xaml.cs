@@ -9,6 +9,10 @@ using MemoryTimeline.Core.DTOs;
 using MemoryTimeline.Core.Models;
 using MemoryTimeline.Data.Models;
 using System.ComponentModel;
+using Windows.ApplicationModel.DataTransfer;
+using Windows.Storage;
+using Windows.Storage.Pickers;
+using WinRT.Interop;
 
 namespace MemoryTimeline.Controls;
 
@@ -99,6 +103,10 @@ public sealed partial class TimelineControl : UserControl
             UpdateTimelineSize();
             UpdateScrollbarFromViewport();
         }
+
+        // The ViewModel is a singleton; reflect its current lane mode in the
+        // freshly created dropdown.
+        SyncLaneModeRadios();
     }
 
     private async void TimelineControl_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -246,9 +254,12 @@ public sealed partial class TimelineControl : UserControl
     }
 
     /// <summary>
-    /// Handles view duration (zoom) changes from the proportional scrollbar edges.
+    /// Handles view duration (zoom) changes from the proportional scrollbar
+    /// edges. The visual scale change applies immediately to the already-
+    /// loaded items (cheap, in-memory); the database reload is debounced by
+    /// the ViewModel so an edge drag costs one reload, not one per tick.
     /// </summary>
-    private async void TimelineScrollBar_ViewDurationChanged(object sender, ViewDurationChangedEventArgs e)
+    private void TimelineScrollBar_ViewDurationChanged(object sender, ViewDurationChangedEventArgs e)
     {
         if (_viewModel?.Viewport == null || _isUpdatingScrollbar)
             return;
@@ -272,13 +283,61 @@ public sealed partial class TimelineControl : UserControl
             _viewModel.Viewport.PixelsPerDay = newPixelsPerDay;
             _viewModel.Viewport.ZoomLevel = ZoomHelper.GetClosestZoomLevel(newPixelsPerDay);
 
-            // Reload events and eras for the new viewport
-            // This would ideally be done through the ViewModel
-            await _viewModel.RefreshCommand.ExecuteAsync(null);
+            // Immediate re-layout of loaded items + trailing debounced reload.
+            _viewModel.NotifyViewportChangedExternally();
         }
         finally
         {
             _isUpdatingScrollbar = false;
+        }
+    }
+
+    #endregion
+
+    #region Swimlane Handlers
+
+    /// <summary>
+    /// Applies the lane mode chosen in the CommandBar "Lanes" dropdown. The
+    /// ViewModel re-lays-out the already-loaded events without a reload.
+    /// </summary>
+    private void LaneModeItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel == null || sender is not RadioMenuFlyoutItem item)
+            return;
+
+        if (Enum.TryParse<LaneMode>(item.Tag?.ToString(), out var mode) &&
+            _viewModel.LaneMode != mode)
+        {
+            _viewModel.LaneMode = mode;
+        }
+    }
+
+    /// <summary>Collapses/expands the lane whose gutter chevron was clicked.</summary>
+    private void LaneCollapse_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: LaneGutterRowDto row })
+        {
+            _viewModel?.ToggleLaneCollapse(row.LaneKey);
+        }
+    }
+
+    /// <summary>
+    /// Syncs the Lanes dropdown check state with the (singleton) ViewModel's
+    /// current mode - the control is recreated on every navigation.
+    /// </summary>
+    private void SyncLaneModeRadios()
+    {
+        if (_viewModel == null)
+            return;
+
+        var current = _viewModel.LaneMode.ToString();
+        foreach (var item in new[]
+                 {
+                     LaneModeAutoItem, LaneModeCategoryItem, LaneModePersonItem,
+                     LaneModeLocationItem, LaneModeEraItem, LaneModeTagItem
+                 })
+        {
+            item.IsChecked = string.Equals(item.Tag?.ToString(), current, StringComparison.OrdinalIgnoreCase);
         }
     }
 
@@ -680,6 +739,10 @@ public sealed partial class TimelineControl : UserControl
             _isSyncingDateFields = true;
             EventDatePicker.Date = new DateTimeOffset(date.Value);
             _isSyncingDateFields = false;
+
+            // The guarded picker update above suppresses DateChanged, so keep
+            // the precision preview current here.
+            UpdatePrecisionPreview();
         }
     }
 
@@ -691,6 +754,74 @@ public sealed partial class TimelineControl : UserControl
         _isSyncingDateFields = true;
         EventDateTextBox.Text = args.NewDate.Value.ToString("MMddyy");
         _isSyncingDateFields = false;
+
+        UpdatePrecisionPreview();
+    }
+
+    /// <summary>
+    /// Returns the precision selected in the event dialog's precision combo,
+    /// defaulting to Day when nothing is selected.
+    /// </summary>
+    private DatePrecision GetSelectedPrecision()
+    {
+        if (EventPrecisionCombo.SelectedItem is ComboBoxItem item)
+        {
+            return DatePrecisionParser.Parse(item.Tag?.ToString());
+        }
+
+        return DatePrecision.Day;
+    }
+
+    /// <summary>
+    /// Selects the precision combo item matching <paramref name="precision"/>
+    /// (falls back to Day for safety).
+    /// </summary>
+    private void SelectPrecisionComboItem(DatePrecision precision)
+    {
+        var value = DatePrecisionParser.ToStringValue(precision);
+        int fallbackIndex = 1; // "Day"
+
+        for (int i = 0; i < EventPrecisionCombo.Items.Count; i++)
+        {
+            if (EventPrecisionCombo.Items[i] is not ComboBoxItem item)
+                continue;
+
+            if (string.Equals(item.Tag?.ToString(), value, StringComparison.OrdinalIgnoreCase))
+            {
+                EventPrecisionCombo.SelectedIndex = i;
+                return;
+            }
+        }
+
+        EventPrecisionCombo.SelectedIndex = fallbackIndex;
+    }
+
+    private void EventPrecisionCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        UpdatePrecisionPreview();
+    }
+
+    /// <summary>
+    /// Shows the precision-honest human form of the chosen date ("Summer 1998")
+    /// while the precision is coarser than Day; hidden otherwise. The MMDDYY
+    /// fast-entry box is disabled at coarse precisions — the calendar picker
+    /// stays enabled because it is how the anchor month/season/year is chosen.
+    /// </summary>
+    private void UpdatePrecisionPreview()
+    {
+        var precision = GetSelectedPrecision();
+        var isDayGranular = precision <= DatePrecision.Day;
+
+        EventDateTextBox.IsEnabled = isDayGranular;
+
+        if (isDayGranular || !EventDatePicker.Date.HasValue)
+        {
+            EventPrecisionPreview.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        EventPrecisionPreview.Text = DateDisplay.FormatPrecise(EventDatePicker.Date.Value.DateTime, precision);
+        EventPrecisionPreview.Visibility = Visibility.Visible;
     }
 
     private async void AddEventButton_Click(object sender, RoutedEventArgs e)
@@ -712,6 +843,7 @@ public sealed partial class TimelineControl : UserControl
     private async Task ShowAddEventDialogAsync(DateTime defaultDate)
     {
         _editingEventId = null;
+        _dialogSessionAttachedMedia.Clear();
         EventDialog.Title = "Add Event";
 
         // Reset dialog state (chips, era choices, draft id) in the ViewModel.
@@ -726,6 +858,8 @@ public sealed partial class TimelineControl : UserControl
         EventDateTextBox.Text = defaultDate.ToString("MMddyy");
         EventDatePicker.Date = new DateTimeOffset(defaultDate);
         _isSyncingDateFields = false;
+        SelectPrecisionComboItem(DatePrecision.Day);
+        UpdatePrecisionPreview();
         EventEndDatePicker.Date = null;
         EventDescriptionBox.Text = "";
         // Pre-select the canonical default category instead of leaving the field
@@ -752,6 +886,7 @@ public sealed partial class TimelineControl : UserControl
             return;
 
         _editingEventId = null;
+        _dialogSessionAttachedMedia.Clear();
         EventDialog.Title = "Add Event";
 
         await _viewModel.PrepareEventDialogAsync(null);
@@ -763,6 +898,8 @@ public sealed partial class TimelineControl : UserControl
         EventDateTextBox.Text = startDate.ToString("MMddyy");
         EventDatePicker.Date = new DateTimeOffset(startDate);
         _isSyncingDateFields = false;
+        SelectPrecisionComboItem(payload?.DatePrecision ?? DatePrecision.Day);
+        UpdatePrecisionPreview();
         EventEndDatePicker.Date = payload?.EndDate is DateTime draftEnd
             ? new DateTimeOffset(draftEnd)
             : null;
@@ -809,6 +946,7 @@ public sealed partial class TimelineControl : UserControl
     private async Task ShowEditEventDialogAsync(TimelineEventDto eventDto)
     {
         _editingEventId = eventDto.EventId;
+        _dialogSessionAttachedMedia.Clear();
         EventDialog.Title = "Edit Event";
 
         // Reset dialog state and load the event's current people/tags into
@@ -824,6 +962,8 @@ public sealed partial class TimelineControl : UserControl
         EventDateTextBox.Text = eventDto.StartDate.ToString("MMddyy");
         EventDatePicker.Date = new DateTimeOffset(eventDto.StartDate);
         _isSyncingDateFields = false;
+        SelectPrecisionComboItem(eventDto.DatePrecision);
+        UpdatePrecisionPreview();
         EventEndDatePicker.Date = eventDto.EndDate is DateTime endDate
             ? new DateTimeOffset(endDate)
             : null;
@@ -840,6 +980,16 @@ public sealed partial class TimelineControl : UserControl
 
         EventDialog.XamlRoot = XamlRoot;
         await EventDialog.ShowAsync();
+
+        // Photos attached while the Edit dialog was open could not show the
+        // EXIF-date offer then (one ContentDialog at a time); offer now, once,
+        // re-evaluated against the event's current (possibly just-saved) date.
+        if (_dialogSessionAttachedMedia.Count > 0)
+        {
+            var attachedDuringDialog = _dialogSessionAttachedMedia.ToList();
+            _dialogSessionAttachedMedia.Clear();
+            await OfferExifDateAdjustAsync(eventDto.EventId, attachedDuringDialog);
+        }
     }
 
     /// <summary>
@@ -899,6 +1049,15 @@ public sealed partial class TimelineControl : UserControl
         }
 
         EventCategoryCombo.SelectedIndex = fallbackIndex;
+    }
+
+    /// <summary>Opens the revision-history dialog for the right-clicked event (F12).</summary>
+    private async void EventHistoryMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_contextMenuEvent == null) return;
+        var historyDialog = new EventHistoryDialog(_contextMenuEvent.EventId, _contextMenuEvent.Title);
+        historyDialog.XamlRoot = XamlRoot;
+        await historyDialog.ShowAsync();
     }
 
     private async void DeleteEventMenuItem_Click(object sender, RoutedEventArgs e)
@@ -982,6 +1141,7 @@ public sealed partial class TimelineControl : UserControl
             }
 
             var eraId = (EventEraCombo.SelectedItem as EventEraChoiceDto)?.EraId;
+            var datePrecision = GetSelectedPrecision();
 
             EventDialogErrorBar.IsOpen = false;
 
@@ -995,7 +1155,8 @@ public sealed partial class TimelineControl : UserControl
                     EventDescriptionBox.Text,
                     category,
                     EventLocationBox.Text,
-                    eraId);
+                    eraId,
+                    datePrecision);
             }
             else
             {
@@ -1008,7 +1169,8 @@ public sealed partial class TimelineControl : UserControl
                     EventDescriptionBox.Text,
                     category,
                     EventLocationBox.Text,
-                    eraId);
+                    eraId,
+                    datePrecision);
             }
         }
         catch (Exception ex)
@@ -1056,7 +1218,8 @@ public sealed partial class TimelineControl : UserControl
                 EventEndDatePicker.Date?.DateTime,
                 category,
                 eraId,
-                EventLocationBox.Text);
+                EventLocationBox.Text,
+                GetSelectedPrecision());
         }
         catch (Exception ex)
         {
@@ -1224,6 +1387,382 @@ public sealed partial class TimelineControl : UserControl
 
     #endregion
 
+    #region Media Attachments (picker, drag-drop, lightbox)
+
+    // Extensions offered by the "Add photos..." pickers. Drag-drop accepts the
+    // full IMediaService allowlist; the service validates every file anyway.
+    private static readonly string[] PickerImageExtensions =
+    {
+        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".heic"
+    };
+
+    // Lightbox state: the items being paged through and the current index.
+    private List<EventMediaThumbDto> _lightboxItems = new();
+    private int _lightboxIndex = -1;
+    private bool _lightboxRemoveArmed;
+
+    // Media attached immediately while the EDIT Event dialog is open. Only one
+    // ContentDialog can be open at a time, so the F2 EXIF-date offer for these
+    // attachments is deferred until the Edit dialog closes (see
+    // ShowEditEventDialogAsync); details-panel attachments offer right away.
+    private readonly List<EventMedia> _dialogSessionAttachedMedia = new();
+
+    /// <summary>
+    /// Opens a multi-select file picker for photos (unpackaged-app interop:
+    /// the picker must be initialized with the window handle).
+    /// </summary>
+    private async Task<List<string>> PickMediaFilesAsync()
+    {
+        var openPicker = new FileOpenPicker
+        {
+            ViewMode = PickerViewMode.Thumbnail,
+            SuggestedStartLocation = PickerLocationId.PicturesLibrary
+        };
+        foreach (var extension in PickerImageExtensions)
+        {
+            openPicker.FileTypeFilter.Add(extension);
+        }
+
+        var hwnd = WindowNative.GetWindowHandle(App.Current.Window);
+        InitializeWithWindow.Initialize(openPicker, hwnd);
+
+        var files = await openPicker.PickMultipleFilesAsync();
+        return files?
+            .Select(f => f.Path)
+            .Where(p => !string.IsNullOrEmpty(p))
+            .ToList() ?? new List<string>();
+    }
+
+    /// <summary>Accepts file drags over the media drop targets.</summary>
+    private void MediaDropTarget_DragOver(object sender, DragEventArgs e)
+    {
+        e.AcceptedOperation = e.DataView.Contains(StandardDataFormats.StorageItems)
+            ? DataPackageOperation.Copy
+            : DataPackageOperation.None;
+    }
+
+    /// <summary>
+    /// Extracts local file paths from a drop's storage items. The deferral is
+    /// completed before any (slow) attachment work starts so the drag-drop
+    /// interaction finishes promptly.
+    /// </summary>
+    private static async Task<List<string>> GetDroppedFilePathsAsync(DragEventArgs e)
+    {
+        var paths = new List<string>();
+        if (!e.DataView.Contains(StandardDataFormats.StorageItems))
+        {
+            return paths;
+        }
+
+        var deferral = e.GetDeferral();
+        try
+        {
+            var items = await e.DataView.GetStorageItemsAsync();
+            paths.AddRange(items
+                .OfType<StorageFile>()
+                .Select(f => f.Path)
+                .Where(p => !string.IsNullOrEmpty(p)));
+        }
+        finally
+        {
+            deferral.Complete();
+        }
+
+        return paths;
+    }
+
+    /// <summary>"Add photos..." on the details-panel strip.</summary>
+    private async void AddPhotosToSelectedEvent_Click(object sender, RoutedEventArgs e)
+    {
+        var target = _viewModel?.SelectedEvent;
+        if (_viewModel == null || target == null)
+            return;
+
+        var paths = await PickMediaFilesAsync();
+        if (paths.Count > 0)
+        {
+            var attached = await _viewModel.AttachMediaToSelectedEventAsync(paths);
+            await OfferExifDateAdjustAsync(target.EventId, attached);
+        }
+    }
+
+    /// <summary>Files dropped on the details-panel strip.</summary>
+    private async void DetailsMediaStrip_Drop(object sender, DragEventArgs e)
+    {
+        var target = _viewModel?.SelectedEvent;
+        if (_viewModel == null || target == null)
+            return;
+
+        try
+        {
+            var paths = await GetDroppedFilePathsAsync(e);
+            if (paths.Count > 0)
+            {
+                var attached = await _viewModel.AttachMediaToSelectedEventAsync(paths);
+                await OfferExifDateAdjustAsync(target.EventId, attached);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Errors surface in the timeline InfoBar.
+            if (_viewModel != null)
+            {
+                _viewModel.ErrorMessage = $"Could not attach the dropped files: {ex.Message}";
+            }
+        }
+    }
+
+    /// <summary>"Add photos..." inside the Add/Edit Event dialog.</summary>
+    private async void EventDialogAddPhotos_Click(object sender, RoutedEventArgs e)
+    {
+        var paths = await PickMediaFilesAsync();
+        await AddPhotosToDialogAsync(paths);
+    }
+
+    /// <summary>Files dropped on the Add/Edit Event dialog's photo section.</summary>
+    private async void EventDialogPhotos_Drop(object sender, DragEventArgs e)
+    {
+        try
+        {
+            var paths = await GetDroppedFilePathsAsync(e);
+            await AddPhotosToDialogAsync(paths);
+        }
+        catch (Exception ex)
+        {
+            ShowEventDialogError($"Could not attach the dropped files: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Routes dialog photos: a NEW event stages them (attached after save
+    /// creates the event id); an EXISTING event attaches immediately.
+    /// Failures show in the dialog's own error bar.
+    /// </summary>
+    private async Task AddPhotosToDialogAsync(List<string> paths)
+    {
+        if (_viewModel == null || paths.Count == 0)
+            return;
+
+        if (_editingEventId == null)
+        {
+            _viewModel.AddDialogPendingPhotos(paths);
+            return;
+        }
+
+        try
+        {
+            var attached = await _viewModel.AttachMediaAsync(_editingEventId, paths);
+            _viewModel.DialogPendingPhotosLabel = attached.Count == 1
+                ? "1 photo attached"
+                : $"{attached.Count} photos attached";
+
+            // The EXIF-date offer cannot show now (the Edit dialog is a
+            // ContentDialog and only one can be open); collect the batch and
+            // offer once after the dialog closes.
+            _dialogSessionAttachedMedia.AddRange(attached);
+        }
+        catch (Exception ex)
+        {
+            ShowEventDialogError($"Could not attach photos: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// F2 EXIF-date reconciliation, offer half: when the just-attached batch
+    /// contains a photo whose EXIF capture date falls outside the event's
+    /// precision window (the ViewModel decides — media without CapturedAt
+    /// never qualify), offers to move the event to the capture day. At most
+    /// ONE offer per batch, keyed on the earliest capture date. "Update"
+    /// persists through the ViewModel's event-update path (which publishes
+    /// EventUpdatedMessage); "Keep" leaves the event untouched.
+    /// </summary>
+    private async Task OfferExifDateAdjustAsync(string eventId, IReadOnlyList<EventMedia> newlyAttached)
+    {
+        if (_viewModel == null || newlyAttached.Count == 0)
+            return;
+
+        var capturedAt = await _viewModel.GetExifDateOfferAsync(eventId, newlyAttached);
+        if (capturedAt == null)
+            return;
+
+        var exifDateText = capturedAt.Value.ToString(
+            "d MMM yyyy", System.Globalization.CultureInfo.InvariantCulture);
+
+        var offerDialog = new ContentDialog
+        {
+            Title = "Update event date?",
+            Content = $"Photo taken {exifDateText} — update event date to match?",
+            PrimaryButtonText = "Update",
+            CloseButtonText = "Keep",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = XamlRoot
+        };
+
+        var result = await offerDialog.ShowAsync();
+        if (result == ContentDialogResult.Primary)
+        {
+            await _viewModel.ApplyExifEventDateAsync(eventId, capturedAt.Value);
+        }
+    }
+
+    /// <summary>Opens the lightbox at the clicked thumbnail.</summary>
+    private async void MediaThumb_Click(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel == null)
+            return;
+
+        if (sender is FrameworkElement { DataContext: EventMediaThumbDto media })
+        {
+            var items = _viewModel.SelectedEventMedia.ToList();
+            var index = items.FindIndex(m => m.MediaId == media.MediaId);
+            if (index < 0)
+                return;
+
+            _lightboxItems = items;
+            _lightboxIndex = index;
+            ApplyLightboxItem();
+
+            MediaLightboxDialog.XamlRoot = XamlRoot;
+            await MediaLightboxDialog.ShowAsync();
+        }
+    }
+
+    /// <summary>
+    /// Shows the current lightbox item (image or file placeholder, counter,
+    /// nav enablement, caption) and resets the two-step Remove confirmation.
+    /// </summary>
+    private void ApplyLightboxItem()
+    {
+        _lightboxRemoveArmed = false;
+        MediaLightboxDialog.SecondaryButtonText = "Remove";
+        LightboxStatusText.Text = "";
+
+        if (_lightboxIndex < 0 || _lightboxIndex >= _lightboxItems.Count)
+            return;
+
+        var item = _lightboxItems[_lightboxIndex];
+        MediaLightboxDialog.Title = item.FileName;
+
+        if (item.IsImage)
+        {
+            LightboxImage.Source = item.CreateFullImage();
+            LightboxImage.Visibility = Visibility.Visible;
+            LightboxFilePlaceholder.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            LightboxImage.Source = null;
+            LightboxImage.Visibility = Visibility.Collapsed;
+            LightboxFilePlaceholder.Visibility = Visibility.Visible;
+            LightboxFileGlyph.Glyph = item.FileGlyph;
+            LightboxFileName.Text = item.FileName;
+        }
+
+        LightboxCounter.Text = $"{_lightboxIndex + 1} of {_lightboxItems.Count}";
+        LightboxPrevButton.IsEnabled = _lightboxIndex > 0;
+        LightboxNextButton.IsEnabled = _lightboxIndex < _lightboxItems.Count - 1;
+        LightboxCaptionBox.Text = item.Caption ?? "";
+    }
+
+    private void LightboxPrev_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lightboxIndex > 0)
+        {
+            _lightboxIndex--;
+            ApplyLightboxItem();
+        }
+    }
+
+    private void LightboxNext_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lightboxIndex < _lightboxItems.Count - 1)
+        {
+            _lightboxIndex++;
+            ApplyLightboxItem();
+        }
+    }
+
+    /// <summary>
+    /// "Save caption": persists the caption and keeps the lightbox open,
+    /// showing the outcome (or the failure reason) in the status line.
+    /// </summary>
+    private async void MediaLightbox_PrimaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
+    {
+        args.Cancel = true; // saving the caption never closes the lightbox
+        var deferral = args.GetDeferral();
+        try
+        {
+            if (_viewModel == null || _lightboxIndex < 0 || _lightboxIndex >= _lightboxItems.Count)
+                return;
+
+            var item = _lightboxItems[_lightboxIndex];
+            await _viewModel.UpdateMediaCaptionAsync(item, LightboxCaptionBox.Text);
+            LightboxStatusText.Text = "Caption saved.";
+        }
+        catch (Exception ex)
+        {
+            LightboxStatusText.Text = $"Could not save the caption: {ex.Message}";
+        }
+        finally
+        {
+            deferral.Complete();
+        }
+    }
+
+    /// <summary>
+    /// "Remove" with confirmation: the first click arms (button becomes
+    /// "Confirm remove"), the second click deletes the attachment and its
+    /// managed file. The lightbox advances to a neighbor, or closes when the
+    /// last item was removed. Failures keep it open with the reason shown.
+    /// </summary>
+    private async void MediaLightbox_SecondaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
+    {
+        if (!_lightboxRemoveArmed)
+        {
+            args.Cancel = true;
+            _lightboxRemoveArmed = true;
+            MediaLightboxDialog.SecondaryButtonText = "Confirm remove";
+            LightboxStatusText.Text = "This permanently deletes the copied file. Click 'Confirm remove' to proceed.";
+            return;
+        }
+
+        var deferral = args.GetDeferral();
+        try
+        {
+            if (_viewModel == null || _lightboxIndex < 0 || _lightboxIndex >= _lightboxItems.Count)
+                return;
+
+            var item = _lightboxItems[_lightboxIndex];
+            await _viewModel.RemoveMediaAsync(item);
+
+            _lightboxItems.RemoveAt(_lightboxIndex);
+            if (_lightboxItems.Count > 0)
+            {
+                args.Cancel = true; // keep browsing the remaining items
+                if (_lightboxIndex >= _lightboxItems.Count)
+                {
+                    _lightboxIndex = _lightboxItems.Count - 1;
+                }
+
+                ApplyLightboxItem();
+            }
+            // else: nothing left to show - let the dialog close.
+        }
+        catch (Exception ex)
+        {
+            args.Cancel = true;
+            _lightboxRemoveArmed = false;
+            MediaLightboxDialog.SecondaryButtonText = "Remove";
+            LightboxStatusText.Text = $"Could not remove the photo: {ex.Message}";
+        }
+        finally
+        {
+            deferral.Complete();
+        }
+    }
+
+    #endregion
+
     #region Error Surface / Navigation Handlers
 
     /// <summary>
@@ -1264,6 +1803,40 @@ public sealed partial class TimelineControl : UserControl
     private void HideAllEras_Click(object sender, RoutedEventArgs e)
     {
         _viewModel?.HideAllEras();
+    }
+
+    #endregion
+
+    #region Narrative Generation
+
+    /// <summary>
+    /// Opens the shared narrative-generation dialog scoped to the CURRENT
+    /// viewport date range ("tell the story of what I'm looking at"). The
+    /// dialog owns its own ViewModel, progress, and cancel-on-close state.
+    /// </summary>
+    private async void GenerateStoryButton_Click(object sender, RoutedEventArgs e)
+    {
+        var viewport = _viewModel?.Viewport;
+        if (viewport == null)
+        {
+            return;
+        }
+
+        var request = new Core.Services.NarrativeRequest
+        {
+            Scope = Core.Services.NarrativeScope.DateRange,
+            From = viewport.StartDate,
+            To = viewport.EndDate
+        };
+
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        var label = $"{viewport.StartDate.ToString("d MMM yyyy", culture)} – {viewport.EndDate.ToString("d MMM yyyy", culture)}";
+
+        var dialog = new NarrativeDialog(request, label)
+        {
+            XamlRoot = XamlRoot
+        };
+        await dialog.ShowAsync();
     }
 
     #endregion

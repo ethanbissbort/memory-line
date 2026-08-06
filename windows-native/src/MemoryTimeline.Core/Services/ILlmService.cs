@@ -21,6 +21,19 @@ public interface ILlmService
     Task<EventExtractionResult> ExtractEventsAsync(string transcript, ExtractionContext? context);
 
     /// <summary>
+    /// Runs a single free-form completion against the configured model.
+    /// Used by conversational features (e.g. "Ask your timeline") that need raw
+    /// text back rather than the structured extraction result.
+    /// </summary>
+    /// <param name="systemPrompt">System-level instructions for the model</param>
+    /// <param name="userPrompt">The user-turn content</param>
+    /// <param name="maxTokens">Maximum tokens for the response</param>
+    /// <param name="ct">Cancellation token honored at the call boundaries</param>
+    /// <returns>The model's text response (raw, untrimmed of code fences)</returns>
+    /// <exception cref="ConfigurationException">No API key is configured</exception>
+    Task<string> CompleteAsync(string systemPrompt, string userPrompt, int maxTokens = 2000, CancellationToken ct = default);
+
+    /// <summary>
     /// Gets the name of the LLM provider.
     /// </summary>
     string ProviderName { get; }
@@ -127,6 +140,14 @@ public class ExtractedEvent
     /// End date for duration events.
     /// </summary>
     public DateTime? EndDate { get; set; }
+
+    /// <summary>
+    /// Raw date-precision string from the model
+    /// (exact|day|month|season|year|decade|unknown). Null on payloads from
+    /// older prompts; parse defensively with
+    /// <c>MemoryTimeline.Data.Models.DatePrecisionParser.Parse</c>.
+    /// </summary>
+    public string? DatePrecision { get; set; }
 
     /// <summary>
     /// Event category.

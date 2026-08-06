@@ -37,7 +37,13 @@ public enum PersonMatchKind
     Nickname,
 
     /// <summary>Containment or small-edit-distance name match.</summary>
-    Fuzzy
+    Fuzzy,
+
+    /// <summary>
+    /// Exact case-insensitive alias-table match, resolved to the living
+    /// person. Ranks between Nickname and Fuzzy in match priority.
+    /// </summary>
+    Alias
 }
 
 /// <summary>
@@ -68,6 +74,52 @@ public sealed class PersonDuplicatePair
 }
 
 /// <summary>
+/// A suggested merge: two living persons who look like the same human, with a
+/// human-readable reason. <see cref="First"/> is the suggested merge target
+/// (keeper) and <see cref="Second"/> the suggested source, matching how the
+/// People page's duplicates banner drives its merge dialog.
+/// </summary>
+public sealed class MergeCandidate
+{
+    /// <summary>Suggested merge target (keeper).</summary>
+    public required PersonDto First { get; init; }
+
+    /// <summary>Suggested merge source.</summary>
+    public required PersonDto Second { get; init; }
+
+    /// <summary>Human-readable explanation of why the pair should merge.</summary>
+    public string Reason { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// Aggregated profile of one person: identity, linked events, first/last
+/// appearance, top co-occurring people, top shared locations, and aliases.
+/// </summary>
+public sealed class PersonProfile
+{
+    /// <summary>The person (with event count and first/last event dates).</summary>
+    public required PersonDto Person { get; init; }
+
+    /// <summary>Linked-event summaries, newest start date first.</summary>
+    public List<PersonEventSummary> Events { get; init; } = new();
+
+    /// <summary>Start date of the earliest linked event, or null.</summary>
+    public DateTime? FirstSeen { get; init; }
+
+    /// <summary>Start date of the latest linked event, or null.</summary>
+    public DateTime? LastSeen { get; init; }
+
+    /// <summary>Up to five living people sharing the most events, most shared first.</summary>
+    public List<(string PersonId, string Name, int SharedEvents)> TopCoOccurring { get; init; } = new();
+
+    /// <summary>Up to five locations of the person's events, most frequent first.</summary>
+    public List<(string Name, int Count)> TopLocations { get; init; } = new();
+
+    /// <summary>The person's aliases, ordered case-insensitively.</summary>
+    public List<string> Aliases { get; init; } = new();
+}
+
+/// <summary>
 /// Lightweight summary of an event linked to a person.
 /// </summary>
 public sealed class PersonEventSummary
@@ -93,6 +145,9 @@ public sealed class PersonEventSummary
 
 /// <summary>
 /// Service interface for contact-book person business logic.
+/// F9 deviation (deliberate): the spec's IPeopleService members were added to
+/// the pre-existing IPersonService rather than introducing a parallel
+/// interface; legacy member names are kept as delegating shims.
 /// </summary>
 public interface IPersonService
 {
@@ -126,11 +181,58 @@ public interface IPersonService
     /// <summary>Gets summaries of the events linked to a person, newest start date first.</summary>
     Task<List<PersonEventSummary>> GetEventsForPersonAsync(string personId);
 
-    /// <summary>Merges the source person into the target person and deletes the source.</summary>
+    /// <summary>
+    /// Legacy name for <see cref="MergeAsync"/>; kept for existing callers and
+    /// delegates to it (tombstone semantics — the source is no longer deleted).
+    /// </summary>
     Task MergePersonsAsync(string sourcePersonId, string targetPersonId);
 
-    /// <summary>Finds pairs of persons that look like duplicates.</summary>
+    /// <summary>
+    /// Merges the source person into the target person: repoints event links
+    /// (dedup-safe), backfills empty contact fields, ORs the favorite flag,
+    /// keeps the source's name/nickname as aliases of the target, and
+    /// TOMBSTONES the source (<see cref="Data.Models.Person.MergedIntoId"/>)
+    /// instead of deleting it. A tombstoned target is resolved through its
+    /// merge chain first; merging an already-tombstoned source is an
+    /// idempotent no-op; source == target (directly or via the chain) throws.
+    /// </summary>
+    Task MergeAsync(string sourcePersonId, string targetPersonId);
+
+    /// <summary>
+    /// Legacy shape of <see cref="SuggestMergesAsync"/>; kept for existing
+    /// callers and delegates to it.
+    /// </summary>
     Task<List<PersonDuplicatePair>> FindPotentialDuplicatesAsync();
+
+    /// <summary>
+    /// Suggests merges: near-duplicate name/nickname pairs PLUS alias
+    /// collisions (a living person whose name matches another living person's
+    /// alias), each with a human-readable reason.
+    /// </summary>
+    Task<List<MergeCandidate>> SuggestMergesAsync();
+
+    /// <summary>
+    /// Aggregated profile for a person (events, first/last appearance, top
+    /// co-occurring people, top locations, aliases). A tombstoned id resolves
+    /// through the merge chain to the surviving person. Null when not found.
+    /// </summary>
+    Task<PersonProfile?> GetProfileAsync(string personId);
+
+    /// <summary>
+    /// Adds an alias for a person. Aliases are unique case-insensitively
+    /// across all aliases AND all living canonical names: an alias that
+    /// already belongs to a different person, or equals another living
+    /// person's name, throws <see cref="InvalidOperationException"/> with a
+    /// user-facing message. Re-adding the person's own existing alias is an
+    /// idempotent no-op.
+    /// </summary>
+    Task AddAliasAsync(string personId, string alias);
+
+    /// <summary>Gets a person's aliases, ordered case-insensitively. A tombstoned id resolves through the merge chain.</summary>
+    Task<List<string>> GetAliasesAsync(string personId);
+
+    /// <summary>Removes an alias (case-insensitive match) from a person; a missing alias is a logged no-op.</summary>
+    Task RemoveAliasAsync(string personId, string alias);
 
     /// <summary>Finds the best existing person for a free-text name, or null when nothing plausible matches.</summary>
     Task<PersonMatch?> FindBestMatchAsync(string name);
@@ -161,7 +263,10 @@ public class PersonService : IPersonService
         {
             await using var context = await _contextFactory.CreateDbContextAsync();
 
-            var people = await context.People.AsNoTracking().ToListAsync();
+            // Tombstoned (merged-away) people never appear in lists.
+            var people = await context.People.AsNoTracking()
+                .Where(p => p.MergedIntoId == null)
+                .ToListAsync();
             var stats = await LoadEventStatsAsync(context);
 
             var dtos = people.Select(p => ToDto(p, stats));
@@ -188,7 +293,10 @@ public class PersonService : IPersonService
 
             await using var context = await _contextFactory.CreateDbContextAsync();
 
-            var people = await context.People.AsNoTracking().ToListAsync();
+            // Tombstoned (merged-away) people never appear in search results.
+            var people = await context.People.AsNoTracking()
+                .Where(p => p.MergedIntoId == null)
+                .ToListAsync();
             var stats = await LoadEventStatsAsync(context);
 
             var term = searchTerm.Trim();
@@ -211,20 +319,24 @@ public class PersonService : IPersonService
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// A tombstoned id resolves through the merge chain to the surviving
+    /// person, so callers holding pre-merge ids keep working. Null only when
+    /// the id (or its chain) leads nowhere.
+    /// </remarks>
     public async Task<PersonDto?> GetPersonAsync(string personId)
     {
         try
         {
             await using var context = await _contextFactory.CreateDbContextAsync();
 
-            var person = await context.People.AsNoTracking()
-                .FirstOrDefaultAsync(p => p.PersonId == personId);
-            if (person == null)
+            var person = await ResolveLivingPersonAsync(context, personId);
+            if (person == null || person.MergedIntoId != null)
             {
                 return null;
             }
 
-            var stats = await LoadEventStatsAsync(context, personId);
+            var stats = await LoadEventStatsAsync(context, person.PersonId);
             return ToDto(person, stats);
         }
         catch (Exception ex)
@@ -248,10 +360,25 @@ public class PersonService : IPersonService
 
             var lowered = name.Trim().ToLowerInvariant();
             var person = await context.People.AsNoTracking()
-                .FirstOrDefaultAsync(p => p.Name.ToLower() == lowered);
+                .FirstOrDefaultAsync(p => p.MergedIntoId == null && p.Name.ToLower() == lowered);
             if (person == null)
             {
-                return null;
+                // The name may belong to a tombstone (merged-away person);
+                // resolve through the chain so callers that hit the duplicate
+                // guard on create can still find the surviving contact. A
+                // tombstone itself is never returned.
+                var tombstone = await context.People.AsNoTracking()
+                    .FirstOrDefaultAsync(p => p.Name.ToLower() == lowered);
+                if (tombstone == null)
+                {
+                    return null;
+                }
+
+                person = await ResolveLivingPersonAsync(context, tombstone.PersonId);
+                if (person == null || person.MergedIntoId != null)
+                {
+                    return null;
+                }
             }
 
             var stats = await LoadEventStatsAsync(context, person.PersonId);
@@ -274,6 +401,7 @@ public class PersonService : IPersonService
             var people = await context.EventPeople.AsNoTracking()
                 .Where(ep => ep.EventId == eventId)
                 .Select(ep => ep.Person)
+                .Where(p => p.MergedIntoId == null) // merges repoint links, but never surface a stray tombstone
                 .OrderBy(p => p.Name)
                 .ToListAsync();
             if (people.Count == 0)
@@ -304,10 +432,18 @@ public class PersonService : IPersonService
 
             await using var context = await _contextFactory.CreateDbContextAsync();
 
+            // The duplicate check deliberately includes tombstones: a
+            // merged-away person keeps its row (and its slot in the NOCASE
+            // unique name index), so allowing the insert would fail with a
+            // raw constraint violation instead of this clear message.
             var lowered = trimmedName.ToLowerInvariant();
-            if (await context.People.AsNoTracking().AnyAsync(p => p.Name.ToLower() == lowered))
+            var duplicate = await context.People.AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Name.ToLower() == lowered);
+            if (duplicate != null)
             {
-                throw new InvalidOperationException($"A person named '{trimmedName}' already exists.");
+                throw new InvalidOperationException(duplicate.MergedIntoId == null
+                    ? $"A person named '{trimmedName}' already exists."
+                    : $"'{trimmedName}' was merged into another contact; use that contact instead.");
             }
 
             var entity = person.ToPerson();
@@ -348,6 +484,17 @@ public class PersonService : IPersonService
                 throw new InvalidOperationException($"Person not found: {person.PersonId}");
             }
 
+            // Renaming onto another person's name would trip the NOCASE
+            // unique index as a raw constraint violation; reject it with a
+            // user-facing message first.
+            var newLowered = person.Name.Trim().ToLowerInvariant();
+            if (newLowered.Length > 0 &&
+                await context.People.AsNoTracking().AnyAsync(p =>
+                    p.PersonId != entity.PersonId && p.Name.ToLower() == newLowered))
+            {
+                throw new InvalidOperationException($"A person named '{person.Name.Trim()}' already exists.");
+            }
+
             person.CopyTo(entity);
             entity.Name = entity.Name.Trim();
             entity.UpdatedAt = DateTime.UtcNow;
@@ -380,6 +527,28 @@ public class PersonService : IPersonService
             }
 
             context.People.Remove(entity);
+
+            // Also delete tombstones whose merge chain ends at this person:
+            // they are empty shells (their links were repointed at merge
+            // time), and leaving them would strand unresolvable chains.
+            var removedIds = new HashSet<string>(StringComparer.Ordinal) { personId };
+            var frontier = new List<string> { personId };
+            while (frontier.Count > 0)
+            {
+                var shells = await context.People
+                    .Where(p => p.MergedIntoId != null && frontier.Contains(p.MergedIntoId))
+                    .ToListAsync();
+                frontier = new List<string>();
+                foreach (var shell in shells)
+                {
+                    if (removedIds.Add(shell.PersonId))
+                    {
+                        context.People.Remove(shell);
+                        frontier.Add(shell.PersonId);
+                    }
+                }
+            }
+
             await context.SaveChangesAsync();
 
             _logger.LogInformation("Person deleted: {PersonId}", personId);
@@ -429,8 +598,13 @@ public class PersonService : IPersonService
         {
             await using var context = await _contextFactory.CreateDbContextAsync();
 
+            // A tombstoned id resolves to the surviving person (whose links
+            // include everything repointed by the merge).
+            var living = await ResolveLivingPersonAsync(context, personId);
+            var resolvedId = living?.PersonId ?? personId;
+
             var events = await context.EventPeople.AsNoTracking()
-                .Where(ep => ep.PersonId == personId)
+                .Where(ep => ep.PersonId == resolvedId)
                 .Select(ep => new
                 {
                     ep.Event.EventId,
@@ -461,7 +635,11 @@ public class PersonService : IPersonService
     }
 
     /// <inheritdoc />
-    public async Task MergePersonsAsync(string sourcePersonId, string targetPersonId)
+    public Task MergePersonsAsync(string sourcePersonId, string targetPersonId)
+        => MergeAsync(sourcePersonId, targetPersonId);
+
+    /// <inheritdoc />
+    public async Task MergeAsync(string sourcePersonId, string targetPersonId)
     {
         try
         {
@@ -479,10 +657,43 @@ public class PersonService : IPersonService
                 throw new InvalidOperationException($"Person not found: {sourcePersonId}");
             }
 
+            // Merging an already-tombstoned source is an idempotent no-op:
+            // its links, aliases, and contact data moved when it was merged.
+            if (source.MergedIntoId != null)
+            {
+                _logger.LogInformation(
+                    "MergeAsync: source {SourcePersonId} is already merged (into {MergedIntoId}); no-op.",
+                    sourcePersonId, source.MergedIntoId);
+                return;
+            }
+
             var target = await context.People.FirstOrDefaultAsync(p => p.PersonId == targetPersonId);
             if (target == null)
             {
                 throw new InvalidOperationException($"Person not found: {targetPersonId}");
+            }
+
+            // Merging INTO a tombstone follows its merge chain to the living
+            // person first. The visited set terminates a (should-be
+            // impossible) tombstone cycle instead of looping forever.
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            while (target.MergedIntoId != null)
+            {
+                if (!visited.Add(target.PersonId))
+                {
+                    throw new InvalidOperationException(
+                        "Merge chain contains a cycle; cannot resolve a living target.");
+                }
+
+                var nextId = target.MergedIntoId;
+                target = await context.People.FirstOrDefaultAsync(p => p.PersonId == nextId)
+                    ?? throw new InvalidOperationException($"Merge chain is broken: person not found: {nextId}");
+            }
+
+            if (string.Equals(target.PersonId, source.PersonId, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "Cannot merge a person into itself (the target's merge chain resolves back to the source).");
             }
 
             // Repoint junction rows from source to target. The composite PK
@@ -490,10 +701,10 @@ public class PersonService : IPersonService
             // removed and re-added; rows that would duplicate an existing
             // target link are simply dropped.
             var sourceLinks = await context.EventPeople
-                .Where(ep => ep.PersonId == sourcePersonId)
+                .Where(ep => ep.PersonId == source.PersonId)
                 .ToListAsync();
             var targetEventIds = (await context.EventPeople.AsNoTracking()
-                    .Where(ep => ep.PersonId == targetPersonId)
+                    .Where(ep => ep.PersonId == target.PersonId)
                     .Select(ep => ep.EventId)
                     .ToListAsync())
                 .ToHashSet(StringComparer.Ordinal);
@@ -506,11 +717,21 @@ public class PersonService : IPersonService
                     context.EventPeople.Add(new EventPerson
                     {
                         EventId = link.EventId,
-                        PersonId = targetPersonId,
+                        PersonId = target.PersonId,
                         CreatedAt = link.CreatedAt
                     });
                     targetEventIds.Add(link.EventId);
                 }
+            }
+
+            // Move the source's aliases to the target. The alias table is
+            // globally NOCASE-unique, so a plain FK move can never collide.
+            var sourceAliases = await context.PersonAliases
+                .Where(a => a.PersonId == source.PersonId)
+                .ToListAsync();
+            foreach (var alias in sourceAliases)
+            {
+                alias.PersonId = target.PersonId;
             }
 
             // Backfill contact fields the target lacks with the source's values.
@@ -530,14 +751,27 @@ public class PersonService : IPersonService
             }
             target.UpdatedAt = DateTime.UtcNow;
 
-            context.People.Remove(source);
+            // Keep the source's name and nickname as aliases of the target so
+            // future mentions ("Mike" in a transcript) still resolve here.
+            await AddMergeAliasAsync(context, target.PersonId, source.PersonId, source.Name);
+            if (!string.IsNullOrWhiteSpace(source.Nickname))
+            {
+                await AddMergeAliasAsync(context, target.PersonId, source.PersonId, source.Nickname);
+            }
+
+            // TOMBSTONE the source instead of deleting it: old references
+            // (navigation parameters, exports, stale UI) resolve through
+            // MergedIntoId to the surviving person.
+            source.MergedIntoId = target.PersonId;
+            source.UpdatedAt = DateTime.UtcNow;
 
             await context.SaveChangesAsync();
             await transaction.CommitAsync();
 
             _logger.LogInformation(
-                "Persons merged: {SourcePersonId} -> {TargetPersonId}", sourcePersonId, targetPersonId);
-            SendMessage(new PersonsMergedMessage(sourcePersonId, targetPersonId));
+                "Persons merged: {SourcePersonId} -> {TargetPersonId} (source tombstoned)",
+                source.PersonId, target.PersonId);
+            SendMessage(new PersonsMergedMessage(source.PersonId, target.PersonId));
         }
         catch (Exception ex)
         {
@@ -548,14 +782,79 @@ public class PersonService : IPersonService
         }
     }
 
+    /// <summary>
+    /// Adds one merge-produced alias (the source's name or nickname) to the
+    /// target, silently skipping collisions: an existing alias with the same
+    /// spelling (the table is NOCASE-unique) or another living person's
+    /// canonical name. The source is excluded from the living-name check
+    /// because it is tombstoned in the same pending SaveChanges.
+    /// </summary>
+    private async Task AddMergeAliasAsync(
+        AppDbContext context,
+        string targetPersonId,
+        string sourcePersonId,
+        string aliasValue)
+    {
+        var trimmed = aliasValue.Trim();
+        if (trimmed.Length == 0)
+        {
+            return;
+        }
+
+        var lowered = trimmed.ToLowerInvariant();
+
+        var aliasTaken =
+            context.PersonAliases.Local.Any(a => a.Alias.ToLowerInvariant() == lowered) ||
+            await context.PersonAliases.AsNoTracking().AnyAsync(a => a.Alias.ToLower() == lowered);
+        if (aliasTaken)
+        {
+            _logger.LogInformation(
+                "MergeAsync: skipping alias '{Alias}' for {TargetPersonId} (spelling already recorded).",
+                trimmed, targetPersonId);
+            return;
+        }
+
+        var nameTaken = await context.People.AsNoTracking().AnyAsync(p =>
+            p.MergedIntoId == null &&
+            p.PersonId != targetPersonId &&
+            p.PersonId != sourcePersonId &&
+            p.Name.ToLower() == lowered);
+        if (nameTaken)
+        {
+            _logger.LogInformation(
+                "MergeAsync: skipping alias '{Alias}' for {TargetPersonId} (matches another living person's name).",
+                trimmed, targetPersonId);
+            return;
+        }
+
+        context.PersonAliases.Add(new PersonAlias
+        {
+            PersonId = targetPersonId,
+            Alias = trimmed
+        });
+    }
+
     /// <inheritdoc />
     public async Task<List<PersonDuplicatePair>> FindPotentialDuplicatesAsync()
+    {
+        // Legacy shape: delegate to the alias-aware superset so both entry
+        // points always agree on what counts as a duplicate.
+        var candidates = await SuggestMergesAsync();
+        return candidates
+            .Select(c => new PersonDuplicatePair { First = c.First, Second = c.Second, Reason = c.Reason })
+            .ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<List<MergeCandidate>> SuggestMergesAsync()
     {
         try
         {
             var people = await GetAllPersonsAsync(PersonSortOption.Name, favoritesFirst: false);
-            var pairs = new List<PersonDuplicatePair>();
+            var candidates = new List<MergeCandidate>();
+            var seenPairs = new HashSet<string>(StringComparer.Ordinal);
 
+            // 1. Near-duplicate names/nicknames (the pre-alias heuristics).
             for (var i = 0; i < people.Count; i++)
             {
                 for (var j = i + 1; j < people.Count; j++)
@@ -563,18 +862,54 @@ public class PersonService : IPersonService
                     var a = people[i];
                     var b = people[j];
                     var reason = GetDuplicateReason(a, b);
-                    if (reason != null)
+                    if (reason != null && seenPairs.Add(PairKey(a.PersonId, b.PersonId)))
                     {
-                        pairs.Add(new PersonDuplicatePair { First = a, Second = b, Reason = reason });
+                        candidates.Add(new MergeCandidate { First = a, Second = b, Reason = reason });
                     }
                 }
             }
 
-            return pairs;
+            // 2. Alias collisions: a living person whose canonical name
+            //    matches another living person's alias — both records very
+            //    likely describe the same human. The alias owner is First
+            //    (suggested keeper), the namesake Second (suggested source).
+            await using var context = await _contextFactory.CreateDbContextAsync();
+            var aliasRows = await context.PersonAliases.AsNoTracking()
+                .Select(a => new { a.PersonId, a.Alias })
+                .ToListAsync();
+
+            var byId = people.ToDictionary(p => p.PersonId, StringComparer.Ordinal);
+            foreach (var aliasRow in aliasRows)
+            {
+                if (!byId.TryGetValue(aliasRow.PersonId, out var owner))
+                {
+                    continue; // owner tombstoned or missing
+                }
+
+                var namesake = people.FirstOrDefault(p =>
+                    p.PersonId != owner.PersonId &&
+                    string.Equals(p.Name.Trim(), aliasRow.Alias.Trim(), StringComparison.OrdinalIgnoreCase));
+                if (namesake == null)
+                {
+                    continue;
+                }
+
+                if (seenPairs.Add(PairKey(owner.PersonId, namesake.PersonId)))
+                {
+                    candidates.Add(new MergeCandidate
+                    {
+                        First = owner,
+                        Second = namesake,
+                        Reason = $"'{namesake.Name}' matches '{aliasRow.Alias}', an alias of '{owner.Name}'"
+                    });
+                }
+            }
+
+            return candidates;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error finding potential duplicate persons");
+            _logger.LogError(ex, "Error suggesting person merges");
             throw;
         }
     }
@@ -610,7 +945,29 @@ public class PersonService : IPersonService
                 return new PersonMatch { Person = byNickname, Kind = PersonMatchKind.Nickname };
             }
 
-            // 3. Fuzzy: normalized containment or Levenshtein distance <= 2.
+            // 3. Exact alias-table match (case-insensitive), resolved through
+            //    the merge chain to the living person. This is what lets
+            //    extraction resolve "Bob" to "Robert" instead of creating a
+            //    duplicate contact.
+            await using (var context = await _contextFactory.CreateDbContextAsync())
+            {
+                var loweredName = trimmed.ToLowerInvariant();
+                var aliasOwnerId = await context.PersonAliases.AsNoTracking()
+                    .Where(a => a.Alias.ToLower() == loweredName)
+                    .Select(a => a.PersonId)
+                    .FirstOrDefaultAsync();
+                if (aliasOwnerId != null)
+                {
+                    var living = await ResolveLivingPersonAsync(context, aliasOwnerId);
+                    if (living != null && living.MergedIntoId == null)
+                    {
+                        var stats = await LoadEventStatsAsync(context, living.PersonId);
+                        return new PersonMatch { Person = ToDto(living, stats), Kind = PersonMatchKind.Alias };
+                    }
+                }
+            }
+
+            // 4. Fuzzy: normalized containment or Levenshtein distance <= 2.
             PersonDto? best = null;
             var bestScore = int.MaxValue;
             foreach (var candidate in people)
@@ -655,7 +1012,288 @@ public class PersonService : IPersonService
         }
     }
 
+    /// <inheritdoc />
+    public async Task<PersonProfile?> GetProfileAsync(string personId)
+    {
+        try
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+
+            var person = await ResolveLivingPersonAsync(context, personId);
+            if (person == null || person.MergedIntoId != null)
+            {
+                return null;
+            }
+
+            var stats = await LoadEventStatsAsync(context, person.PersonId);
+            var dto = ToDto(person, stats);
+
+            var eventRows = await context.EventPeople.AsNoTracking()
+                .Where(ep => ep.PersonId == person.PersonId)
+                .Select(ep => new
+                {
+                    ep.Event.EventId,
+                    ep.Event.Title,
+                    ep.Event.StartDate,
+                    ep.Event.EndDate,
+                    ep.Event.Category
+                })
+                .OrderByDescending(e => e.StartDate)
+                .ToListAsync();
+
+            var events = eventRows
+                .Select(e => new PersonEventSummary
+                {
+                    EventId = e.EventId,
+                    Title = e.Title,
+                    StartDate = e.StartDate,
+                    EndDate = e.EndDate,
+                    Category = e.Category
+                })
+                .ToList();
+
+            var eventIds = eventRows.Select(e => e.EventId).ToList();
+            DateTime? firstSeen = eventRows.Count == 0 ? null : eventRows.Min(e => e.StartDate);
+            DateTime? lastSeen = eventRows.Count == 0 ? null : eventRows.Max(e => e.StartDate);
+
+            var topCoOccurring = new List<(string PersonId, string Name, int SharedEvents)>();
+            var topLocations = new List<(string Name, int Count)>();
+
+            if (eventIds.Count > 0)
+            {
+                // Top co-occurring people (living only), by shared event count.
+                var coCounts = await context.EventPeople.AsNoTracking()
+                    .Where(ep => eventIds.Contains(ep.EventId) && ep.PersonId != person.PersonId)
+                    .GroupBy(ep => ep.PersonId)
+                    .Select(g => new { PersonId = g.Key, Count = g.Count() })
+                    .ToListAsync();
+                var coIds = coCounts.Select(c => c.PersonId).ToList();
+                var coPeople = await context.People.AsNoTracking()
+                    .Where(p => coIds.Contains(p.PersonId) && p.MergedIntoId == null)
+                    .Select(p => new { p.PersonId, p.Name })
+                    .ToListAsync();
+                topCoOccurring = coCounts
+                    .Join(coPeople, c => c.PersonId, p => p.PersonId,
+                        (c, p) => (p.PersonId, p.Name, SharedEvents: c.Count))
+                    .OrderByDescending(x => x.SharedEvents)
+                    .ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+                    .Take(5)
+                    .ToList();
+
+                // Top locations of the person's events, by frequency.
+                var locationCounts = await context.EventLocations.AsNoTracking()
+                    .Where(el => eventIds.Contains(el.EventId))
+                    .GroupBy(el => el.LocationId)
+                    .Select(g => new { LocationId = g.Key, Count = g.Count() })
+                    .ToListAsync();
+                var locationIds = locationCounts.Select(l => l.LocationId).ToList();
+                var locations = await context.Locations.AsNoTracking()
+                    .Where(l => locationIds.Contains(l.LocationId))
+                    .Select(l => new { l.LocationId, l.Name })
+                    .ToListAsync();
+                topLocations = locationCounts
+                    .Join(locations, c => c.LocationId, l => l.LocationId,
+                        (c, l) => (l.Name, c.Count))
+                    .OrderByDescending(x => x.Count)
+                    .ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+                    .Take(5)
+                    .ToList();
+            }
+
+            var aliases = await context.PersonAliases.AsNoTracking()
+                .Where(a => a.PersonId == person.PersonId)
+                .Select(a => a.Alias)
+                .ToListAsync();
+
+            return new PersonProfile
+            {
+                Person = dto,
+                Events = events,
+                FirstSeen = firstSeen,
+                LastSeen = lastSeen,
+                TopCoOccurring = topCoOccurring,
+                TopLocations = topLocations,
+                Aliases = aliases.OrderBy(a => a, StringComparer.OrdinalIgnoreCase).ToList()
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error building profile for person: {PersonId}", personId);
+            throw;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task AddAliasAsync(string personId, string alias)
+    {
+        try
+        {
+            var trimmed = (alias ?? string.Empty).Trim();
+            if (trimmed.Length == 0)
+            {
+                throw new ArgumentException("Alias text is required", nameof(alias));
+            }
+            if (trimmed.Length > 200)
+            {
+                throw new ArgumentException("Alias is too long (200 characters max)", nameof(alias));
+            }
+
+            await using var context = await _contextFactory.CreateDbContextAsync();
+
+            var person = await ResolveLivingPersonAsync(context, personId);
+            if (person == null || person.MergedIntoId != null)
+            {
+                throw new InvalidOperationException($"Person not found: {personId}");
+            }
+
+            var lowered = trimmed.ToLowerInvariant();
+
+            // Case-insensitive uniqueness across ALL aliases (mirrors the
+            // NOCASE unique index, but fails with a clear message).
+            var existingAlias = await context.PersonAliases.AsNoTracking()
+                .FirstOrDefaultAsync(a => a.Alias.ToLower() == lowered);
+            if (existingAlias != null)
+            {
+                if (existingAlias.PersonId == person.PersonId)
+                {
+                    return; // idempotent: this person already has the alias
+                }
+
+                var ownerName = await context.People.AsNoTracking()
+                    .Where(p => p.PersonId == existingAlias.PersonId)
+                    .Select(p => p.Name)
+                    .FirstOrDefaultAsync();
+                throw new InvalidOperationException(
+                    $"'{trimmed}' is already an alias of '{ownerName ?? "another person"}'.");
+            }
+
+            // ... and across living canonical names (an alias equal to
+            // another person's name would silently absorb their mentions).
+            var namesake = await context.People.AsNoTracking()
+                .FirstOrDefaultAsync(p =>
+                    p.MergedIntoId == null &&
+                    p.PersonId != person.PersonId &&
+                    p.Name.ToLower() == lowered);
+            if (namesake != null)
+            {
+                throw new InvalidOperationException(
+                    $"'{trimmed}' is already the name of '{namesake.Name}'. Merge the two people instead of adding an alias.");
+            }
+
+            context.PersonAliases.Add(new PersonAlias
+            {
+                PersonId = person.PersonId,
+                Alias = trimmed
+            });
+            await context.SaveChangesAsync();
+
+            _logger.LogInformation("Alias '{Alias}' added for person {PersonId}", trimmed, person.PersonId);
+            SendMessage(new PersonUpdatedMessage(person.PersonId));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error adding alias '{Alias}' for person {PersonId}", alias, personId);
+            throw;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<List<string>> GetAliasesAsync(string personId)
+    {
+        try
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync();
+
+            var person = await ResolveLivingPersonAsync(context, personId);
+            if (person == null)
+            {
+                return new List<string>();
+            }
+
+            var aliases = await context.PersonAliases.AsNoTracking()
+                .Where(a => a.PersonId == person.PersonId)
+                .Select(a => a.Alias)
+                .ToListAsync();
+
+            return aliases.OrderBy(a => a, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting aliases for person {PersonId}", personId);
+            throw;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task RemoveAliasAsync(string personId, string alias)
+    {
+        try
+        {
+            var lowered = (alias ?? string.Empty).Trim().ToLowerInvariant();
+            if (lowered.Length == 0)
+            {
+                return;
+            }
+
+            await using var context = await _contextFactory.CreateDbContextAsync();
+
+            var row = await context.PersonAliases
+                .FirstOrDefaultAsync(a => a.PersonId == personId && a.Alias.ToLower() == lowered);
+            if (row == null)
+            {
+                _logger.LogInformation(
+                    "RemoveAliasAsync: alias '{Alias}' not found on person {PersonId}; no-op.", alias, personId);
+                return;
+            }
+
+            context.PersonAliases.Remove(row);
+            await context.SaveChangesAsync();
+
+            _logger.LogInformation("Alias '{Alias}' removed from person {PersonId}", alias, personId);
+            SendMessage(new PersonUpdatedMessage(personId));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error removing alias '{Alias}' from person {PersonId}", alias, personId);
+            throw;
+        }
+    }
+
     // Private helpers
+
+    /// <summary>
+    /// Resolves a person id through the merge-tombstone chain to the living
+    /// person. Returns null when the id (or the chain) leads nowhere; the
+    /// visited set terminates a malformed cycle, in which case the last
+    /// tombstone reached is returned (callers check MergedIntoId).
+    /// </summary>
+    private static async Task<Person?> ResolveLivingPersonAsync(AppDbContext context, string personId)
+    {
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var current = await context.People.AsNoTracking()
+            .FirstOrDefaultAsync(p => p.PersonId == personId);
+
+        while (current != null && current.MergedIntoId != null && visited.Add(current.PersonId))
+        {
+            var nextId = current.MergedIntoId;
+            var next = await context.People.AsNoTracking()
+                .FirstOrDefaultAsync(p => p.PersonId == nextId);
+            if (next == null)
+            {
+                // Broken chain (target deleted outside the service): treat
+                // the id as unresolvable rather than surfacing a tombstone.
+                return null;
+            }
+
+            current = next;
+        }
+
+        return current;
+    }
+
+    /// <summary>Order-independent key for a pair of person ids.</summary>
+    private static string PairKey(string a, string b) =>
+        string.CompareOrdinal(a, b) <= 0 ? $"{a}|{b}" : $"{b}|{a}";
 
     /// <summary>
     /// Loads per-person event statistics (count plus first/last event start

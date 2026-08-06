@@ -1,9 +1,12 @@
 using System.Data.Common;
 using FluentAssertions;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using MemoryTimeline.Data;
 using MemoryTimeline.Data.Models;
 using MemoryTimeline.Tests;
+using Moq;
 using Xunit;
 
 namespace MemoryTimeline.Tests.Integration;
@@ -22,7 +25,7 @@ public class PeopleSchemaTests : IDisposable
         "person_id", "name", "created_at",
         "nickname", "relationship", "email", "phone", "birthday", "company",
         "notes", "photo_path", "avatar_color", "is_favorite", "first_met_date",
-        "updated_at"
+        "updated_at", "merged_into_id"
     };
 
     private readonly List<(TestDbContextFactory Factory, string DatabasePath)> _databases = new();
@@ -81,6 +84,17 @@ public class PeopleSchemaTests : IDisposable
             indexes.Should().Contain("IX_drafts_draft_type");
             indexes.Should().Contain("IX_drafts_updated_at");
             indexes.Should().Contain("IX_people_is_favorite");
+            indexes.Should().Contain("IX_people_merged_into_id");
+
+            // The person_aliases table (2026-08 F9) with its NOCASE-unique alias index
+            tables.Should().Contain("person_aliases");
+            var aliasColumns = await GetColumnNamesAsync(connection, "person_aliases");
+            aliasColumns.Should().BeEquivalentTo(new[]
+            {
+                "alias_id", "person_id", "alias", "created_at"
+            });
+            indexes.Should().Contain("IX_person_aliases_alias");
+            indexes.Should().Contain("IX_person_aliases_person_id");
         }
 
         // Act again - running the upgrade a second time must be a safe no-op
@@ -103,6 +117,177 @@ public class PeopleSchemaTests : IDisposable
             legacy.IsFavorite.Should().BeFalse();
             legacy.Nickname.Should().BeNull();
             legacy.Birthday.Should().BeNull();
+        }
+    }
+
+    [Fact]
+    public async Task EnsureSchemaAsync_CaseVariantPeople_MergesRowsAndRebuildsIndexNocase_Idempotently()
+    {
+        // Arrange - an old-shape database (from the previously shipped people
+        // build: BINARY unique name index with contact columns already
+        // present and populated) holding case-variant duplicates: "Sarah"
+        // with 2 junction links (event-1, event-2) and "sarah" with 3
+        // (event-2, event-3, event-1) - two shared events (event-1 and
+        // event-2). "sarah" has the most junction links, so it must win
+        // keeper selection even though "Sarah" was inserted first. "Sarah"
+        // (the loser) is the row the user enriched - email, notes, favorite
+        // flag - so the repair must backfill those onto the keeper before
+        // deleting the loser row.
+        var factory = CreateFactory();
+        await using (var setupContext = factory.CreateDbContext())
+        {
+            var connection = setupContext.Database.GetDbConnection();
+            await connection.OpenAsync();
+            await ExecuteAsync(connection,
+                """
+                CREATE TABLE "people" (
+                    "person_id" TEXT NOT NULL CONSTRAINT "PK_people" PRIMARY KEY,
+                    "name" TEXT NOT NULL,
+                    "created_at" TEXT NOT NULL,
+                    "email" TEXT NULL,
+                    "notes" TEXT NULL,
+                    "is_favorite" INTEGER NOT NULL DEFAULT 0
+                );
+                """);
+            await ExecuteAsync(connection,
+                "CREATE UNIQUE INDEX \"IX_people_name\" ON \"people\" (\"name\");");
+            await ExecuteAsync(connection,
+                """
+                CREATE TABLE "events" (
+                    "event_id" TEXT NOT NULL CONSTRAINT "PK_events" PRIMARY KEY,
+                    "title" TEXT NOT NULL,
+                    "start_date" TEXT NOT NULL,
+                    "created_at" TEXT NOT NULL,
+                    "updated_at" TEXT NOT NULL
+                );
+                """);
+            await ExecuteAsync(connection,
+                """
+                CREATE TABLE "event_people" (
+                    "event_id" TEXT NOT NULL,
+                    "person_id" TEXT NOT NULL,
+                    "created_at" TEXT NOT NULL,
+                    CONSTRAINT "PK_event_people" PRIMARY KEY ("event_id", "person_id"),
+                    CONSTRAINT "FK_event_people_events_event_id" FOREIGN KEY ("event_id") REFERENCES "events" ("event_id") ON DELETE CASCADE,
+                    CONSTRAINT "FK_event_people_people_person_id" FOREIGN KEY ("person_id") REFERENCES "people" ("person_id") ON DELETE CASCADE
+                );
+                """);
+            await ExecuteAsync(connection,
+                """
+                INSERT INTO "people" ("person_id", "name", "created_at", "email", "notes", "is_favorite") VALUES
+                    ('person-upper', 'Sarah', '2024-01-01 00:00:00', 'sarah@example.com', 'Met on the coast trail', 1),
+                    ('person-lower', 'sarah', '2024-02-01 00:00:00', NULL, NULL, 0);
+                INSERT INTO "events" ("event_id", "title", "start_date", "created_at", "updated_at") VALUES
+                    ('event-1', 'Hike',   '2024-03-01 00:00:00', '2024-03-01 00:00:00', '2024-03-01 00:00:00'),
+                    ('event-2', 'Dinner', '2024-04-01 00:00:00', '2024-04-01 00:00:00', '2024-04-01 00:00:00'),
+                    ('event-3', 'Movie',  '2024-05-01 00:00:00', '2024-05-01 00:00:00', '2024-05-01 00:00:00');
+                INSERT INTO "event_people" ("event_id", "person_id", "created_at") VALUES
+                    ('event-1', 'person-upper', '2024-03-01 00:00:00'),
+                    ('event-2', 'person-upper', '2024-04-01 00:00:00'),
+                    ('event-2', 'person-lower', '2024-04-01 00:00:00'),
+                    ('event-3', 'person-lower', '2024-05-01 00:00:00'),
+                    ('event-1', 'person-lower', '2024-05-01 00:00:00');
+                """);
+        }
+
+        var loggerMock = new Mock<ILogger>();
+
+        // Act - run the upgrade (EnsureCreated is a no-op because tables exist)
+        await using (var upgradeContext = factory.CreateDbContext())
+        {
+            await SchemaUpgrader.EnsureSchemaAsync(upgradeContext, loggerMock.Object);
+        }
+
+        // Assert - one survivor holding BOTH people's event associations
+        await using (var verifyContext = factory.CreateDbContext())
+        {
+            var connection = verifyContext.Database.GetDbConnection();
+            await connection.OpenAsync();
+
+            // "sarah" (person-lower) has the most junction links, so it is the
+            // keeper - even though "Sarah" was inserted first. The loser row
+            // is gone.
+            var names = await GetNamesAsync(connection,
+                "SELECT name FROM \"people\" ORDER BY name");
+            names.Should().Equal("sarah");
+
+            // Every event association from both rows survived, deduplicated,
+            // repointed at the keeper: event-1, event-2, event-3.
+            var linkedEvents = await GetNamesAsync(connection,
+                "SELECT event_id FROM \"event_people\" WHERE person_id = 'person-lower' ORDER BY event_id",
+                "event_id");
+            linkedEvents.Should().Equal("event-1", "event-2", "event-3");
+            var orphanLinks = await GetNamesAsync(connection,
+                "SELECT event_id FROM \"event_people\" WHERE person_id <> 'person-lower'",
+                "event_id");
+            orphanLinks.Should().BeEmpty();
+
+            // The loser's spelling is kept as an alias of the keeper.
+            var aliases = await GetNamesAsync(connection,
+                "SELECT alias FROM \"person_aliases\" WHERE person_id = 'person-lower'",
+                "alias");
+            aliases.Should().Equal("Sarah");
+
+            // The loser's user-entered contact data was backfilled onto the
+            // keeper before the delete (exactly what MergeAsync would have
+            // preserved): empty columns take the loser's values and the
+            // favorite flag ORs in.
+            var survivor = await verifyContext.People.AsNoTracking().SingleAsync();
+            survivor.PersonId.Should().Be("person-lower");
+            survivor.Email.Should().Be("sarah@example.com");
+            survivor.Notes.Should().Be("Met on the coast trail");
+            survivor.IsFavorite.Should().BeTrue();
+
+            // The unique name index was rebuilt with COLLATE NOCASE...
+            var indexSql = await GetNamesAsync(connection,
+                "SELECT sql FROM sqlite_master WHERE type='index' AND name='IX_people_name'",
+                "sql");
+            indexSql.Should().ContainSingle().Which.Should().Contain("COLLATE NOCASE");
+
+            // ...and actually rejects case-variant duplicates now.
+            var insertVariant = async () => await ExecuteAsync(connection,
+                "INSERT INTO \"people\" (\"person_id\", \"name\", \"created_at\") " +
+                "VALUES ('person-dupe', 'SARAH', '2024-06-01 00:00:00');");
+            await insertVariant.Should().ThrowAsync<SqliteException>();
+        }
+
+        // The merge was logged with names and ids.
+        loggerMock.Verify(
+            l => l.Log(
+                LogLevel.Information,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((state, _) =>
+                    state.ToString()!.Contains("merged case-variant")),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.AtLeastOnce);
+
+        // Act again - a second run must be a safe no-op
+        await using (var secondUpgradeContext = factory.CreateDbContext())
+        {
+            await SchemaUpgrader.EnsureSchemaAsync(secondUpgradeContext);
+        }
+
+        // Assert - still exactly one sarah, three links, one alias, and the
+        // backfilled contact data untouched
+        await using (var reverifyContext = factory.CreateDbContext())
+        {
+            var connection = reverifyContext.Database.GetDbConnection();
+            await connection.OpenAsync();
+
+            (await GetNamesAsync(connection, "SELECT name FROM \"people\""))
+                .Should().Equal("sarah");
+            (await GetNamesAsync(connection,
+                "SELECT event_id FROM \"event_people\" ORDER BY event_id", "event_id"))
+                .Should().Equal("event-1", "event-2", "event-3");
+            (await GetNamesAsync(connection,
+                "SELECT alias FROM \"person_aliases\"", "alias"))
+                .Should().Equal("Sarah");
+
+            var survivor = await reverifyContext.People.AsNoTracking().SingleAsync();
+            survivor.Email.Should().Be("sarah@example.com");
+            survivor.Notes.Should().Be("Met on the coast trail");
+            survivor.IsFavorite.Should().BeTrue();
         }
     }
 

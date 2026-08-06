@@ -84,7 +84,7 @@
                              SelectedItem="{x:Bind ViewModel.LlmProvider, Mode=TwoWay}"
                              HorizontalAlignment="Stretch"
                              PlaceholderText="Select provider"/>
-                    <TextBlock Text="Anthropic (Claude) — additional providers planned"
+                    <TextBlock Text="Anthropic (Claude cloud) or any OpenAI-compatible endpoint"
                               Style="{StaticResource CaptionTextBlockStyle}"
                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 </StackPanel>
@@ -96,6 +96,18 @@
                             PlaceholderText="Enter model name"
                             HorizontalAlignment="Stretch"/>
                     <TextBlock Text="Specific model version to use for event extraction"
+                              Style="{StaticResource CaptionTextBlockStyle}"
+                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+
+                <StackPanel Spacing="8">
+                    <TextBlock Text="LLM Base URL"
+                              Style="{StaticResource BodyTextBlockStyle}"/>
+                    <TextBox x:Name="LlmBaseUrlBox"
+                            Text="{x:Bind ViewModel.LlmBaseUrl, Mode=TwoWay}"
+                            PlaceholderText="http://localhost:11434/v1"
+                            HorizontalAlignment="Stretch"/>
+                    <TextBlock Text="For Ollama / LM Studio / vLLM — used when the provider is OpenAI-compatible"
                               Style="{StaticResource CaptionTextBlockStyle}"
                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 </StackPanel>
@@ -113,16 +125,70 @@
                 </StackPanel>
 
                 <StackPanel Spacing="8">
+                    <TextBlock Text="Embedding Provider"
+                              Style="{StaticResource BodyTextBlockStyle}"/>
+                    <ComboBox x:Name="EmbeddingProviderComboBox"
+                             ItemsSource="{x:Bind ViewModel.EmbeddingProviderOptions}"
+                             SelectedItem="{x:Bind ViewModel.SelectedEmbeddingProvider, Mode=TwoWay}"
+                             HorizontalAlignment="Stretch"
+                             PlaceholderText="Select embedding provider"/>
+                    <TextBlock Text="Local runs entirely on-device (all-MiniLM-L6-v2, 384 dimensions, no key); OpenAI needs an API key"
+                              Style="{StaticResource CaptionTextBlockStyle}"
+                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+
+                <StackPanel Spacing="8">
                     <TextBlock Text="Embedding API Key (OpenAI)"
                               Style="{StaticResource BodyTextBlockStyle}"/>
                     <PasswordBox x:Name="EmbeddingApiKeyBox"
                                 Password="{x:Bind ViewModel.EmbeddingApiKey, Mode=TwoWay}"
                                 PlaceholderText="Enter OpenAI API key for embeddings"
                                 HorizontalAlignment="Stretch"/>
-                    <TextBlock Text="Required for Connections: similar events, cross-references, and tag suggestions"
+                    <TextBlock Text="Only needed when the embedding provider is OpenAI (cloud)"
                               Style="{StaticResource CaptionTextBlockStyle}"
                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 </StackPanel>
+
+                <InfoBar IsOpen="{x:Bind ViewModel.ShowReEmbedWarning, Mode=OneWay}"
+                        Severity="Warning"
+                        IsClosable="False"
+                        Title="Embedding provider changed"
+                        Message="Existing connections were computed with a different model — re-embed to keep similarity working"/>
+
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Command="{x:Bind ViewModel.ReEmbedAllCommand}"
+                           IsEnabled="{x:Bind ViewModel.IsReEmbedding, Converter={StaticResource BoolNegationConverter}, Mode=OneWay}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE72C;" FontSize="16"/>
+                            <TextBlock Text="Re-embed all events"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Content="Cancel"
+                           Command="{x:Bind ViewModel.CancelReEmbedCommand}"
+                           Visibility="{x:Bind ViewModel.IsReEmbedding, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}"/>
+                    <ProgressRing IsActive="{x:Bind ViewModel.IsReEmbedding, Mode=OneWay}"
+                                 Width="20" Height="20"
+                                 VerticalAlignment="Center"
+                                 Visibility="{x:Bind ViewModel.IsReEmbedding, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}"/>
+                </StackPanel>
+
+                <TextBlock Text="{x:Bind ViewModel.ReEmbedStatusMessage, Mode=OneWay}"
+                          Style="{StaticResource CaptionTextBlockStyle}"
+                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                          TextWrapping="Wrap"/>
+
+                <Border Height="1"
+                       Background="{ThemeResource DividerStrokeColorDefaultBrush}"
+                       Margin="0,8"/>
+
+                <TextBlock Text="{x:Bind ViewModel.PrivacySummary}"
+                          Style="{StaticResource CaptionTextBlockStyle}"
+                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                          TextWrapping="Wrap"/>
+
+                <TextBlock Text="{x:Bind ViewModel.LlmUsageSummary, Mode=OneWay}"
+                          Style="{StaticResource CaptionTextBlockStyle}"
+                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
             </StackPanel>
 
             <!-- Audio Section -->
@@ -254,7 +320,7 @@
                 </StackPanel>
             </StackPanel>
 
-            <!-- Data Management Section -->
+            <!-- Data Management Section (F12: backups, restore, cleanup) -->
             <StackPanel Spacing="16"
                        Padding="16"
                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
@@ -263,6 +329,94 @@
                        CornerRadius="8">
                 <TextBlock Text="Data Management"
                           Style="{StaticResource SubtitleTextBlockStyle}"/>
+
+                <!-- Backup destination -->
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Backup folder"
+                              Style="{StaticResource BodyTextBlockStyle}"/>
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox Grid.Column="0"
+                                Text="{x:Bind ViewModel.BackupDestination, Mode=OneWay}"
+                                IsReadOnly="True"
+                                PlaceholderText="No backup folder chosen"/>
+                        <Button Grid.Column="1"
+                               Content="Choose…"
+                               Command="{x:Bind ViewModel.PickBackupDestinationCommand}"/>
+                        <Button Grid.Column="2"
+                               Content="Open Backup Folder"
+                               Command="{x:Bind ViewModel.OpenBackupFolderCommand}"/>
+                    </Grid>
+                    <TextBlock Text="Where scheduled backups and pre-restore safety backups are written (local or network path)"
+                              Style="{StaticResource CaptionTextBlockStyle}"
+                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+
+                <!-- Schedule + last backup -->
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Automatic backup"
+                              Style="{StaticResource BodyTextBlockStyle}"/>
+                    <ComboBox ItemsSource="{x:Bind ViewModel.BackupScheduleOptions}"
+                             SelectedItem="{x:Bind ViewModel.SelectedBackupSchedule, Mode=TwoWay}"
+                             HorizontalAlignment="Stretch"/>
+                    <TextBlock Text="{x:Bind ViewModel.LastBackupDisplay, Mode=OneWay}"
+                              Style="{StaticResource CaptionTextBlockStyle}"
+                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+
+                <!-- Back Up Now / Restore -->
+                <StackPanel Spacing="8">
+                    <CheckBox Content="Include photos &amp; media"
+                             IsChecked="{x:Bind ViewModel.IncludeMediaInBackup, Mode=TwoWay}"/>
+                    <CheckBox Content="Include audio recordings"
+                             IsChecked="{x:Bind ViewModel.IncludeAudioInBackup, Mode=TwoWay}"/>
+
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0"
+                               HorizontalAlignment="Stretch"
+                               Style="{StaticResource AccentButtonStyle}"
+                               Command="{x:Bind ViewModel.BackUpNowCommand}"
+                               IsEnabled="{x:Bind ViewModel.IsBackingUp, Converter={StaticResource BoolNegationConverter}, Mode=OneWay}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE898;" FontSize="16"/>
+                                <TextBlock Text="Back Up Now"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Grid.Column="1"
+                               HorizontalAlignment="Stretch"
+                               Command="{x:Bind ViewModel.RestoreBackupCommand}"
+                               IsEnabled="{x:Bind ViewModel.IsRestoring, Converter={StaticResource BoolNegationConverter}, Mode=OneWay}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE777;" FontSize="16"/>
+                                <TextBlock Text="Restore…"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <ProgressBar Value="{x:Bind ViewModel.BackupProgress, Mode=OneWay}"
+                                Maximum="100"
+                                Visibility="{x:Bind ViewModel.IsBackingUp, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}"/>
+                    <ProgressRing IsActive="{x:Bind ViewModel.IsRestoring, Mode=OneWay}"
+                                 Width="24" Height="24"
+                                 HorizontalAlignment="Left"
+                                 Visibility="{x:Bind ViewModel.IsRestoring, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}"/>
+                    <TextBlock Text="{x:Bind ViewModel.BackupStatusMessage, Mode=OneWay}"
+                              Style="{StaticResource CaptionTextBlockStyle}"
+                              TextWrapping="Wrap"
+                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+
+                <Border Height="1"
+                       Background="{ThemeResource DividerStrokeColorDefaultBrush}"
+                       Margin="0,8"/>
 
                 <Button Command="{x:Bind ViewModel.ClearCacheCommand}"
                        HorizontalAlignment="Stretch">
@@ -273,6 +427,9 @@
                         </StackPanel>
                     </Button.Content>
                 </Button>
+                <TextBlock Text="Removes orphaned thumbnails, orphaned media files, and temp leftovers; reports the space actually freed"
+                          Style="{StaticResource CaptionTextBlockStyle}"
+                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
                 <Button Command="{x:Bind ViewModel.ResetSettingsCommand}"
                        HorizontalAlignment="Stretch">

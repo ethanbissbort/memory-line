@@ -332,12 +332,13 @@ public class PersonServiceTests : IDisposable
     // ---- Merge ----
 
     [Fact]
-    public async Task MergePersonsAsync_RepointsJunctionsBackfillsFieldsAndDeletesSource()
+    public async Task MergeAsync_RepointsJunctionsTombstonesSourceAndCreatesAliases()
     {
         // Arrange
         var source = await _personService.CreatePersonAsync(new PersonDto
         {
             Name = "Mike Old",
+            Nickname = "Mikey",
             Email = "mike@example.com",
             Company = "Acme",
             Notes = "Source notes",
@@ -359,17 +360,31 @@ public class PersonServiceTests : IDisposable
         await SeedLinkAsync(e3.EventId, target.PersonId);
 
         // Act
-        await _personService.MergePersonsAsync(source.PersonId, target.PersonId);
+        await _personService.MergeAsync(source.PersonId, target.PersonId);
 
-        // Assert - source row is gone
-        (await _personService.GetPersonAsync(source.PersonId)).Should().BeNull();
-
-        // Junctions repointed; the shared event link was not duplicated
+        // Assert - the source row is TOMBSTONED (kept, pointing at the target),
+        // not deleted; its id resolves through the chain to the target.
         await using var verifyContext = _contextFactory.CreateDbContext();
+        var sourceRow = await verifyContext.People.AsNoTracking()
+            .SingleAsync(p => p.PersonId == source.PersonId);
+        sourceRow.MergedIntoId.Should().Be(target.PersonId);
+        var resolved = await _personService.GetPersonAsync(source.PersonId);
+        resolved.Should().NotBeNull();
+        resolved!.PersonId.Should().Be(target.PersonId);
+
+        // Tombstones never appear in lists
+        var all = await _personService.GetAllPersonsAsync();
+        all.Should().ContainSingle().Which.PersonId.Should().Be(target.PersonId);
+
+        // Junctions repointed with ZERO orphans; the shared link was not duplicated
         var links = await verifyContext.EventPeople.AsNoTracking().ToListAsync();
         links.Should().OnlyContain(ep => ep.PersonId == target.PersonId);
         links.Select(ep => ep.EventId).Should().BeEquivalentTo(
             new[] { e1.EventId, e2.EventId, e3.EventId });
+
+        // The source's name AND nickname became aliases of the target
+        var aliases = await _personService.GetAliasesAsync(target.PersonId);
+        aliases.Should().BeEquivalentTo(new[] { "Mike Old", "Mikey" });
 
         // Missing contact fields backfilled from source; existing target values kept
         var merged = await _personService.GetPersonAsync(target.PersonId);
@@ -380,6 +395,194 @@ public class PersonServiceTests : IDisposable
         merged.Company.Should().Be("TargetCo");          // NOT overwritten by source
         merged.IsFavorite.Should().BeTrue();             // favorite flag carried over
         merged.EventCount.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task MergeAsync_AlreadyTombstonedSource_IsIdempotentNoOp()
+    {
+        // Arrange - A merged into B; A is now a tombstone
+        var a = await _personService.CreatePersonAsync(new PersonDto { Name = "Person A" });
+        var b = await _personService.CreatePersonAsync(new PersonDto { Name = "Person B" });
+        var c = await _personService.CreatePersonAsync(new PersonDto { Name = "Person C" });
+        await _personService.MergeAsync(a.PersonId, b.PersonId);
+
+        // Act - re-merging the tombstoned A (even into a different target) is a no-op
+        await _personService.MergeAsync(a.PersonId, c.PersonId);
+
+        // Assert - A still points at B; C gained nothing
+        await using var verifyContext = _contextFactory.CreateDbContext();
+        var aRow = await verifyContext.People.AsNoTracking()
+            .SingleAsync(p => p.PersonId == a.PersonId);
+        aRow.MergedIntoId.Should().Be(b.PersonId);
+        (await _personService.GetAliasesAsync(c.PersonId)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task MergeAsync_TombstonedTarget_ResolvesThroughChainToLivingPerson()
+    {
+        // Arrange - A was merged into B, so A is a tombstone
+        var a = await _personService.CreatePersonAsync(new PersonDto { Name = "Person A" });
+        var b = await _personService.CreatePersonAsync(new PersonDto { Name = "Person B" });
+        var c = await _personService.CreatePersonAsync(new PersonDto { Name = "Person C" });
+        var evt = await SeedEventAsync("C's event", new DateTime(2023, 6, 1));
+        await SeedLinkAsync(evt.EventId, c.PersonId);
+        await _personService.MergeAsync(a.PersonId, b.PersonId);
+
+        // Act - merging C INTO the tombstone A must land on the living B
+        await _personService.MergeAsync(c.PersonId, a.PersonId);
+
+        // Assert - C's tombstone points at B (not A) and B holds C's links
+        await using var verifyContext = _contextFactory.CreateDbContext();
+        var cRow = await verifyContext.People.AsNoTracking()
+            .SingleAsync(p => p.PersonId == c.PersonId);
+        cRow.MergedIntoId.Should().Be(b.PersonId);
+        var links = await verifyContext.EventPeople.AsNoTracking().ToListAsync();
+        links.Should().ContainSingle().Which.PersonId.Should().Be(b.PersonId);
+
+        // A double-hop chain resolves end to end: C -> B directly, A -> B
+        (await _personService.GetPersonAsync(c.PersonId))!.PersonId.Should().Be(b.PersonId);
+        (await _personService.GetPersonAsync(a.PersonId))!.PersonId.Should().Be(b.PersonId);
+    }
+
+    [Fact]
+    public async Task MergeAsync_SelfMergeDirectlyOrViaChain_Throws()
+    {
+        // Arrange
+        var a = await _personService.CreatePersonAsync(new PersonDto { Name = "Person A" });
+        var b = await _personService.CreatePersonAsync(new PersonDto { Name = "Person B" });
+        await _personService.MergeAsync(a.PersonId, b.PersonId); // A -> B
+
+        // Act & Assert - direct self-merge
+        var direct = async () => await _personService.MergeAsync(b.PersonId, b.PersonId);
+        await direct.Should().ThrowAsync<InvalidOperationException>();
+
+        // Act & Assert - the chain cannot produce a cycle: merging living B
+        // into tombstone A resolves A -> B == source and must throw, leaving
+        // B living.
+        var viaChain = async () => await _personService.MergeAsync(b.PersonId, a.PersonId);
+        await viaChain.Should().ThrowAsync<InvalidOperationException>();
+
+        await using var verifyContext = _contextFactory.CreateDbContext();
+        var bRow = await verifyContext.People.AsNoTracking()
+            .SingleAsync(p => p.PersonId == b.PersonId);
+        bRow.MergedIntoId.Should().BeNull();
+    }
+
+    // ---- Aliases ----
+
+    [Fact]
+    public async Task AddAliasAsync_RoundTripsAndIsIdempotentPerPerson()
+    {
+        // Arrange
+        var person = await _personService.CreatePersonAsync(new PersonDto { Name = "Robert Paulson" });
+
+        // Act
+        await _personService.AddAliasAsync(person.PersonId, "Bob");
+        await _personService.AddAliasAsync(person.PersonId, "bob"); // ci re-add: no-op
+
+        // Assert
+        (await _personService.GetAliasesAsync(person.PersonId)).Should().Equal("Bob");
+
+        // Act - remove (case-insensitive) and verify
+        await _personService.RemoveAliasAsync(person.PersonId, "BOB");
+        (await _personService.GetAliasesAsync(person.PersonId)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task AddAliasAsync_AliasEqualsLivingPersonName_ThrowsWithClearMessage()
+    {
+        // Arrange
+        var robert = await _personService.CreatePersonAsync(new PersonDto { Name = "Robert Paulson" });
+        await _personService.CreatePersonAsync(new PersonDto { Name = "Bob" });
+
+        // Act
+        var addAlias = async () => await _personService.AddAliasAsync(robert.PersonId, "bob");
+
+        // Assert - rejected because a living person is already named Bob
+        (await addAlias.Should().ThrowAsync<InvalidOperationException>())
+            .Which.Message.Should().Contain("Bob");
+    }
+
+    [Fact]
+    public async Task AddAliasAsync_AliasOwnedByAnotherPerson_Throws()
+    {
+        // Arrange
+        var robert = await _personService.CreatePersonAsync(new PersonDto { Name = "Robert Paulson" });
+        var bobby = await _personService.CreatePersonAsync(new PersonDto { Name = "Roberta Paulson" });
+        await _personService.AddAliasAsync(robert.PersonId, "Bob");
+
+        // Act
+        var stealAlias = async () => await _personService.AddAliasAsync(bobby.PersonId, "BOB");
+
+        // Assert
+        await stealAlias.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    // ---- Profile ----
+
+    [Fact]
+    public async Task GetProfileAsync_AggregatesEventsDatesCoOccurrenceLocationsAndAliases()
+    {
+        // Arrange - P shares events with Q (twice) and R (once), across two locations
+        var p = await _personService.CreatePersonAsync(new PersonDto { Name = "Paula Main" });
+        var q = await _personService.CreatePersonAsync(new PersonDto { Name = "Quinn Often" });
+        var r = await _personService.CreatePersonAsync(new PersonDto { Name = "Rare Guest" });
+        await _personService.AddAliasAsync(p.PersonId, "Pat");
+
+        var e1 = await SeedEventAsync("Earliest", new DateTime(2020, 1, 10));
+        var e2 = await SeedEventAsync("Middle", new DateTime(2022, 6, 15));
+        var e3 = await SeedEventAsync("Latest", new DateTime(2024, 3, 20));
+        await SeedLinkAsync(e1.EventId, p.PersonId);
+        await SeedLinkAsync(e1.EventId, q.PersonId);
+        await SeedLinkAsync(e2.EventId, p.PersonId);
+        await SeedLinkAsync(e2.EventId, q.PersonId);
+        await SeedLinkAsync(e2.EventId, r.PersonId);
+        await SeedLinkAsync(e3.EventId, p.PersonId);
+
+        var lakeHouse = await SeedLocationAsync("Lake House");
+        var office = await SeedLocationAsync("Office");
+        await SeedEventLocationAsync(e1.EventId, lakeHouse.LocationId);
+        await SeedEventLocationAsync(e2.EventId, lakeHouse.LocationId);
+        await SeedEventLocationAsync(e3.EventId, office.LocationId);
+
+        // Act
+        var profile = await _personService.GetProfileAsync(p.PersonId);
+
+        // Assert
+        profile.Should().NotBeNull();
+        profile!.Person.PersonId.Should().Be(p.PersonId);
+        profile.Person.EventCount.Should().Be(3);
+
+        profile.Events.Select(e => e.Title).Should().Equal("Latest", "Middle", "Earliest");
+        profile.FirstSeen.Should().Be(new DateTime(2020, 1, 10));
+        profile.LastSeen.Should().Be(new DateTime(2024, 3, 20));
+
+        profile.TopCoOccurring.Should().HaveCount(2);
+        profile.TopCoOccurring[0].Should().Be((q.PersonId, "Quinn Often", 2));
+        profile.TopCoOccurring[1].Should().Be((r.PersonId, "Rare Guest", 1));
+
+        profile.TopLocations.Should().Equal(("Lake House", 2), ("Office", 1));
+        profile.Aliases.Should().Equal("Pat");
+    }
+
+    [Fact]
+    public async Task GetProfileAsync_TombstonedId_ResolvesToSurvivorsProfile()
+    {
+        // Arrange
+        var source = await _personService.CreatePersonAsync(new PersonDto { Name = "Old Row" });
+        var target = await _personService.CreatePersonAsync(new PersonDto { Name = "Survivor" });
+        var evt = await SeedEventAsync("Their event", new DateTime(2021, 5, 5));
+        await SeedLinkAsync(evt.EventId, source.PersonId);
+        await _personService.MergeAsync(source.PersonId, target.PersonId);
+
+        // Act - asking for the tombstoned id yields the survivor's profile
+        var profile = await _personService.GetProfileAsync(source.PersonId);
+
+        // Assert
+        profile.Should().NotBeNull();
+        profile!.Person.PersonId.Should().Be(target.PersonId);
+        profile.Events.Should().ContainSingle().Which.EventId.Should().Be(evt.EventId);
+        profile.Aliases.Should().Contain("Old Row");
     }
 
     // ---- Matching ----
@@ -416,6 +619,45 @@ public class PersonServiceTests : IDisposable
         match.Should().NotBeNull();
         match!.Kind.Should().Be(PersonMatchKind.Nickname);
         match.Person.PersonId.Should().Be(person.PersonId);
+    }
+
+    [Fact]
+    public async Task FindBestMatchAsync_AliasExact_BeatsFuzzyAndReportsAliasKind()
+    {
+        // Arrange - "Bob" is an alias of Robert; "Bobb Smith" would otherwise
+        // win as a fuzzy (containment) match.
+        var robert = await _personService.CreatePersonAsync(new PersonDto { Name = "Robert Paulson" });
+        await _personService.CreatePersonAsync(new PersonDto { Name = "Bobb Smith" });
+        await _personService.AddAliasAsync(robert.PersonId, "Bob");
+
+        // Act
+        var match = await _personService.FindBestMatchAsync("bob");
+
+        // Assert - the alias tier sits above fuzzy
+        match.Should().NotBeNull();
+        match!.Kind.Should().Be(PersonMatchKind.Alias);
+        match.Person.PersonId.Should().Be(robert.PersonId);
+    }
+
+    [Fact]
+    public async Task FindBestMatchAsync_NicknameBeatsAlias()
+    {
+        // Arrange - one person is NICKNAMED Bob, another merely has the alias
+        var nicknamed = await _personService.CreatePersonAsync(new PersonDto
+        {
+            Name = "William Tell",
+            Nickname = "Bob"
+        });
+        var aliased = await _personService.CreatePersonAsync(new PersonDto { Name = "Robert Paulson" });
+        await _personService.AddAliasAsync(aliased.PersonId, "Bob");
+
+        // Act
+        var match = await _personService.FindBestMatchAsync("Bob");
+
+        // Assert - the nickname tier sits above the alias tier
+        match.Should().NotBeNull();
+        match!.Kind.Should().Be(PersonMatchKind.Nickname);
+        match.Person.PersonId.Should().Be(nicknamed.PersonId);
     }
 
     [Fact]
@@ -467,6 +709,27 @@ public class PersonServiceTests : IDisposable
         new[] { pair.First.Name, pair.Second.Name }
             .Should().BeEquivalentTo(new[] { "John Smith", "Jon Smith" });
         pair.Reason.Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public async Task SuggestMergesAsync_AliasCollision_ReturnsReasonedCandidate()
+    {
+        // Arrange - Robert carries the alias "Bob"; later a separate living
+        // person named "Bob" is created (names alone are not near-duplicates,
+        // so only the alias collision can surface this pair).
+        var robert = await _personService.CreatePersonAsync(new PersonDto { Name = "Robert Paulson" });
+        await _personService.AddAliasAsync(robert.PersonId, "Bob");
+        var bob = await _personService.CreatePersonAsync(new PersonDto { Name = "Bob" });
+
+        // Act
+        var candidates = await _personService.SuggestMergesAsync();
+
+        // Assert - the alias owner is the suggested keeper (First), the
+        // namesake the suggested source (Second), with an explanatory reason
+        var candidate = candidates.Should().ContainSingle().Subject;
+        candidate.First.PersonId.Should().Be(robert.PersonId);
+        candidate.Second.PersonId.Should().Be(bob.PersonId);
+        candidate.Reason.Should().Contain("Bob").And.Contain("alias");
     }
 
     // ---- Seed helpers ----
@@ -530,6 +793,33 @@ public class PersonServiceTests : IDisposable
         {
             EventId = eventId,
             PersonId = personId,
+            CreatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+    }
+
+    private async Task<Location> SeedLocationAsync(string name)
+    {
+        var location = new Location
+        {
+            LocationId = Guid.NewGuid().ToString(),
+            Name = name,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        await using var context = _contextFactory.CreateDbContext();
+        context.Locations.Add(location);
+        await context.SaveChangesAsync();
+        return location;
+    }
+
+    private async Task SeedEventLocationAsync(string eventId, string locationId)
+    {
+        await using var context = _contextFactory.CreateDbContext();
+        context.EventLocations.Add(new EventLocation
+        {
+            EventId = eventId,
+            LocationId = locationId,
             CreatedAt = DateTime.UtcNow
         });
         await context.SaveChangesAsync();

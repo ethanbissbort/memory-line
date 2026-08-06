@@ -1,4 +1,5 @@
 using System.Text.Json;
+using MemoryTimeline.Controls;
 using MemoryTimeline.Core.DTOs;
 using MemoryTimeline.Core.Services;
 using MemoryTimeline.ViewModels;
@@ -12,8 +13,16 @@ namespace MemoryTimeline.Views;
 
 /// <summary>
 /// People page: a contact book with a master list (search, sort, favorites),
-/// a detail pane with linked events, an add/edit dialog with draft support,
-/// merge, and delete.
+/// a detail pane with linked events, aliases, and story generation, an
+/// add/edit dialog with draft support, merge, and delete.
+///
+/// F9 deviation (deliberate): the people-hub spec describes a PeoplePage list
+/// plus a separate PersonProfilePage. This branch already shipped the "People"
+/// nav slot as this single master-detail page, whose detail pane IS the
+/// profile (contact fields, first/last appearance, linked events, aliases).
+/// Splitting it into two pages now would duplicate a working surface and break
+/// the established navigation protocol ("draft:&lt;id&gt;" / personId parameters),
+/// so the spec's profile features were folded into this page instead.
 /// </summary>
 public sealed partial class ContactsPage : Page
 {
@@ -163,6 +172,44 @@ public sealed partial class ContactsPage : Page
         {
             ViewModel.OpenEvent(summary.EventId);
         }
+    }
+
+    /// <summary>
+    /// Removes the clicked alias chip. The alias string rides on the chip
+    /// button's Tag (set via x:Bind in the chip DataTemplate).
+    /// </summary>
+    private void RemoveAlias_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement element && element.Tag is string alias)
+        {
+            ViewModel.RemoveAliasCommand.Execute(alias);
+        }
+    }
+
+    /// <summary>
+    /// Opens the narrative-generation dialog scoped to the selected person,
+    /// mirroring how ErasPage generates era stories. The dialog owns its own
+    /// ViewModel, progress, and cancellation state.
+    /// </summary>
+    private async void GeneratePersonStory_Click(object sender, RoutedEventArgs e)
+    {
+        var person = ViewModel.SelectedPerson;
+        if (person == null)
+        {
+            return;
+        }
+
+        var request = new NarrativeRequest
+        {
+            Scope = NarrativeScope.Person,
+            ScopeId = person.PersonId
+        };
+
+        var dialog = new NarrativeDialog(request, person.DisplayName)
+        {
+            XamlRoot = XamlRoot
+        };
+        await dialog.ShowAsync();
     }
 
     #endregion
@@ -495,7 +542,8 @@ public sealed partial class ContactsPage : Page
         MergeSourceText.Text = $"Merge '{source.DisplayName}' into another contact.";
         MergeWarningBar.Message =
             $"All event links from '{source.DisplayName}' move to the person you choose, " +
-            $"and '{source.DisplayName}' is deleted.";
+            $"and '{source.Name}' is kept as an alias of that person so future mentions " +
+            "still resolve to them.";
         MergeTargetCombo.SelectedItem = preselectTargetId == null
             ? null
             : ViewModel.MergeCandidates.FirstOrDefault(p => p.PersonId == preselectTargetId);

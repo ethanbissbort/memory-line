@@ -272,7 +272,11 @@ public partial class PersonDto : ObservableObject
 
     /// <summary>
     /// Copies the editable contact fields onto an existing entity. Does not
-    /// touch <see cref="Person.PersonId"/> or <see cref="Person.CreatedAt"/>.
+    /// touch <see cref="Person.PersonId"/>, <see cref="Person.CreatedAt"/>, or
+    /// <see cref="Person.MergedIntoId"/> (the merge tombstone is service-owned
+    /// state, deliberately absent from this DTO: tombstoned people are never
+    /// surfaced as DTOs, so exposing it here could only cause accidental
+    /// resurrection on update).
     /// </summary>
     public void CopyTo(Person person)
     {

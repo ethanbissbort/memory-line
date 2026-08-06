@@ -14,6 +14,18 @@ public interface IQueueService
     Task<RecordingQueue> AddToQueueAsync(AudioRecordingDto recording);
 
     /// <summary>
+    /// Enqueues pasted/typed text as a <see cref="QueueSourceType.Text"/> source.
+    /// The text goes straight to LLM extraction when processed — no audio file,
+    /// no speech-to-text. Throws <see cref="ArgumentException"/> for null/empty/
+    /// whitespace text (callers surface the message in an InfoBar).
+    /// </summary>
+    /// <param name="text">The text to extract events from. Stored verbatim.</param>
+    /// <param name="label">Optional display label (trimmed, clipped to 200 chars).</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The new queue item's id.</returns>
+    Task<string> EnqueueTextAsync(string text, string? label = null, CancellationToken ct = default);
+
+    /// <summary>
     /// Gets all recordings in the queue.
     /// </summary>
     Task<IEnumerable<AudioRecordingDto>> GetAllQueueItemsAsync();

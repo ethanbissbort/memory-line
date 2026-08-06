@@ -117,6 +117,21 @@ public class EventRepository : IEventRepository
         return await context.Events.CountAsync(predicate);
     }
 
+    /// <summary>
+    /// Widening margins for the precision-window branch of
+    /// <see cref="GetByDateRangeAsync"/>: the farthest an anchor date can sit
+    /// from an edge of its derived <see cref="DatePrecisionExtensions.GetWindow"/>
+    /// window. A Season or Year window stays within one year of the anchor
+    /// (a 31 Dec Year anchor is 364 days past its 1 Jan window start; a
+    /// Jan/Feb Season anchor reaches ~2 months back into the previous
+    /// December), so 366 days covers both with leap slack. A Decade window
+    /// spans ten years (a 31 Dec 1999 anchor is ~3651 days past its
+    /// 1 Jan 1990 window start), so 3653 days (ten years incl. leap days)
+    /// covers the worst case.
+    /// </summary>
+    private const int SeasonYearWindowMarginDays = 366;
+    private const int DecadeWindowMarginDays = 3653;
+
     public async Task<IEnumerable<Event>> GetByDateRangeAsync(DateTime startDate, DateTime endDate)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
@@ -124,16 +139,78 @@ public class EventRepository : IEventRepository
         // an event is in range when it starts before the range ends and ends
         // (or, for point-in-time events, starts) after the range begins.
         // This keeps multi-day events that are already in progress visible.
-        // People are included so timeline DTOs can surface them without a
-        // per-event lazy load.
-        return await context.Events
+        //
+        // Approximate events additionally match on their PRECISION WINDOW so
+        // a "Summer 1998" or Decade event still loads (and can render its
+        // uncertainty band) while its window overlaps the range even though
+        // the anchor date sits outside it: branch (b) uses the stored
+        // earliest/latest bounds when present, branch (c) approximates the
+        // derived window by matching the anchor against the range widened by
+        // the precision's maximum anchor-to-window-edge distance (the
+        // client-side GetWindow cannot run inside a SQL-translated
+        // predicate; the margins are documented on the constants above).
+        //
+        // People and tags are included so timeline DTOs can surface them
+        // without a per-event lazy load (tags feed the timeline's tag-lane
+        // grouping; one batched query, never per-event).
+        var seasonYearStart = AddDaysClamped(startDate, -SeasonYearWindowMarginDays);
+        var seasonYearEnd = AddDaysClamped(endDate, SeasonYearWindowMarginDays);
+        var decadeStart = AddDaysClamped(startDate, -DecadeWindowMarginDays);
+        var decadeEnd = AddDaysClamped(endDate, DecadeWindowMarginDays);
+
+        IQueryable<Event> query = context.Events
             .Include(e => e.Era)
             .Include(e => e.EventPeople)
                 .ThenInclude(ep => ep.Person)
+            .Include(e => e.EventTags)
+                .ThenInclude(et => et.Tag)
             .AsNoTracking() // Read-only optimization
-            .Where(e => e.StartDate <= endDate && (e.EndDate ?? e.StartDate) >= startDate)
-            .OrderBy(e => e.StartDate)
-            .ToListAsync();
+            .Where(e =>
+                // (a) the event's own date range overlaps the range
+                (e.StartDate <= endDate && (e.EndDate ?? e.StartDate) >= startDate)
+                // (b) the stored precision window overlaps the range
+                || (e.EarliestPossible != null && e.LatestPossible != null
+                    && e.EarliestPossible <= endDate && e.LatestPossible >= startDate)
+                // (c) no stored bounds: precision-derived widened margin
+                || ((e.EarliestPossible == null || e.LatestPossible == null)
+                    && (((e.DatePrecision == DatePrecision.Season || e.DatePrecision == DatePrecision.Year)
+                            && e.StartDate >= seasonYearStart && e.StartDate <= seasonYearEnd)
+                        || (e.DatePrecision == DatePrecision.Decade
+                            && e.StartDate >= decadeStart && e.StartDate <= decadeEnd))))
+            .OrderBy(e => e.StartDate);
+
+        // Two collection Includes in one SQL statement multiply into a
+        // cartesian product (rows per event = people x tags, duplicating the
+        // whole event payload; EF Core 8 logs MultipleCollectionIncludeWarning).
+        // Split query issues three simple statements instead - safe on SQLite
+        // with the per-operation context. The EF InMemory provider (unit
+        // tests) cannot translate AsSplitQuery, hence the relational guard.
+        if (context.Database.IsRelational())
+        {
+            query = query.AsSplitQuery();
+        }
+
+        return await query.ToListAsync();
+    }
+
+    /// <summary>
+    /// <see cref="DateTime.AddDays"/> clamped to the representable calendar
+    /// so extreme viewports near year 1 / 9999 cannot throw.
+    /// </summary>
+    private static DateTime AddDaysClamped(DateTime value, int days)
+    {
+        var ticks = value.Ticks + TimeSpan.FromDays(days).Ticks;
+        if (ticks < DateTime.MinValue.Ticks)
+        {
+            return DateTime.MinValue;
+        }
+
+        if (ticks > DateTime.MaxValue.Ticks)
+        {
+            return DateTime.MaxValue;
+        }
+
+        return new DateTime(ticks, value.Kind);
     }
 
     public async Task<IEnumerable<Event>> GetByCategoryAsync(string category)

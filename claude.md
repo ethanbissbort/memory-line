@@ -27,7 +27,7 @@ The solution is `windows-native/src/MemoryTimeline.sln`, four projects:
 | Project | Role |
 |---------|------|
 | **MemoryTimeline** | WinUI 3 app — Views (XAML), ViewModels, Controls, Converters, and platform services (audio, STT, notifications, jump list, navigation, theme). DI is wired in `App.xaml.cs`. |
-| **MemoryTimeline.Core** | Business logic — services (events, timeline, queue, extraction, RAG, export/import, settings, search, analytics), DTOs, timeline math, `SettingKeys`. No UI, no EF Core internals leaking out. |
+| **MemoryTimeline.Core** | Business logic — services (events, timeline, queue, extraction, RAG, ask/query, narrative, resurfacing, recall prompts, media, backup/revisions, export/import, settings, search, analytics), DTOs, timeline math, `SettingKeys`. No UI, no EF Core internals leaking out. |
 | **MemoryTimeline.Data** | Data access — `AppDbContext` (EF Core 8 + SQLite), entity models, repositories, and `SchemaUpgrader`. |
 | **MemoryTimeline.Tests** | xUnit unit, integration, and performance tests. |
 
@@ -90,15 +90,23 @@ await using var ctx = await _contextFactory.CreateDbContextAsync();
 | Capability | Implementation | Notes |
 |------------|----------------|-------|
 | **Speech-to-text** | **Local Whisper** via `WhisperSpeechToTextService` (Whisper.net, ggml `base` model) | File-based, fully offline after a one-time ~140 MB model download to `%LOCALAPPDATA%\MemoryTimeline\Models\`. The recorded WAV is transcribed on-device — **not** the old Windows `SpeechRecognizer`, which is mic-only and can't transcribe a file. |
-| **LLM extraction** | **Anthropic Claude** via `AnthropicLlmService` (`Anthropic.SDK`) | Turns transcripts into structured events (title, dates, category, tags, people, locations) held in a review queue. Requires an Anthropic key. |
-| **Embeddings (RAG)** | **OpenAI** via `OpenAIEmbeddingService` (registered with `AddHttpClient`) | **Optional** — powers Connections / semantic similarity. Degrades gracefully with a clear CTA when no embedding key is set. |
+| **LLM** (extraction, Ask, narratives, recall wording) | **Anthropic Claude** (`AnthropicLlmService`) **or** any **OpenAI-compatible endpoint** (`OpenAiCompatibleLlmService` — Ollama, LM Studio, vLLM) | `RoutingLlmService` is the registered `ILlmService`; it re-reads `llm_provider` on **every call**, so switching providers applies live. `ILlmUsageTracker` counts per-session calls/tokens for the Settings UI. |
+| **Embeddings (RAG / Ask)** | **Local ONNX** `all-MiniLM-L6-v2` (`OnnxEmbeddingService`, 384-dim, CPU execution provider) **or** **OpenAI** (`OpenAIEmbeddingService`, `AddHttpClient`) | `RoutingEmbeddingService` routes on `embedding_provider` (seeded default: `local`), so Connections/Ask semantic retrieval works with **no API key**. A dimension guard (`EmbeddingDimensionMismatchException`) blocks mixing 384/1536-dim vectors; Settings offers a re-embed flow. Local model (~90 MB + vocab) downloads once to `%LOCALAPPDATA%\MemoryTimeline\Models\all-MiniLM-L6-v2\`. |
+| **Geocoding** | Optional **Nominatim** via `NominatimGeocodingService` (`AddHttpClient`) | **Opt-in and OFF by default** (`geocoding_enabled`). When off, location coordinates come only from photo EXIF or manual pin drops — no place name leaves the machine. |
 
 ### The memory pipeline
 
 `Record (Windows MediaCapture) → recording_queue → Transcribe (local Whisper) → Extract
-(Claude → pending_events) → Review/approve → Timeline`. Each hop persists state so a
-failure is recoverable and visible in the UI. Approve is an **atomic** transaction
-writing the event plus its tags/people/locations together.
+(LLM → pending_events) → Review/approve → Timeline`. **Text sources join audio in the
+same queue**: pasted/typed text (Ctrl+Shift+V on the Queue page) becomes a
+`recording_queue` row with `source_type = Text` and the text stored in its `transcript`
+column, skipping transcription; Whisper output is likewise persisted to `transcript` and
+reused across retries instead of re-transcribing. Each hop persists state so a failure is
+recoverable and visible in the UI. Extraction assigns a **date precision**
+(`DatePrecision`: Exact/Day/Month/Season/Year/Decade/Unknown) rather than inventing exact
+days, and resolves people **alias-aware** (case-insensitive name → alias lookup). Approve
+is an **atomic** transaction writing the event plus its tags/people/locations (and
+precision/uncertainty fields) together.
 
 ---
 
@@ -148,19 +156,39 @@ For local dev on a real Windows machine: open the solution in VS 2022 and press 
 
 ## Data model (shared conceptual schema)
 
-Core: `events`, `eras`, `tags`, `people`, `locations`.
+Core: `events` (with `date_precision` + `earliest_possible`/`latest_possible`
+uncertainty window and `last_viewed_at`/`view_count` view tracking), `eras`,
+`era_categories`, `era_tags`, `milestones`, `tags`, `people` (contact fields plus a
+`merged_into_id` merge tombstone), `person_aliases`, `locations` (optional
+`latitude`/`longitude`, `place_type`, `canonical_name`, `geocoded_at`).
 Junctions: `event_tags`, `event_people`, `event_locations`.
-Processing: `recording_queue`, `pending_events`.
-RAG: `event_embeddings`, `cross_references`.
-System: `app_settings`. The Electron build uses a compatible SQLite schema (plus
-`events_fts` FTS5, Electron-only). DB file: `%LOCALAPPDATA%\MemoryTimeline\memory-timeline.db`.
+Processing: `recording_queue` (with `source_type`, `source_label`, persisted
+`transcript`), `pending_events` (mirrors the events precision columns).
+Attachments & history: `event_media` (managed media copies, EXIF, thumbnails, content
+hash), `event_revisions` (append-only edit history), `recall_prompts` (guided-recall
+questions, deduped forever).
+RAG: `event_embeddings` (with per-row `embedding_dimension`), `cross_references`.
+UX: `drafts`, `saved_searches`.
+System: `app_settings` — 33 seeded keys; **seed parity is three-way** (the
+`AppDbContext.SeedDefaultSettings` HasData seed, the `SchemaUpgrader` INSERT OR IGNORE
+backfill, and the `SettingKeys` constants must stay in sync — keep all three when adding
+a seeded setting).
+Identity: the unique name indexes on `people`/`tags`/`locations` are **COLLATE NOCASE**;
+`SchemaUpgrader` defensively merges pre-existing case-variant duplicates (backfilling the
+keeper's empty contact columns) before rebuilding each index.
+The Electron build uses a compatible SQLite schema (plus `events_fts` FTS5,
+Electron-only). DB file: `%LOCALAPPDATA%\MemoryTimeline\memory-timeline.db`.
 
 ---
 
 ## Security & privacy notes
 
-- **Local-first**: all data in local SQLite; audio transcribed on-device (Whisper).
-  Only the text you choose to process is sent to Claude / the embedding provider.
+- **Local-first**: all data in local SQLite; audio transcribed on-device (Whisper);
+  embeddings default to the **local ONNX** provider, so Connections/Ask retrieval needs no
+  cloud. Only the text you choose to process is sent to the configured LLM/embedding
+  provider (which can itself be a local OpenAI-compatible endpoint).
+- **Geocoding is opt-in and off by default**; when enabled, only the location's name is
+  sent to Nominatim. Media/EXIF processing is entirely local.
 - **API keys today live in the `app_settings` table** (not Windows Credential Manager —
   that's stale). **Encrypting keys at rest with DPAPI (`ProtectedData`) is a tracked
   follow-up**, not yet implemented. Don't describe key storage as encrypted; don't log keys.
@@ -201,6 +229,6 @@ focus** — treat it as maintenance. Only touch it for an explicitly Electron-sc
 
 ---
 
-**Last Updated:** 2026-07-10
+**Last Updated:** 2026-08-06
 **Primary target:** Windows Native (.NET 8 / WinUI 3) — `windows-native/`
 **Legacy:** Electron — `src/`

@@ -272,6 +272,16 @@
                                                         <TextBlock Text="{x:Bind DurationDisplay, Mode=OneWay}"
                                                                   Style="{StaticResource CaptionTextBlockStyle}"
                                                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                                        <!-- Date precision Claude assigned (correctable via Edit) -->
+                                                        <Border Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                                               CornerRadius="8"
+                                                               Padding="8,2"
+                                                               VerticalAlignment="Center"
+                                                               ToolTipService.ToolTip="{x:Bind DatePrecisionDisplay, Mode=OneWay}">
+                                                            <TextBlock Text="{x:Bind DatePrecisionLabel, Mode=OneWay}"
+                                                                      Style="{StaticResource CaptionTextBlockStyle}"
+                                                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                                        </Border>
                                                     </StackPanel>
 
                                                     <!-- Description -->
@@ -408,6 +418,28 @@
                                                        PlaceholderText="Select date"
                                                        Date="{x:Bind ViewModel.SelectedEvent.EndDateOffset, Mode=TwoWay}"
                                                        HorizontalAlignment="Stretch"/>
+
+                                    <!-- How much of the start date to believe; same lowercase
+                                         tag pattern as the category combo below. -->
+                                    <ComboBox Header="Date precision"
+                                             PlaceholderText="Select precision"
+                                             SelectedValuePath="Tag"
+                                             SelectedValue="{x:Bind ViewModel.SelectedEvent.DatePrecisionValue, Mode=TwoWay}"
+                                             HorizontalAlignment="Stretch">
+                                        <ComboBoxItem Content="Exact time" Tag="exact"/>
+                                        <ComboBoxItem Content="Day" Tag="day"/>
+                                        <ComboBoxItem Content="Month" Tag="month"/>
+                                        <ComboBoxItem Content="Season" Tag="season"/>
+                                        <ComboBoxItem Content="Year" Tag="year"/>
+                                        <ComboBoxItem Content="Decade" Tag="decade"/>
+                                        <ComboBoxItem Content="Unknown" Tag="unknown"/>
+                                    </ComboBox>
+
+                                    <!-- Live precision-honest preview ("Summer 1998") -->
+                                    <TextBlock Text="{x:Bind ViewModel.SelectedEvent.DatePrecisionDisplay, Mode=OneWay}"
+                                              Style="{StaticResource CaptionTextBlockStyle}"
+                                              FontStyle="Italic"
+                                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
                                     <TextBox Header="Description"
                                             Text="{x:Bind ViewModel.SelectedEvent.Description, Mode=TwoWay, TargetNullValue=''}"

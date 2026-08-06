@@ -70,6 +70,11 @@ public class Person
 
     /// <summary>
     /// Path to a local photo file for the person.
+    ///
+    /// F9 deviation (deliberate): the spec's avatar_media_id FK is SKIPPED.
+    /// This branch already ships two avatar mechanisms — this photo path plus
+    /// avatar_color/initials avatars — and a third (an EventMedia FK that would
+    /// couple people to event attachments) adds nothing for users.
     /// </summary>
     [Column("photo_path")]
     public string? PhotoPath { get; set; }
@@ -99,8 +104,18 @@ public class Person
     [Column("updated_at")]
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>
+    /// Merge tombstone: when non-null, this person was merged into the person
+    /// with this id and must never appear in lists, search, or matching. The
+    /// row is kept (instead of hard-deleting) so old references resolve
+    /// through the chain to the surviving person.
+    /// </summary>
+    [Column("merged_into_id")]
+    public string? MergedIntoId { get; set; }
+
     // Navigation properties
     public virtual ICollection<EventPerson> EventPeople { get; set; } = new List<EventPerson>();
+    public virtual ICollection<PersonAlias> Aliases { get; set; } = new List<PersonAlias>();
 }
 
 /// <summary>

@@ -141,8 +141,100 @@
                     </MenuFlyout>
                 </Grid.ContextFlyout>
 
-                <!-- Events layer - map pins in the upper area, stacking upward -->
+                <!-- Events layer - three stacked sub-layers positioned in the
+                     same coordinate space: uncertainty underlays (bottom),
+                     duration span bars (middle), map pins (top). Transforms
+                     and visibility are OneWay so pan/zoom shifts reposition
+                     already-rendered items in place without container churn. -->
                 <Canvas x:Name="EventsCanvas" Grid.Row="0" Grid.RowSpan="2">
+                    <!-- Uncertainty underlays: soft gradient bands spanning the
+                         DatePrecision window of approximate events (F1). -->
+                    <ItemsControl x:Name="UncertaintyLayer"
+                                 ItemsSource="{x:Bind ViewModel.UncertainEvents, Mode=OneWay}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <Canvas/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="dto:TimelineEventDto">
+                                <Rectangle Width="{x:Bind WindowWidth, Mode=OneWay}"
+                                          Height="{x:Bind Height, Mode=OneWay}"
+                                          Fill="{x:Bind UncertaintyBrush}"
+                                          RadiusX="4"
+                                          RadiusY="4"
+                                          IsHitTestVisible="False"
+                                          Visibility="{x:Bind ShowUncertaintyBand, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <Rectangle.RenderTransform>
+                                        <TranslateTransform X="{x:Bind WindowStartX, Mode=OneWay}" Y="{x:Bind PixelY, Mode=OneWay}"/>
+                                    </Rectangle.RenderTransform>
+                                </Rectangle>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- Span bars: duration events wide enough to earn a real
+                         width (left edge anchored on the start date). The
+                         element geometry binds the CLAMPED RenderX/RenderWidth
+                         (viewport + margin) rather than the true PixelX/Width,
+                         so a decades-long span at Day zoom never materializes
+                         a multi-million-pixel element; the overhang chevrons
+                         mark the clipped ends. -->
+                    <ItemsControl x:Name="SpansLayer"
+                                 ItemsSource="{x:Bind ViewModel.SpanEvents, Mode=OneWay}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <Canvas/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="dto:TimelineEventDto">
+                                <controls:EventSpanBar Event="{x:Bind Mode=OneWay}"
+                                                      Width="{x:Bind RenderWidth, Mode=OneWay}"
+                                                      Height="24"
+                                                      Visibility="{x:Bind IsVisible, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"
+                                                      Tapped="EventBubble_Tapped"
+                                                      RightTapped="EventBubble_RightTapped"
+                                                      PointerEntered="EventBubble_PointerEntered"
+                                                      PointerExited="EventBubble_PointerExited">
+                                    <controls:EventSpanBar.RenderTransform>
+                                        <TranslateTransform X="{x:Bind RenderX, Mode=OneWay}" Y="{x:Bind PixelY, Mode=OneWay}"/>
+                                    </controls:EventSpanBar.RenderTransform>
+                                    <controls:EventSpanBar.ContextFlyout>
+                                        <MenuFlyout>
+                                            <MenuFlyoutItem Text="View Details"
+                                                           Click="ViewEventMenuItem_Click">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="&#xE8A7;"/>
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                            <MenuFlyoutItem Text="Edit Event"
+                                                           Click="EditEventMenuItem_Click">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="&#xE70F;"/>
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                            <MenuFlyoutItem Text="History&#x2026;"
+                                                           Click="EventHistoryMenuItem_Click">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="&#xE81C;"/>
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                            <MenuFlyoutSeparator/>
+                                            <MenuFlyoutItem Text="Delete Event"
+                                                           Click="DeleteEventMenuItem_Click">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="&#xE74D;"/>
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                        </MenuFlyout>
+                                    </controls:EventSpanBar.ContextFlyout>
+                                </controls:EventSpanBar>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- Map pins (point-in-time and short-duration events) -->
                     <ItemsControl x:Name="EventsLayer"
                                  ItemsSource="{x:Bind ViewModel.Events, Mode=OneWay}">
                         <ItemsControl.ItemsPanel>
@@ -155,12 +247,13 @@
                                 <controls:EventBubble Event="{x:Bind Mode=OneWay}"
                                                      Width="{x:Bind Width}"
                                                      Height="{x:Bind Height}"
+                                                     Visibility="{x:Bind IsVisible, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"
                                                      Tapped="EventBubble_Tapped"
                                                      RightTapped="EventBubble_RightTapped"
                                                      PointerEntered="EventBubble_PointerEntered"
                                                      PointerExited="EventBubble_PointerExited">
                                     <controls:EventBubble.RenderTransform>
-                                        <TranslateTransform X="{x:Bind PixelX}" Y="{x:Bind PixelY}"/>
+                                        <TranslateTransform X="{x:Bind PixelX, Mode=OneWay}" Y="{x:Bind PixelY, Mode=OneWay}"/>
                                     </controls:EventBubble.RenderTransform>
                                     <controls:EventBubble.ContextFlyout>
                                         <MenuFlyout>
@@ -174,6 +267,12 @@
                                                            Click="EditEventMenuItem_Click">
                                                 <MenuFlyoutItem.Icon>
                                                     <FontIcon Glyph="&#xE70F;"/>
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                            <MenuFlyoutItem Text="History&#x2026;"
+                                                           Click="EventHistoryMenuItem_Click">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="&#xE81C;"/>
                                                 </MenuFlyoutItem.Icon>
                                             </MenuFlyoutItem>
                                             <MenuFlyoutSeparator/>
@@ -257,6 +356,66 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </Grid>
+
+                <!-- Swimlane gutter (lane modes only): fixed labels overlaying
+                     the left edge of the events area, one row per lane. Row
+                     heights come from the same lane constants the events use,
+                     so gutter rows stay aligned with lane rows.
+                     DEFERRED (F8 wave): vertical lane scrolling. The events
+                     area does not scroll vertically, and neither does this,
+                     so lanes past the viewport bottom are reachable only by
+                     collapsing the lanes above them. The spec's synchronised
+                     vertical-scroll note needs a shared scroll surface over
+                     the events canvas plus this gutter and is intentionally
+                     out of scope here (see the reorderable-lanes precedent in
+                     LaneAssignment.cs). -->
+                <Border x:Name="LaneGutter"
+                       Grid.Row="0"
+                       Width="140"
+                       HorizontalAlignment="Left"
+                       VerticalAlignment="Stretch"
+                       Background="{ThemeResource LayerFillColorDefaultBrush}"
+                       BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                       BorderThickness="0,0,1,0"
+                       Visibility="{x:Bind ViewModel.IsLaneModeActive, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <ItemsControl ItemsSource="{x:Bind ViewModel.LaneGutterRows, Mode=OneWay}"
+                                 VerticalAlignment="Top">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:LaneGutterRowDto">
+                                <Grid Height="{x:Bind RowHeight}">
+                                    <!-- Alternating row stripe -->
+                                    <Border Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                           Opacity="{x:Bind StripeOpacity}"/>
+                                    <StackPanel Orientation="Horizontal"
+                                               Spacing="4"
+                                               Padding="4,0"
+                                               VerticalAlignment="Center">
+                                        <Button Background="Transparent"
+                                               BorderThickness="0"
+                                               Padding="2"
+                                               VerticalAlignment="Center"
+                                               Click="LaneCollapse_Click"
+                                               AutomationProperties.Name="{x:Bind AutomationLabel}"
+                                               ToolTipService.ToolTip="Collapse or expand this lane">
+                                            <FontIcon Glyph="{x:Bind ChevronGlyph}" FontSize="10"/>
+                                        </Button>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="{x:Bind Label}"
+                                                      FontSize="12"
+                                                      FontWeight="SemiBold"
+                                                      TextTrimming="CharacterEllipsis"
+                                                      MaxWidth="96"/>
+                                            <TextBlock Text="{x:Bind CountDisplay}"
+                                                      FontSize="10"
+                                                      Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                                                      Visibility="{x:Bind IsCollapsed, Converter={StaticResource InvertedBoolToVisibilityConverter}}"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Border>
             </Grid>
 
             <!-- Zoom controls overlay -->
@@ -336,7 +495,8 @@
 
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <FontIcon Glyph="&#xE787;" FontSize="14"/>
-                            <TextBlock Text="{x:Bind ViewModel.SelectedEvent.StartDate, Mode=OneWay, FallbackValue=''}"
+                            <!-- Precision-honest date ("Summer 1998"), not a raw DateTime -->
+                            <TextBlock Text="{x:Bind ViewModel.SelectedEvent.DisplayDate, Mode=OneWay, FallbackValue=''}"
                                       FontSize="14"
                                       Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
                         </StackPanel>
@@ -355,6 +515,62 @@
                         <TextBlock Text="{x:Bind ViewModel.SelectedEvent.Description, Mode=OneWay, FallbackValue=''}"
                                   TextWrapping="Wrap"
                                   FontSize="14"/>
+
+                        <!-- Media strip: horizontal thumbnails + add/drop targets.
+                             Click opens the lightbox; drops attach files. -->
+                        <StackPanel Spacing="8"
+                                   Background="Transparent"
+                                   AllowDrop="True"
+                                   DragOver="MediaDropTarget_DragOver"
+                                   Drop="DetailsMediaStrip_Drop">
+                            <Grid>
+                                <TextBlock Text="{x:Bind ViewModel.SelectedEventMediaHeader, Mode=OneWay}"
+                                          FontWeight="SemiBold"
+                                          VerticalAlignment="Center"/>
+                                <Button Content="Add photos..."
+                                       FontSize="12"
+                                       Padding="8,4"
+                                       HorizontalAlignment="Right"
+                                       Click="AddPhotosToSelectedEvent_Click"
+                                       ToolTipService.ToolTip="Attach photos to this event"/>
+                            </Grid>
+                            <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                                         VerticalScrollBarVisibility="Disabled"
+                                         HorizontalScrollMode="Enabled">
+                                <ItemsControl ItemsSource="{x:Bind ViewModel.SelectedEventMedia, Mode=OneWay}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Orientation="Horizontal" Spacing="6"/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:EventMediaThumbDto">
+                                            <Button Padding="0"
+                                                   BorderThickness="0"
+                                                   Background="Transparent"
+                                                   Click="MediaThumb_Click"
+                                                   ToolTipService.ToolTip="{x:Bind Caption, Mode=OneWay}"
+                                                   AutomationProperties.Name="{x:Bind FileName}">
+                                                <Grid Width="72" Height="72"
+                                                     CornerRadius="4"
+                                                     Background="{ThemeResource LayerFillColorDefaultBrush}">
+                                                    <Image Source="{x:Bind ThumbnailImage}"
+                                                          Stretch="UniformToFill"/>
+                                                    <FontIcon Glyph="{x:Bind FileGlyph}"
+                                                             FontSize="24"
+                                                             Visibility="{x:Bind HasImage, Converter={StaticResource InvertedBoolToVisibilityConverter}}"
+                                                             HorizontalAlignment="Center"
+                                                             VerticalAlignment="Center"/>
+                                                </Grid>
+                                            </Button>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                            <TextBlock Text="Drop image files here to attach them"
+                                      FontSize="11"
+                                      Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
+                        </StackPanel>
 
                         <!-- Action buttons -->
                         <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,12,0,0">
@@ -435,6 +651,57 @@
                 </AppBarButton.Icon>
             </AppBarButton>
 
+            <AppBarButton Label="Generate Story"
+                         Click="GenerateStoryButton_Click"
+                         ToolTipService.ToolTip="Generate a readable story of the visible date range">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE8A5;"/>
+                </AppBarButton.Icon>
+            </AppBarButton>
+
+            <AppBarButton x:Name="LaneModeButton"
+                         Label="Lanes"
+                         ToolTipService.ToolTip="Group events into horizontal swimlanes">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE8FD;"/>
+                </AppBarButton.Icon>
+                <AppBarButton.Flyout>
+                    <MenuFlyout>
+                        <RadioMenuFlyoutItem x:Name="LaneModeAutoItem"
+                                            Text="Auto (stacked)"
+                                            Tag="Auto"
+                                            GroupName="LaneModeGroup"
+                                            IsChecked="True"
+                                            Click="LaneModeItem_Click"/>
+                        <RadioMenuFlyoutItem x:Name="LaneModeCategoryItem"
+                                            Text="By category"
+                                            Tag="Category"
+                                            GroupName="LaneModeGroup"
+                                            Click="LaneModeItem_Click"/>
+                        <RadioMenuFlyoutItem x:Name="LaneModePersonItem"
+                                            Text="By person"
+                                            Tag="Person"
+                                            GroupName="LaneModeGroup"
+                                            Click="LaneModeItem_Click"/>
+                        <RadioMenuFlyoutItem x:Name="LaneModeLocationItem"
+                                            Text="By location"
+                                            Tag="Location"
+                                            GroupName="LaneModeGroup"
+                                            Click="LaneModeItem_Click"/>
+                        <RadioMenuFlyoutItem x:Name="LaneModeEraItem"
+                                            Text="By era"
+                                            Tag="Era"
+                                            GroupName="LaneModeGroup"
+                                            Click="LaneModeItem_Click"/>
+                        <RadioMenuFlyoutItem x:Name="LaneModeTagItem"
+                                            Text="By tag"
+                                            Tag="Tag"
+                                            GroupName="LaneModeGroup"
+                                            Click="LaneModeItem_Click"/>
+                    </MenuFlyout>
+                </AppBarButton.Flyout>
+            </AppBarButton>
+
             <AppBarSeparator/>
 
             <CommandBar.Content>
@@ -490,6 +757,28 @@
                                                PlaceholderText="Select date"
                                                DateFormat="{}{month.full} {day.integer}, {year.full}"
                                                DateChanged="EventDatePicker_DateChanged"/>
+                        </StackPanel>
+                        <!-- Date precision: how much of the start date to believe.
+                             Coarser than Day shows a live human-form preview. -->
+                        <TextBlock Text="Date precision" FontWeight="SemiBold"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <ComboBox x:Name="EventPrecisionCombo"
+                                     Width="150"
+                                     AutomationProperties.Name="Date precision"
+                                     SelectionChanged="EventPrecisionCombo_SelectionChanged">
+                                <ComboBoxItem Content="Exact time" Tag="exact"/>
+                                <ComboBoxItem Content="Day" Tag="day"/>
+                                <ComboBoxItem Content="Month" Tag="month"/>
+                                <ComboBoxItem Content="Season" Tag="season"/>
+                                <ComboBoxItem Content="Year" Tag="year"/>
+                                <ComboBoxItem Content="Decade" Tag="decade"/>
+                                <ComboBoxItem Content="Unknown" Tag="unknown"/>
+                            </ComboBox>
+                            <TextBlock x:Name="EventPrecisionPreview"
+                                      VerticalAlignment="Center"
+                                      FontStyle="Italic"
+                                      Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                                      Visibility="Collapsed"/>
                         </StackPanel>
                         <TextBlock Text="End date (optional)" FontWeight="SemiBold"/>
                         <StackPanel Orientation="Horizontal" Spacing="8">
@@ -624,6 +913,28 @@
                         </ScrollViewer>
                     </StackPanel>
 
+                    <!-- Photos: staged for a NEW event (attached right after the
+                         save creates the event id); attached immediately when
+                         editing an EXISTING event. Also a drop target. -->
+                    <StackPanel Spacing="8"
+                               Background="Transparent"
+                               AllowDrop="True"
+                               DragOver="MediaDropTarget_DragOver"
+                               Drop="EventDialogPhotos_Drop">
+                        <TextBlock Text="Photos" FontWeight="SemiBold"/>
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Button Content="Add photos..."
+                                   Click="EventDialogAddPhotos_Click"/>
+                            <TextBlock Text="{x:Bind ViewModel.DialogPendingPhotosLabel, Mode=OneWay}"
+                                      VerticalAlignment="Center"
+                                      FontSize="12"
+                                      Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
+                        </StackPanel>
+                        <TextBlock Text="You can also drop image files here."
+                                  FontSize="11"
+                                  Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
+                    </StackPanel>
+
                     <!-- Tags editor: suggestions from existing tags; free text allowed. -->
                     <StackPanel Spacing="8">
                         <TextBlock Text="Tags" FontWeight="SemiBold"/>
@@ -692,6 +1003,66 @@
                         KeyDown="GoToDateTextBox_KeyDown"/>
                 <TextBlock x:Name="GoToDateHint"
                           Text="Tip: Enter just a year (e.g., 2006) to show that year centered with surrounding years"
+                          FontSize="12"
+                          Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                          TextWrapping="Wrap"/>
+            </StackPanel>
+        </ContentDialog>
+
+        <!-- Media lightbox: full image, prev/next, caption editing, and a
+             two-step Remove (the secondary button arms, then confirms). -->
+        <ContentDialog x:Name="MediaLightboxDialog"
+                      Title="Photo"
+                      PrimaryButtonText="Save caption"
+                      SecondaryButtonText="Remove"
+                      CloseButtonText="Close"
+                      DefaultButton="Close"
+                      PrimaryButtonClick="MediaLightbox_PrimaryButtonClick"
+                      SecondaryButtonClick="MediaLightbox_SecondaryButtonClick">
+            <StackPanel Spacing="10" MinWidth="420">
+                <Grid MinHeight="240">
+                    <Image x:Name="LightboxImage"
+                          MaxWidth="620"
+                          MaxHeight="400"
+                          Stretch="Uniform"/>
+                    <StackPanel x:Name="LightboxFilePlaceholder"
+                               Visibility="Collapsed"
+                               Spacing="8"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center">
+                        <FontIcon x:Name="LightboxFileGlyph"
+                                 Glyph="&#xE8A5;"
+                                 FontSize="48"
+                                 HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="LightboxFileName"
+                                  HorizontalAlignment="Center"
+                                  TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Grid>
+                <Grid>
+                    <Button x:Name="LightboxPrevButton"
+                           Content="&#xE76B;"
+                           FontFamily="Segoe MDL2 Assets"
+                           AutomationProperties.Name="Previous photo"
+                           ToolTipService.ToolTip="Previous"
+                           HorizontalAlignment="Left"
+                           Click="LightboxPrev_Click"/>
+                    <TextBlock x:Name="LightboxCounter"
+                              HorizontalAlignment="Center"
+                              VerticalAlignment="Center"/>
+                    <Button x:Name="LightboxNextButton"
+                           Content="&#xE76C;"
+                           FontFamily="Segoe MDL2 Assets"
+                           AutomationProperties.Name="Next photo"
+                           ToolTipService.ToolTip="Next"
+                           HorizontalAlignment="Right"
+                           Click="LightboxNext_Click"/>
+                </Grid>
+                <TextBox x:Name="LightboxCaptionBox"
+                        Header="Caption"
+                        PlaceholderText="Add a caption (optional)"
+                        MaxLength="500"/>
+                <TextBlock x:Name="LightboxStatusText"
                           FontSize="12"
                           Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
                           TextWrapping="Wrap"/>

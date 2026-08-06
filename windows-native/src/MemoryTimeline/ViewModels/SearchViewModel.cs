@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.Logging;
 using MemoryTimeline.Core.DTOs;
 using MemoryTimeline.Core.Models;
@@ -720,13 +721,27 @@ public partial class SearchViewModel : ObservableObject
 
         if (succeeded)
         {
+            // Notify other views (the singleton TimelineViewModel refreshes so
+            // Search-page edits propagate to the timeline). A subscriber
+            // failure must not fail the save.
+            try
+            {
+                WeakReferenceMessenger.Default.Send(new EventUpdatedMessage(evt.EventId, evt.StartDate));
+            }
+            catch (Exception messengerEx)
+            {
+                _logger.LogWarning(messengerEx, "Error publishing EventUpdatedMessage for event {EventId}", evt.EventId);
+            }
+
             // Refresh search results
             await SearchAsync();
         }
     }
 
     /// <summary>
-    /// Delete an event and refresh the search results.
+    /// Delete an event and refresh the search results. The timeline is
+    /// notified via the <see cref="EventDeletedMessage"/> that
+    /// <see cref="IEventService.DeleteEventAsync"/> publishes.
     /// </summary>
     public async Task DeleteEventAsync(string eventId)
     {

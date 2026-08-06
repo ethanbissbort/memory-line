@@ -488,6 +488,356 @@ public class TimelineServiceTests : IDisposable
 
     #endregion
 
+    #region Span Rendering Tests
+
+    /// <summary>
+    /// Builds a viewport at a discrete zoom level anchored at
+    /// <paramref name="startDate"/> (PixelsPerDay matches the zoom exactly,
+    /// like every viewport created through TimelineService).
+    /// </summary>
+    private static TimelineViewport CreateTestViewport(
+        ZoomLevel zoom, DateTime startDate, double width = 1000, double height = 800)
+    {
+        var pixelsPerDay = TimelineScale.GetPixelsPerDay(zoom);
+        var visibleDays = width / pixelsPerDay;
+        return new TimelineViewport
+        {
+            StartDate = startDate,
+            EndDate = startDate.AddDays(visibleDays),
+            CenterDate = startDate.AddDays(visibleDays / 2),
+            ZoomLevel = zoom,
+            PixelsPerDay = pixelsPerDay,
+            ViewportWidth = width,
+            ViewportHeight = height
+        };
+    }
+
+    [Fact]
+    public void CalculateEventPositions_ThreeYearEventAtYearZoom_RendersProportionalSpan()
+    {
+        // Arrange - a 3-year job must not render like a one-hour dinner
+        var viewport = CreateTestViewport(ZoomLevel.Year, new DateTime(2019, 1, 1));
+        var start = new DateTime(2020, 1, 1);
+        var end = new DateTime(2023, 1, 1);
+        var evt = new Core.DTOs.TimelineEventDto { EventId = "1", Title = "Job", StartDate = start, EndDate = end };
+
+        // Act
+        _timelineService.CalculateEventPositions(new[] { evt }, viewport);
+
+        // Assert - span, wider than the 30px pin, width exactly per GetEventWidth,
+        // left edge anchored on the start date (not centered).
+        evt.RenderMode.Should().Be(Core.DTOs.EventRenderMode.Span);
+        evt.Width.Should().BeGreaterThan(30.0);
+        evt.Width.Should().Be(TimelineScale.GetEventWidth(start, end, ZoomLevel.Year));
+        evt.PixelX.Should().Be((start - viewport.StartDate).TotalDays * viewport.PixelsPerDay);
+        evt.Height.Should().Be(24.0);
+    }
+
+    [Fact]
+    public void CalculateEventPositions_ThreeYearEventAtDayZoom_WidthMatchesGetEventWidthAndClipsRight()
+    {
+        // Arrange - at Day zoom the same event is enormously wide; the width
+        // still follows GetEventWidth (its minimum-clamp contract) and the
+        // overhang flags report that the span runs past the right edge.
+        var viewport = CreateTestViewport(ZoomLevel.Day, new DateTime(2020, 1, 1));
+        var start = new DateTime(2020, 1, 1);
+        var end = new DateTime(2023, 1, 1);
+        var evt = new Core.DTOs.TimelineEventDto { EventId = "1", Title = "Job", StartDate = start, EndDate = end };
+
+        // Act
+        _timelineService.CalculateEventPositions(new[] { evt }, viewport);
+
+        // Assert - the TRUE width still follows GetEventWidth (track-overlap
+        // math), while the RENDERED geometry and the overhang (measured from
+        // the clamped render edge) cap at the span render margin.
+        evt.RenderMode.Should().Be(Core.DTOs.EventRenderMode.Span);
+        evt.Width.Should().Be(TimelineScale.GetEventWidth(start, end, ZoomLevel.Day));
+        evt.ClipsViewportLeft.Should().BeFalse();
+        evt.ClipsViewportRight.Should().BeTrue();
+        evt.SpanRightOverhang.Should().Be(TimelineService.SpanRenderMargin);
+        evt.RenderX.Should().Be(evt.PixelX);
+        evt.RenderWidth.Should().Be(
+            viewport.ViewportWidth + TimelineService.SpanRenderMargin - evt.PixelX);
+    }
+
+    [Fact]
+    public void CalculateEventPositions_TwentyYearEventAtDayZoom_RenderGeometryStaysClamped()
+    {
+        // Arrange - a 20-year event at Day zoom (800 px/day) is ~5.8M true
+        // pixels wide; the rendered element must stay within the viewport
+        // plus the render margin on each side.
+        var viewport = CreateTestViewport(ZoomLevel.Day, new DateTime(2010, 6, 1));
+        var start = new DateTime(2000, 1, 1);
+        var end = new DateTime(2020, 1, 1);
+        var evt = new Core.DTOs.TimelineEventDto { EventId = "1", Title = "Era-like", StartDate = start, EndDate = end };
+
+        // Act
+        _timelineService.CalculateEventPositions(new[] { evt }, viewport);
+
+        // Assert - true width for overlap math, clamped geometry for rendering.
+        evt.RenderMode.Should().Be(Core.DTOs.EventRenderMode.Span);
+        evt.Width.Should().Be(TimelineScale.GetEventWidth(start, end, ZoomLevel.Day));
+        evt.RenderX.Should().Be(-TimelineService.SpanRenderMargin);
+        evt.RenderWidth.Should().Be(viewport.ViewportWidth + 2 * TimelineService.SpanRenderMargin);
+        evt.ClipsViewportLeft.Should().BeTrue();
+        evt.ClipsViewportRight.Should().BeTrue();
+        evt.SpanLeftOverhang.Should().Be(TimelineService.SpanRenderMargin);
+        evt.SpanRightOverhang.Should().Be(TimelineService.SpanRenderMargin);
+    }
+
+    [Theory]
+    [InlineData(ZoomLevel.Year)]
+    [InlineData(ZoomLevel.Month)]
+    [InlineData(ZoomLevel.Week)]
+    [InlineData(ZoomLevel.Day)]
+    public void CalculateEventPositions_ZeroDurationEvent_AlwaysRendersPin(ZoomLevel zoom)
+    {
+        // Arrange - no EndDate: a point-in-time memory stays a 30px pin
+        // centered on its date at EVERY zoom level.
+        var viewportStart = new DateTime(2024, 6, 1);
+        var viewport = CreateTestViewport(zoom, viewportStart);
+        var date = viewportStart.AddDays(0.5);
+        var evt = new Core.DTOs.TimelineEventDto { EventId = "1", Title = "Dinner", StartDate = date };
+
+        // Act
+        _timelineService.CalculateEventPositions(new[] { evt }, viewport);
+
+        // Assert
+        evt.RenderMode.Should().Be(Core.DTOs.EventRenderMode.Pin);
+        evt.Width.Should().Be(30.0);
+        evt.Height.Should().Be(40.0);
+        evt.PixelX.Should().Be((date - viewport.StartDate).TotalDays * viewport.PixelsPerDay - 15.0);
+    }
+
+    [Fact]
+    public void CalculateEventPositions_WidthExactlyPinWidth_RendersPin()
+    {
+        // Arrange - RenderMode boundary: a duration whose proportional width is
+        // EXACTLY the 30px pin width stays a pin ("exceeds" means strictly
+        // greater); one day longer tips it into a span.
+        var viewport = CreateTestViewport(ZoomLevel.Month, new DateTime(2024, 1, 1)); // 3 px/day
+        var atBoundary = new Core.DTOs.TimelineEventDto
+        {
+            EventId = "1",
+            Title = "Ten days",
+            StartDate = new DateTime(2024, 2, 1),
+            EndDate = new DateTime(2024, 2, 11) // 10 days * 3 px = 30.0
+        };
+        var overBoundary = new Core.DTOs.TimelineEventDto
+        {
+            EventId = "2",
+            Title = "Eleven days",
+            StartDate = new DateTime(2024, 4, 1),
+            EndDate = new DateTime(2024, 4, 12) // 11 days * 3 px = 33.0
+        };
+
+        // Act
+        _timelineService.CalculateEventPositions(new[] { atBoundary, overBoundary }, viewport);
+
+        // Assert
+        atBoundary.RenderMode.Should().Be(Core.DTOs.EventRenderMode.Pin);
+        atBoundary.Width.Should().Be(30.0);
+        overBoundary.RenderMode.Should().Be(Core.DTOs.EventRenderMode.Span);
+        overBoundary.Width.Should().Be(33.0);
+    }
+
+    [Fact]
+    public void CalculateEventPositions_MixedPinAndSpanWidths_NoHorizontalOverlapWithinTrack()
+    {
+        // Arrange - a wide span, a narrower span, and pins landing on top of
+        // them; track stacking must honor each event's REAL width.
+        var viewport = CreateTestViewport(ZoomLevel.Month, new DateTime(2024, 1, 1));
+        var events = new List<Core.DTOs.TimelineEventDto>
+        {
+            new() { EventId = "wide-span", Title = "A", StartDate = new DateTime(2024, 1, 1), EndDate = new DateTime(2024, 3, 1) },
+            new() { EventId = "pin-1", Title = "B", StartDate = new DateTime(2024, 1, 15) },
+            new() { EventId = "narrow-span", Title = "C", StartDate = new DateTime(2024, 2, 1), EndDate = new DateTime(2024, 2, 20) },
+            new() { EventId = "pin-2", Title = "D", StartDate = new DateTime(2024, 1, 16) },
+            new() { EventId = "far-pin", Title = "E", StartDate = new DateTime(2024, 6, 1) }
+        };
+
+        // Act
+        _timelineService.CalculateEventPositions(events, viewport);
+
+        // Assert - invariant: no two events sharing a track (same PixelY)
+        // overlap horizontally over their [PixelX, PixelX + Width) extents.
+        foreach (var track in events.GroupBy(e => e.PixelY))
+        {
+            var items = track.ToList();
+            for (var i = 0; i < items.Count; i++)
+            {
+                for (var j = i + 1; j < items.Count; j++)
+                {
+                    var a = items[i];
+                    var b = items[j];
+                    var overlaps = !(a.PixelX >= b.PixelX + b.Width || a.PixelX + a.Width <= b.PixelX);
+                    overlaps.Should().BeFalse(
+                        $"events '{a.EventId}' and '{b.EventId}' share a track and must not overlap");
+                }
+            }
+        }
+    }
+
+    #endregion
+
+    #region Uncertainty Window Tests
+
+    [Fact]
+    public void CalculateEventPositions_YearPrecisionAtMonthZoom_WindowBoundsEqualGetWindow()
+    {
+        // Arrange - a Year-precision memory; the whole window fits the viewport
+        var viewport = CreateTestViewport(ZoomLevel.Month, new DateTime(1998, 1, 1), width: 2000);
+        var anchor = new DateTime(1998, 7, 15);
+        var evt = new Core.DTOs.TimelineEventDto
+        {
+            EventId = "1",
+            Title = "That year",
+            StartDate = anchor,
+            DatePrecision = DatePrecision.Year
+        };
+
+        // Act
+        _timelineService.CalculateEventPositions(new[] { evt }, viewport);
+
+        // Assert - bounds equal GetWindow exactly (converted at the viewport scale)
+        var (earliest, latest) = DatePrecisionExtensions.GetWindow(anchor, DatePrecision.Year);
+        var converter = TimelineCoordinateConverter.FromViewport(viewport);
+        evt.WindowStartX.Should().Be(converter.DateToScreen(earliest));
+        evt.WindowEndX.Should().Be(converter.DateToScreen(latest));
+        evt.HasUncertaintyWindow.Should().BeTrue();
+    }
+
+    [Fact]
+    public void CalculateEventPositions_YearPrecisionAtYearZoom_WindowBoundsEqualGetWindow()
+    {
+        // Arrange - the same memory at Year zoom (second scale per the spec)
+        var viewport = CreateTestViewport(ZoomLevel.Year, new DateTime(1990, 1, 1));
+        var anchor = new DateTime(1998, 7, 15);
+        var evt = new Core.DTOs.TimelineEventDto
+        {
+            EventId = "1",
+            Title = "That year",
+            StartDate = anchor,
+            DatePrecision = DatePrecision.Year
+        };
+
+        // Act
+        _timelineService.CalculateEventPositions(new[] { evt }, viewport);
+
+        // Assert
+        var (earliest, latest) = DatePrecisionExtensions.GetWindow(anchor, DatePrecision.Year);
+        var converter = TimelineCoordinateConverter.FromViewport(viewport);
+        evt.WindowStartX.Should().Be(converter.DateToScreen(earliest));
+        evt.WindowEndX.Should().Be(converter.DateToScreen(latest));
+        evt.WindowEndX.Should().BeGreaterThan(evt.WindowStartX);
+    }
+
+    [Fact]
+    public void CalculateEventPositions_DecadeWindowLargerThanViewport_IsClampedToViewport()
+    {
+        // Arrange - a Decade window dwarfs a Month-zoom viewport; the exposed
+        // bounds clamp to [0, ViewportWidth] so no megapixel-wide rect renders.
+        var viewport = CreateTestViewport(ZoomLevel.Month, new DateTime(1995, 6, 1));
+        var evt = new Core.DTOs.TimelineEventDto
+        {
+            EventId = "1",
+            Title = "The nineties",
+            StartDate = new DateTime(1995, 6, 15),
+            DatePrecision = DatePrecision.Decade
+        };
+
+        // Act
+        _timelineService.CalculateEventPositions(new[] { evt }, viewport);
+
+        // Assert
+        evt.WindowStartX.Should().Be(0.0);
+        evt.WindowEndX.Should().Be(viewport.ViewportWidth);
+        evt.HasUncertaintyWindow.Should().BeTrue();
+    }
+
+    [Fact]
+    public void CalculateEventPositions_YearPrecisionAnchorOutsideViewport_BandStillShowsWhileWindowOverlaps()
+    {
+        // Arrange - a Week-zoom viewport over ~20 days of June 1998; the
+        // Year-precision anchor (15 Jul 1998) sits OUTSIDE it, but the
+        // precision window (all of 1998) covers the whole screen. The band
+        // must render anyway - it must not pop off when only the anchor
+        // leaves the viewport.
+        var viewport = CreateTestViewport(ZoomLevel.Week, new DateTime(1998, 6, 1));
+        var evt = new Core.DTOs.TimelineEventDto
+        {
+            EventId = "1",
+            Title = "Sometime that year",
+            StartDate = new DateTime(1998, 7, 15),
+            DatePrecision = DatePrecision.Year
+        };
+
+        // Act
+        _timelineService.CalculateEventPositions(new[] { evt }, viewport);
+
+        // Assert - anchor invisible (pin hidden), window visible (band shown).
+        evt.IsInViewport.Should().BeFalse();
+        evt.IsVisible.Should().BeFalse();
+        evt.IsWindowInViewport.Should().BeTrue();
+        evt.WindowStartX.Should().Be(0.0);
+        evt.WindowEndX.Should().Be(viewport.ViewportWidth);
+        evt.HasUncertaintyWindow.Should().BeTrue();
+        evt.ShowUncertaintyBand.Should().BeTrue();
+
+        // A collapsed lane still hides the band.
+        evt.IsLaneCollapsed = true;
+        evt.ShowUncertaintyBand.Should().BeFalse();
+    }
+
+    [Fact]
+    public void CalculateEventPositions_DayPrecision_HasNoUncertaintyWindow()
+    {
+        // Arrange - precision at Month or finer gets no underlay
+        var viewport = CreateTestViewport(ZoomLevel.Month, new DateTime(2024, 1, 1));
+        var evt = new Core.DTOs.TimelineEventDto
+        {
+            EventId = "1",
+            Title = "Known day",
+            StartDate = new DateTime(2024, 2, 1),
+            DatePrecision = DatePrecision.Day
+        };
+
+        // Act
+        _timelineService.CalculateEventPositions(new[] { evt }, viewport);
+
+        // Assert
+        evt.WindowStartX.Should().Be(0.0);
+        evt.WindowEndX.Should().Be(0.0);
+        evt.HasUncertaintyWindow.Should().BeFalse();
+    }
+
+    #endregion
+
+    #region Auto Stacking Regression Tests
+
+    [Fact]
+    public void CalculateEventPositions_AutoStacking_MatchesLegacyPinLayout()
+    {
+        // Arrange - regression guard: Auto mode must keep the exact legacy
+        // geometry (baseline near the bottom, tracks stacking upward by
+        // pinHeight + spacing) so swimlanes change nothing until opted into.
+        var viewport = CreateTestViewport(ZoomLevel.Month, new DateTime(2024, 1, 1), width: 1920, height: 1080);
+        var first = new Core.DTOs.TimelineEventDto { EventId = "1", Title = "A", StartDate = new DateTime(2024, 2, 1) };
+        var second = new Core.DTOs.TimelineEventDto { EventId = "2", Title = "B", StartDate = new DateTime(2024, 2, 1) };
+
+        // Act
+        _timelineService.CalculateEventPositions(new[] { first, second }, viewport);
+
+        // Assert - legacy formula: eventsArea = max(200, height - 120),
+        // baseline = eventsArea - 10, track0 = baseline - 40, step = 45.
+        var eventsAreaHeight = Math.Max(200, viewport.ViewportHeight - 120);
+        var baselineY = eventsAreaHeight - 10;
+        first.PixelY.Should().Be(baselineY - 40.0);
+        second.PixelY.Should().Be(baselineY - 40.0 - 45.0);
+    }
+
+    #endregion
+
     public void Dispose()
     {
         using var context = _contextFactory.CreateDbContext();
