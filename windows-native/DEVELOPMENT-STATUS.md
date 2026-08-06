@@ -874,3 +874,5 @@ These reflect the real post-audit follow-ups (see `HARDENING-FOLLOWUPS.md`).
 **Phase 7 Status:** In progress (CI Windows build green through the F1–F12 wave pushes; runtime validation ongoing)
 **Next Review:** After end-to-end runtime validation
 **Last Updated:** 2026-08-06
+
+<!-- CI retrigger 2026-08-06: runs 31117811806/31119588286 died to runner-infrastructure failures before reaching the code; tree identical to 0d365b2. -->
