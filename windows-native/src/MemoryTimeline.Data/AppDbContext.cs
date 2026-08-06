@@ -80,45 +80,44 @@ public class AppDbContext : DbContext
         private const string ConnectionPragmaSql =
             "PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;";
 
-        // journal_mode=WAL rewrites the database header, which fails with
-        // "attempt to write a readonly database" (SQLITE_READONLY) on the
-        // Mode=ReadOnly connections EF opens for existence probes
-        // (SqliteDatabaseCreator.Exists) when the file is still in the default
-        // DELETE journal mode. busy_timeout and foreign_keys are
-        // connection-local and safe everywhere.
-        private const string ReadOnlyPragmaSql =
-            "PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;";
-
-        private static string GetPragmaSql(DbConnection connection)
+        // Mode=ReadOnly connections (EF's existence probes via
+        // SqliteDatabaseCreator.Exists) can never set WAL, so skip the
+        // attempt outright instead of relying on the exception path. The
+        // try/catch around the WAL command still covers what the connection
+        // string cannot reveal: read-only files and unparseable strings.
+        private static bool ShouldAttemptWal(DbConnection connection)
         {
             try
             {
                 var builder = new SqliteConnectionStringBuilder(connection.ConnectionString);
-                return builder.Mode == SqliteOpenMode.ReadOnly ? ReadOnlyPragmaSql : PragmaSql;
+                return builder.Mode != SqliteOpenMode.ReadOnly;
             }
             catch (ArgumentException)
             {
-                // Unparseable connection string: fall back to the full pragma set.
-                return PragmaSql;
+                // Unparseable connection string: attempt best-effort.
+                return true;
             }
         }
 
         public override void ConnectionOpened(DbConnection connection, ConnectionEndEventData eventData)
         {
-            try
+            if (ShouldAttemptWal(connection))
             {
-                using var walCommand = connection.CreateCommand();
-                walCommand.CommandText = WalPragmaSql;
-                walCommand.ExecuteNonQuery();
-            }
-            catch (Microsoft.Data.Sqlite.SqliteException)
-            {
-                // Read-only connection or read-only file: WAL cannot be set
-                // here; the next writable open will set it.
+                try
+                {
+                    using var walCommand = connection.CreateCommand();
+                    walCommand.CommandText = WalPragmaSql;
+                    walCommand.ExecuteNonQuery();
+                }
+                catch (Microsoft.Data.Sqlite.SqliteException)
+                {
+                    // Read-only file: WAL cannot be set here; the next
+                    // writable open will set it.
+                }
             }
 
             using var command = connection.CreateCommand();
-            command.CommandText = GetPragmaSql(connection);
+            command.CommandText = ConnectionPragmaSql;
             command.ExecuteNonQuery();
         }
 
@@ -127,20 +126,23 @@ public class AppDbContext : DbContext
             ConnectionEndEventData eventData,
             CancellationToken cancellationToken = default)
         {
-            try
+            if (ShouldAttemptWal(connection))
             {
-                using var walCommand = connection.CreateCommand();
-                walCommand.CommandText = WalPragmaSql;
-                await walCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-            }
-            catch (Microsoft.Data.Sqlite.SqliteException)
-            {
-                // Read-only connection or read-only file: WAL cannot be set
-                // here; the next writable open will set it.
+                try
+                {
+                    using var walCommand = connection.CreateCommand();
+                    walCommand.CommandText = WalPragmaSql;
+                    await walCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (Microsoft.Data.Sqlite.SqliteException)
+                {
+                    // Read-only file: WAL cannot be set here; the next
+                    // writable open will set it.
+                }
             }
 
             using var command = connection.CreateCommand();
-            command.CommandText = GetPragmaSql(connection);
+            command.CommandText = ConnectionPragmaSql;
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
     }
