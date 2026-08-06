@@ -57,6 +57,16 @@ public interface IEventService
     // Embeddings
     Task<bool> HasEmbeddingAsync(string eventId);
     Task GenerateEmbeddingAsync(string eventId);
+
+    /// <summary>
+    /// Regenerates embeddings for ALL events with the CURRENTLY configured
+    /// embedding provider. Rows stored with a different dimension than the
+    /// current provider produces are deleted up front, so a cancelled run can
+    /// never leave a cross-dimension mix that corrupts similarity math.
+    /// Reports (done, total) progress and honors cancellation between events.
+    /// </summary>
+    /// <returns>The number of events re-embedded.</returns>
+    Task<int> ReEmbedAllAsync(IProgress<(int done, int total)>? progress = null, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -740,19 +750,36 @@ public class EventService : IEventService
         // Generate embedding
         var embedding = await _embeddingService.GenerateEmbeddingAsync(text);
 
-        // Save embedding to database using a dedicated context (safe from any thread)
+        // Persist the ACTIVE provider's identity (IEmbeddingService.ProviderKey,
+        // e.g. "openai" / "local") instead of the old hard-coded "openai" string,
+        // so the dimension/provider guards in RagService can trust stored rows.
+        // ProviderKey (not ModelName) is the provenance field: it stays stable
+        // across model-name changes within a provider.
+        var providerKey = _embeddingService.ProviderKey;
+
         var eventEmbedding = new EventEmbedding
         {
             EmbeddingId = Guid.NewGuid().ToString(),
             EventId = eventData.EventId,
             EmbeddingVector = System.Text.Json.JsonSerializer.Serialize(embedding),
-            EmbeddingProvider = "openai",
+            EmbeddingProvider = string.IsNullOrWhiteSpace(providerKey) ? "unknown" : providerKey,
             EmbeddingModel = _embeddingService.ModelName,
             EmbeddingDimension = embedding.Length,
             CreatedAt = DateTime.UtcNow
         };
 
+        // Save embedding to database using a dedicated context (safe from any thread).
+        // Replace-then-add in ONE SaveChanges: event_id carries a unique index, so
+        // re-embedding an event must remove any previous row (possibly from a
+        // different provider) instead of violating the index.
         await using var context = await _contextFactory.CreateDbContextAsync();
+        var existingRows = await context.EventEmbeddings
+            .Where(ee => ee.EventId == eventData.EventId)
+            .ToListAsync();
+        if (existingRows.Count > 0)
+        {
+            context.EventEmbeddings.RemoveRange(existingRows);
+        }
         context.EventEmbeddings.Add(eventEmbedding);
         await context.SaveChangesAsync();
 
@@ -796,6 +823,69 @@ public class EventService : IEventService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error generating embedding for event: {EventId}", eventId);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Regenerates embeddings for every event with the CURRENT provider (used by
+    /// the Settings "Re-embed all events" action after a provider switch).
+    /// Stale-dimension rows are deleted first so a cancelled run never leaves a
+    /// cross-dimension mix; each event is then re-embedded one at a time (the
+    /// per-event upsert replaces same-dimension rows too).
+    /// </summary>
+    public async Task<int> ReEmbedAllAsync(IProgress<(int done, int total)>? progress = null, CancellationToken ct = default)
+    {
+        if (_embeddingService == null)
+        {
+            throw new InvalidOperationException("Embedding service is not configured");
+        }
+
+        try
+        {
+            var currentDimension = _embeddingService.EmbeddingDimension;
+
+            await using (var context = await _contextFactory.CreateDbContextAsync(ct))
+            {
+                var staleRows = await context.EventEmbeddings
+                    .Where(ee => ee.EmbeddingDimension != currentDimension)
+                    .ToListAsync(ct);
+                if (staleRows.Count > 0)
+                {
+                    context.EventEmbeddings.RemoveRange(staleRows);
+                    await context.SaveChangesAsync(ct);
+                    _logger.LogInformation(
+                        "Deleted {Count} stale embedding row(s) (dimension != {Dimension}) before re-embedding",
+                        staleRows.Count, currentDimension);
+                }
+            }
+
+            var events = (await _eventRepository.GetAllAsync()).ToList();
+            var total = events.Count;
+            var done = 0;
+            progress?.Report((0, total));
+
+            foreach (var eventData in events)
+            {
+                ct.ThrowIfCancellationRequested();
+                await GenerateEmbeddingForEventAsync(eventData);
+                done++;
+                progress?.Report((done, total));
+            }
+
+            _logger.LogInformation(
+                "Re-embedded {Done}/{Total} events with provider '{Provider}' ({Model})",
+                done, total, _embeddingService.ProviderKey, _embeddingService.ModelName);
+            return done;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Re-embed of all events was cancelled");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error re-embedding all events");
             throw;
         }
     }

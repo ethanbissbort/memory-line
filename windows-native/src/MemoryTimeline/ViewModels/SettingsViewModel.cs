@@ -20,7 +20,14 @@ public partial class SettingsViewModel : ObservableObject
     private readonly IThemeService _themeService;
     private readonly IExportService _exportService;
     private readonly IImportService _importService;
+    private readonly IEventService _eventService;
+    private readonly ILlmUsageTracker _llmUsageTracker;
     private readonly ILogger<SettingsViewModel> _logger;
+
+    // Embedding provider persisted at load time; a differing selection shows
+    // the re-embed warning until "Re-embed all events" completes.
+    private string _loadedEmbeddingProviderKey = EmbeddingProviderKeys.Local;
+    private CancellationTokenSource? _reEmbedCts;
 
     [ObservableProperty]
     private string _selectedTheme = "System";
@@ -33,6 +40,24 @@ public partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty]
     private string _llmModel = "claude-3-5-sonnet-20241022";
+
+    [ObservableProperty]
+    private string _llmBaseUrl = string.Empty;
+
+    [ObservableProperty]
+    private string _selectedEmbeddingProvider = "Local (on-device)";
+
+    [ObservableProperty]
+    private bool _showReEmbedWarning;
+
+    [ObservableProperty]
+    private bool _isReEmbedding;
+
+    [ObservableProperty]
+    private string _reEmbedStatusMessage = string.Empty;
+
+    [ObservableProperty]
+    private string _llmUsageSummary = "No LLM calls this session";
 
     [ObservableProperty]
     private string _apiKey = string.Empty;
@@ -75,22 +100,37 @@ public partial class SettingsViewModel : ObservableObject
     // Available options
     public List<string> ThemeOptions { get; } = new() { "System", "Light", "Dark", "Solarized Dark" };
     public List<string> ZoomLevelOptions { get; } = new() { "Year", "Month", "Week", "Day" };
-    // Only Anthropic is implemented (AnthropicLlmService is the sole ILlmService).
-    // Do not list unimplemented providers here: selecting one used to persist an
-    // unsupported provider/model and break all event extraction.
-    public List<string> LlmProviderOptions { get; } = new() { "Anthropic" };
+    // Display values lowercase to the canonical stored keys on save
+    // ("anthropic" / "openai-compatible" — see LlmProviderKeys). Only list
+    // providers RoutingLlmService actually implements: persisting an
+    // unsupported provider used to break all event extraction.
+    public List<string> LlmProviderOptions { get; } = new() { "Anthropic", "OpenAI-compatible" };
+    public List<string> EmbeddingProviderOptions { get; } = new() { "Local (on-device)", "OpenAI (cloud)" };
+
+    /// <summary>
+    /// Plain-language privacy summary: exactly what each provider sends where.
+    /// </summary>
+    public string PrivacySummary =>
+        "Privacy: Anthropic (LLM) receives your transcripts and event text for extraction and narration. " +
+        "OpenAI (embeddings) receives event titles and descriptions to compute similarity vectors. " +
+        "Local (on-device) embeddings send nothing — no text leaves this machine. " +
+        "An OpenAI-compatible endpoint sends text to whatever server the base URL points at (e.g. Ollama on localhost stays local).";
 
     public SettingsViewModel(
         ISettingsService settingsService,
         IThemeService themeService,
         IExportService exportService,
         IImportService importService,
+        IEventService eventService,
+        ILlmUsageTracker llmUsageTracker,
         ILogger<SettingsViewModel> logger)
     {
         _settingsService = settingsService;
         _themeService = themeService;
         _exportService = exportService;
         _importService = importService;
+        _eventService = eventService;
+        _llmUsageTracker = llmUsageTracker;
         _logger = logger;
     }
 
@@ -116,10 +156,26 @@ public partial class SettingsViewModel : ObservableObject
             var storedZoomLevel = await _settingsService.GetDefaultZoomLevelAsync();
             SelectedZoomLevel = ToDisplayOption(storedZoomLevel, ZoomLevelOptions, "Month");
 
-            var storedProvider = await _settingsService.GetLlmProviderAsync();
-            LlmProvider = ToDisplayOption(storedProvider, LlmProviderOptions, "Anthropic");
+            // Normalize aliases ("ollama", "openai_compatible") through the
+            // canonical keys before mapping to a display option.
+            var storedProvider = LlmProviderKeys.Normalize(await _settingsService.GetLlmProviderAsync());
+            LlmProvider = storedProvider == LlmProviderKeys.OpenAiCompatible
+                ? "OpenAI-compatible"
+                : "Anthropic";
 
             LlmModel = await _settingsService.GetLlmModelAsync();
+            LlmBaseUrl = await _settingsService.GetSettingAsync<string>(SettingKeys.LlmBaseUrl, string.Empty) ?? string.Empty;
+
+            // Embedding provider ('local' is the seeded default; unknown stored
+            // values normalize to it)
+            _loadedEmbeddingProviderKey = EmbeddingProviderKeys.Normalize(
+                await _settingsService.GetSettingAsync<string>(SettingKeys.EmbeddingProvider, EmbeddingProviderKeys.Local));
+            SelectedEmbeddingProvider = _loadedEmbeddingProviderKey == EmbeddingProviderKeys.OpenAi
+                ? "OpenAI (cloud)"
+                : "Local (on-device)";
+            ShowReEmbedWarning = false;
+
+            UpdateLlmUsageSummary();
 
             // Load audio settings
             var sampleRate = await _settingsService.GetSettingAsync<int>("AudioSampleRate", 16000);
@@ -174,9 +230,17 @@ public partial class SettingsViewModel : ObservableObject
             // Save zoom level (canonical lowercase to match readers/seeds, e.g. "month")
             await _settingsService.SetSettingAsync(SettingKeys.DefaultZoomLevel, SelectedZoomLevel.ToLowerInvariant());
 
-            // Save LLM settings (canonical lowercase provider, e.g. "anthropic")
+            // Save LLM settings (canonical lowercase provider keys:
+            // "anthropic" / "openai-compatible" — see LlmProviderKeys)
             await _settingsService.SetSettingAsync(SettingKeys.LlmProvider, LlmProvider.ToLowerInvariant());
             await _settingsService.SetSettingAsync(SettingKeys.LlmModel, LlmModel);
+            await _settingsService.SetSettingAsync(SettingKeys.LlmBaseUrl, LlmBaseUrl?.Trim() ?? string.Empty);
+
+            // Save embedding provider (canonical "local" / "openai"). The
+            // re-embed warning intentionally stays visible after saving: the
+            // stored embeddings are still from the previous provider until
+            // "Re-embed all events" runs.
+            await _settingsService.SetSettingAsync(SettingKeys.EmbeddingProvider, ToEmbeddingProviderKey(SelectedEmbeddingProvider));
 
             // Save audio settings
             await _settingsService.SetSettingAsync("AudioSampleRate", AudioSampleRate);
@@ -195,6 +259,7 @@ public partial class SettingsViewModel : ObservableObject
             }
 
             StatusMessage = "Settings saved successfully";
+            UpdateLlmUsageSummary();
             _logger.LogInformation("Settings saved successfully");
         }
         catch (Exception ex)
@@ -218,6 +283,8 @@ public partial class SettingsViewModel : ObservableObject
             SelectedZoomLevel = "Month";
             LlmProvider = "Anthropic";
             LlmModel = "claude-3-5-sonnet-20241022";
+            LlmBaseUrl = string.Empty;
+            SelectedEmbeddingProvider = "Local (on-device)";
             AudioSampleRate = 16000;
             AudioBitsPerSample = 16;
             ApiKey = string.Empty;
@@ -231,6 +298,90 @@ public partial class SettingsViewModel : ObservableObject
             _logger.LogError(ex, "Error resetting settings");
             StatusMessage = "Error resetting settings";
         }
+    }
+
+    /// <summary>
+    /// Regenerates the embeddings of ALL events with the currently selected
+    /// provider (persisting the selection first so the router uses it). The
+    /// heavy lifting lives in Core (IEventService.ReEmbedAllAsync), which
+    /// deletes stale-dimension rows up front and reports (done, total).
+    /// </summary>
+    [RelayCommand]
+    private async Task ReEmbedAllAsync()
+    {
+        if (IsReEmbedding) return;
+
+        try
+        {
+            IsReEmbedding = true;
+            _reEmbedCts = new CancellationTokenSource();
+            ReEmbedStatusMessage = "Preparing to re-embed...";
+
+            // Persist the selected embedding provider so the routing service
+            // generates the new vectors with it (settings apply live).
+            await _settingsService.SetSettingAsync(
+                SettingKeys.EmbeddingProvider, ToEmbeddingProviderKey(SelectedEmbeddingProvider));
+            _loadedEmbeddingProviderKey = ToEmbeddingProviderKey(SelectedEmbeddingProvider);
+
+            // Progress<T> marshals back to this (UI) synchronization context.
+            var progress = new Progress<(int done, int total)>(p =>
+                ReEmbedStatusMessage = $"Re-embedding events... {p.done}/{p.total}");
+
+            var count = await _eventService.ReEmbedAllAsync(progress, _reEmbedCts.Token);
+
+            ReEmbedStatusMessage = $"Re-embedded {count} event(s) with the current provider";
+            StatusMessage = ReEmbedStatusMessage;
+            ShowReEmbedWarning = false;
+            _logger.LogInformation("Re-embedded {Count} events from Settings", count);
+        }
+        catch (OperationCanceledException)
+        {
+            ReEmbedStatusMessage = "Re-embed cancelled — run it again to restore similarity features";
+            _logger.LogInformation("Re-embed cancelled from Settings");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error re-embedding events");
+            ReEmbedStatusMessage = $"Re-embed failed: {ex.Message}";
+            StatusMessage = "Error re-embedding events";
+        }
+        finally
+        {
+            IsReEmbedding = false;
+            _reEmbedCts?.Dispose();
+            _reEmbedCts = null;
+        }
+    }
+
+    [RelayCommand]
+    private void CancelReEmbed()
+    {
+        _reEmbedCts?.Cancel();
+    }
+
+    /// <summary>
+    /// Shows the re-embed warning as soon as the selection differs from the
+    /// provider whose embeddings are (or were) stored.
+    /// </summary>
+    partial void OnSelectedEmbeddingProviderChanged(string value)
+    {
+        ShowReEmbedWarning = ToEmbeddingProviderKey(value) != _loadedEmbeddingProviderKey;
+    }
+
+    /// <summary>Maps the display option to the canonical stored key.</summary>
+    private static string ToEmbeddingProviderKey(string? displayOption)
+    {
+        return displayOption != null && displayOption.StartsWith("OpenAI", StringComparison.OrdinalIgnoreCase)
+            ? EmbeddingProviderKeys.OpenAi
+            : EmbeddingProviderKeys.Local;
+    }
+
+    private void UpdateLlmUsageSummary()
+    {
+        var calls = _llmUsageTracker.CallCount;
+        LlmUsageSummary = calls == 0
+            ? "No LLM calls this session"
+            : $"{calls} LLM call(s) this session, ~{_llmUsageTracker.EstimatedTokens:N0} tokens";
     }
 
     [RelayCommand]
@@ -457,9 +608,9 @@ public partial class SettingsViewModel : ObservableObject
     /// <summary>
     /// Maps a canonical (lowercase) stored value to the matching Title-case
     /// display option so ComboBox selection is never blank on load.
-    /// A stored value that is not a supported option normalizes to the default
-    /// (e.g. a legacy "openai"/"local" llm_provider becomes "Anthropic"), so an
-    /// unsupported value can never round-trip back into settings on save.
+    /// A stored value that is not a supported option normalizes to the default,
+    /// so an unsupported value can never round-trip back into settings on save.
+    /// (LLM/embedding providers use their dedicated key normalizers instead.)
     /// </summary>
     private static string ToDisplayOption(string? storedValue, List<string> options, string defaultOption)
     {

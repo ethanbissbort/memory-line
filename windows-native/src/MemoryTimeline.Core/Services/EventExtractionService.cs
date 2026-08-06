@@ -24,6 +24,7 @@ public class EventExtractionService : IEventExtractionService
     private readonly ILogger<EventExtractionService> _logger;
 
     private const string MissingApiKeyMessage = "Anthropic API key not configured — add it in Settings";
+    private const string MissingBaseUrlMessage = "LLM base URL not configured — add it in Settings (e.g. http://localhost:11434/v1 for Ollama)";
 
     public EventExtractionService(
         ILlmService llmService,
@@ -636,12 +637,26 @@ public class EventExtractionService : IEventExtractionService
     #region Private Methods
 
     /// <summary>
-    /// Verifies the LLM API key is configured; throws a non-retryable
-    /// ConfigurationException when it is missing so the queue fails the
-    /// item immediately instead of burning retries.
+    /// Verifies the ACTIVE LLM provider is configured; throws a non-retryable
+    /// ConfigurationException when it is not, so the queue fails the item
+    /// immediately instead of burning retries. Provider-aware (F11): the
+    /// OpenAI-compatible provider needs a base URL (no API key), Anthropic
+    /// needs its API key.
     /// </summary>
     private async Task EnsureLlmConfiguredAsync()
     {
+        var provider = LlmProviderKeys.Normalize(await _settingsService.GetLlmProviderAsync());
+
+        if (provider == LlmProviderKeys.OpenAiCompatible)
+        {
+            var baseUrl = await _settingsService.GetSettingAsync<string>(SettingKeys.LlmBaseUrl, string.Empty);
+            if (string.IsNullOrWhiteSpace(baseUrl))
+            {
+                throw new ConfigurationException(MissingBaseUrlMessage);
+            }
+            return;
+        }
+
         var apiKey = await _settingsService.GetSettingAsync<string>(SettingKeys.AnthropicApiKey, string.Empty);
 
         if (string.IsNullOrWhiteSpace(apiKey))

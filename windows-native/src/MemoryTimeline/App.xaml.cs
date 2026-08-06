@@ -127,12 +127,28 @@ public partial class App : Application
                     // SpeechRecognizer cannot transcribe files (mic-only API).
                     services.AddSingleton<ISpeechToTextService, WhisperSpeechToTextService>();
 
-                    // Phase 4: LLM & Event Extraction services
-                    services.AddSingleton<ILlmService, AnthropicLlmService>();
+                    // Phase 4: LLM & Event Extraction services.
+                    // F11 pluggable providers: concrete LLM services are registered as
+                    // themselves (AnthropicLlmService singleton; OpenAiCompatibleLlmService
+                    // as an HttpClient typed client, i.e. transient with factory-managed
+                    // HttpClient). The RoutingLlmService facade re-reads llm_provider on
+                    // every call and resolves the matching concrete per call, so switching
+                    // providers in Settings applies without a restart and HttpClient
+                    // lifetimes stay healthy.
+                    services.AddSingleton<AnthropicLlmService>();
+                    services.AddHttpClient<OpenAiCompatibleLlmService>();
+                    services.AddSingleton<ILlmUsageTracker, LlmUsageTracker>();
+                    services.AddSingleton<ILlmService, RoutingLlmService>();
                     services.AddSingleton<IEventExtractionService, EventExtractionService>();
 
-                    // Phase 5: RAG & Embedding services
-                    services.AddHttpClient<IEmbeddingService, OpenAIEmbeddingService>();
+                    // Phase 5: RAG & Embedding services.
+                    // F11 local-first embeddings: same routing shape as the LLM —
+                    // OnnxEmbeddingService (local, no key, seeded default) is a singleton;
+                    // OpenAIEmbeddingService stays a typed HttpClient; the router picks
+                    // per call from embedding_provider.
+                    services.AddHttpClient<OpenAIEmbeddingService>();
+                    services.AddSingleton<OnnxEmbeddingService>();
+                    services.AddSingleton<IEmbeddingService, RoutingEmbeddingService>();
                     services.AddSingleton<IRagService, RagService>();
                     // Ask your timeline: conversational retrieval over the archive
                     services.AddSingleton<IMemoryQueryService, MemoryQueryService>();

@@ -414,9 +414,20 @@ public class AppDbContext : DbContext
             new AppSetting { SettingKey = "rag_auto_run_enabled", SettingValue = "false", UpdatedAt = SeedTimestamp },
             new AppSetting { SettingKey = "rag_schedule", SettingValue = "weekly", UpdatedAt = SeedTimestamp },
             new AppSetting { SettingKey = "rag_similarity_threshold", SettingValue = "0.75", UpdatedAt = SeedTimestamp },
+            // F11: embedding_model corrected from the never-implemented
+            // 'onnx-text-embedding' placeholder to the real local model.
+            // Existing databases keep whatever value their row already has
+            // (HasData / INSERT OR IGNORE never overwrite); routing keys off
+            // embedding_provider and treats unknown stored model strings
+            // gracefully, so the stale value is harmless.
             new AppSetting { SettingKey = "embedding_provider", SettingValue = "local", UpdatedAt = SeedTimestamp },
-            new AppSetting { SettingKey = "embedding_model", SettingValue = "onnx-text-embedding", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "embedding_model", SettingValue = "all-MiniLM-L6-v2", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "embedding_dimension", SettingValue = "384", UpdatedAt = SeedTimestamp },
             new AppSetting { SettingKey = "embedding_api_key", SettingValue = "", UpdatedAt = SeedTimestamp },
+            // F11: OpenAI-compatible LLM endpoint (Ollama / LM Studio / vLLM)
+            // and the optional local ONNX model directory override.
+            new AppSetting { SettingKey = "llm_base_url", SettingValue = "", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "local_model_path", SettingValue = "", UpdatedAt = SeedTimestamp },
             new AppSetting { SettingKey = "auto_generate_embeddings", SettingValue = "true", UpdatedAt = SeedTimestamp },
             new AppSetting { SettingKey = "send_transcripts_only", SettingValue = "true", UpdatedAt = SeedTimestamp },
             new AppSetting { SettingKey = "require_confirmation", SettingValue = "true", UpdatedAt = SeedTimestamp },

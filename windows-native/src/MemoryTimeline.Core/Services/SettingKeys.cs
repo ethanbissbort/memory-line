@@ -12,9 +12,15 @@ public static class SettingKeys
     public const string AnthropicApiKey = "ApiKey";            // preserves existing user rows
     public const string LlmProvider = "llm_provider";
     public const string LlmModel = "llm_model";
+    public const string LlmBaseUrl = "llm_base_url";           // OpenAI-compatible endpoint (Ollama / LM Studio / vLLM); matches DB seed
     public const string DefaultZoomLevel = "default_zoom_level";
+    public const string EmbeddingProvider = "embedding_provider"; // matches DB seed ("local" | "openai")
     public const string EmbeddingApiKey = "embedding_api_key"; // matches DB seed
     public const string EmbeddingModel = "embedding_model";    // matches DB seed
+    // Seeded for provider parity/visibility only; the AUTHORITATIVE dimension is
+    // IEmbeddingService.EmbeddingDimension (and the per-row embedding_dimension column).
+    public const string EmbeddingDimension = "embedding_dimension"; // matches DB seed
+    public const string LocalModelPath = "local_model_path";   // overrides the local ONNX model directory when non-empty; matches DB seed
     public const string Theme = "theme";                       // matches DB seed
     public const string AskTopK = "ask_top_k";                 // matches DB seed
     public const string AskIncludeTranscripts = "ask_include_transcripts"; // matches DB seed

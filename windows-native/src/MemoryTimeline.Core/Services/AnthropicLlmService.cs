@@ -21,13 +21,6 @@ public class AnthropicLlmService : ILlmService
     private string? _clientApiKey;
     private string? _model;
 
-    // Reuse serializer options; allocating JsonSerializerOptions per call is expensive
-    // (each instance builds and caches its own metadata).
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true
-    };
-
     public string ProviderName => "Anthropic Claude";
     public string ModelName => _model ?? AnthropicModels.Claude35Sonnet;
     public bool RequiresInternet => true;
@@ -109,10 +102,11 @@ public class AnthropicLlmService : ILlmService
             }
 
             // Parse the JSON response (guard against malformed LLM output)
-            EventExtractionResponse? extractedData;
+            LlmPromptSupport.EventExtractionResponse? extractedData;
             try
             {
-                extractedData = JsonSerializer.Deserialize<EventExtractionResponse>(jsonResponse, JsonOptions);
+                extractedData = JsonSerializer.Deserialize<LlmPromptSupport.EventExtractionResponse>(
+                    jsonResponse, LlmPromptSupport.JsonOptions);
             }
             catch (JsonException ex)
             {
@@ -284,106 +278,19 @@ public class AnthropicLlmService : ILlmService
     }
 
     /// <summary>
-    /// Builds the extraction prompt for Claude.
+    /// Builds the extraction prompt. The prompt text is shared verbatim with the
+    /// OpenAI-compatible provider via <see cref="LlmPromptSupport"/> — never fork it.
     /// </summary>
-    private string BuildExtractionPrompt(string transcript, ExtractionContext? context)
+    private static string BuildExtractionPrompt(string transcript, ExtractionContext? context)
     {
-        var referenceDate = context?.ReferenceDate ?? DateTime.Now;
-
-        // Offer the REAL canonical category list (EventCategory.AllCategories);
-        // a hardcoded list here previously drifted from the stored values.
-        var categoryList = string.Join(", ", EventCategory.AllCategories);
-
-        var prompt = $@"You are an expert at extracting structured event information from transcribed speech. Your task is to analyze the following transcript and extract all mentioned events with their details.
-
-# Instructions:
-1. Identify ALL events mentioned in the transcript (meetings, milestones, accomplishments, significant occurrences)
-2. For each event, extract:
-   - Title (concise, descriptive)
-   - Description (detailed information from the transcript)
-   - Start date (parse relative dates like 'yesterday', 'last week', 'two months ago')
-   - End date (if the event has duration)
-   - Date precision (one of: exact, day, month, season, year, decade, unknown)
-   - Category (one of: {categoryList})
-   - Tags (relevant keywords)
-   - People involved (names mentioned)
-   - People details (for each person: their name, their relationship to the speaker if stated, and any other noteworthy details mentioned about them)
-   - Locations mentioned
-   - Confidence score (0.0 to 1.0 based on clarity of information)
-   - Source text (the exact portion of transcript about this event)
-   - Reasoning (brief explanation of why you extracted this as an event)
-
-3. Parse dates relative to: {referenceDate:yyyy-MM-dd}
-4. Be thorough but only extract genuine events, not hypotheticals or general discussions
-5. Assign confidence scores based on:
-   - 0.9-1.0: Explicit dates and clear details
-   - 0.7-0.9: Clear event with approximate dates
-   - 0.5-0.7: Event is clear but dates are vague
-   - Below 0.5: Uncertain or ambiguous
-6. Set datePrecision to the COARSEST unit actually justified by the transcript. NEVER guess a specific day when the speaker was vague:
-   - exact: an explicit date AND time of day were stated
-   - day: a specific calendar day is known
-   - month: only the month and year are known (""in March 2019"") - set startDate to the 15th of that month
-   - season: only a season is known (""that summer"") - set startDate to the middle of the season
-   - year: only the year is known (""sometime in 2011"") - set startDate to July 1 of that year
-   - decade: only the decade is known (""back in the 90s"") - set startDate to the middle year of the decade
-   - unknown: no usable date information at all
-
-# Context:";
-
-        if (context?.RecentEvents != null && context.RecentEvents.Any())
-        {
-            prompt += "\nRecent events for reference:\n" + string.Join("\n", context.RecentEvents.Take(10).Select(e => $"- {e}"));
-        }
-
-        if (context?.AvailableTags != null && context.AvailableTags.Any())
-        {
-            prompt += "\n\nAvailable tags: " + string.Join(", ", context.AvailableTags.Take(20));
-        }
-
-        if (context?.KnownPeople != null && context.KnownPeople.Any())
-        {
-            prompt += "\n\nKnown people (use these canonical spellings when they match): " + string.Join(", ", context.KnownPeople.Take(100));
-        }
-
-        prompt += $@"
-
-# Transcript:
-{transcript}
-
-# Output Format:
-Return a JSON object with this exact structure (no markdown, just raw JSON):
-{{
-  ""events"": [
-    {{
-      ""title"": ""Event Title"",
-      ""description"": ""Detailed description"",
-      ""startDate"": ""2024-01-15T10:00:00Z"",
-      ""endDate"": ""2024-01-15T12:00:00Z"",
-      ""datePrecision"": ""day"",
-      ""category"": ""work"",
-      ""tags"": [""tag1"", ""tag2""],
-      ""people"": [""Person Name""],
-      ""peopleDetails"": [{{ ""name"": ""Person Name"", ""relationship"": ""sister"", ""details"": ""noteworthy details mentioned"" }}],
-      ""locations"": [""Location Name""],
-      ""confidence"": 0.95,
-      ""sourceText"": ""relevant portion of transcript"",
-      ""reasoning"": ""why this is an event""
-    }}
-  ],
-  ""overallConfidence"": 0.85
-}}
-
-Notes on people fields: ""people"" must remain the flat list of person names. ""peopleDetails"" has one entry per person with the same name plus ""relationship"" and ""details"" set to null when not mentioned.
-
-Now analyze the transcript and extract events:";
-
-        return prompt;
+        return LlmPromptSupport.BuildExtractionPrompt(transcript, context);
     }
 
     /// <summary>
     /// Extracts JSON from Claude's response (handles markdown code blocks).
-    /// Anthropic.SDK v5.8.0 returns MessageResponse with Content list of ContentBase objects.
+    /// Anthropic.SDK v5.8.0 returns MessageResponse with Content list of ContentBase
+    /// objects; the fence-stripping itself is shared with the OpenAI-compatible
+    /// provider via <see cref="LlmPromptSupport.ExtractJsonFromText"/>.
     /// </summary>
     private string ExtractJsonFromResponse(MessageResponse response)
     {
@@ -399,24 +306,7 @@ Now analyze the transcript and extract events:";
             if (textContent == null || string.IsNullOrEmpty(textContent.Text))
                 return string.Empty;
 
-            var text = textContent.Text.Trim();
-
-            // Remove markdown code fences if present
-            if (text.StartsWith("```json"))
-            {
-                text = text.Substring(7);
-            }
-            else if (text.StartsWith("```"))
-            {
-                text = text.Substring(3);
-            }
-
-            if (text.EndsWith("```"))
-            {
-                text = text.Substring(0, text.Length - 3);
-            }
-
-            return text.Trim();
+            return LlmPromptSupport.ExtractJsonFromText(textContent.Text);
         }
         catch (Exception ex)
         {
@@ -438,19 +328,6 @@ Now analyze the transcript and extract events:";
         var outputCost = (outputTokens / 1_000_000m) * outputCostPerMillion;
 
         return inputCost + outputCost;
-    }
-
-    #endregion
-
-    #region Response Models
-
-    /// <summary>
-    /// Response model for JSON deserialization.
-    /// </summary>
-    private class EventExtractionResponse
-    {
-        public List<ExtractedEvent>? Events { get; set; }
-        public double OverallConfidence { get; set; }
     }
 
     #endregion

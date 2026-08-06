@@ -371,7 +371,11 @@ public static class SchemaUpgrader
             // EnsureCreated is a no-op on databases created by older builds, so
             // any settings row seeded after that build is missing there.
             // INSERT OR IGNORE keeps this idempotent and never overwrites a
-            // value the user has since changed.
+            // value the user has since changed. NOTE (F11): embedding_model was
+            // corrected from 'onnx-text-embedding' to 'all-MiniLM-L6-v2';
+            // databases that already carry the old value keep it (never
+            // overwritten) — the embedding router keys off embedding_provider
+            // and ignores unknown stored model strings.
             if (existingTables.Contains("app_settings"))
             {
                 await ExecuteAsync(connection,
@@ -390,8 +394,11 @@ public static class SchemaUpgrader
                         ('rag_schedule',             'weekly',                   '2025-01-21 00:00:00'),
                         ('rag_similarity_threshold', '0.75',                     '2025-01-21 00:00:00'),
                         ('embedding_provider',       'local',                    '2025-01-21 00:00:00'),
-                        ('embedding_model',          'onnx-text-embedding',      '2025-01-21 00:00:00'),
+                        ('embedding_model',          'all-MiniLM-L6-v2',         '2025-01-21 00:00:00'),
+                        ('embedding_dimension',      '384',                      '2025-01-21 00:00:00'),
                         ('embedding_api_key',        '',                         '2025-01-21 00:00:00'),
+                        ('llm_base_url',             '',                         '2025-01-21 00:00:00'),
+                        ('local_model_path',         '',                         '2025-01-21 00:00:00'),
                         ('auto_generate_embeddings', 'true',                     '2025-01-21 00:00:00'),
                         ('send_transcripts_only',    'true',                     '2025-01-21 00:00:00'),
                         ('require_confirmation',     'true',                     '2025-01-21 00:00:00'),
