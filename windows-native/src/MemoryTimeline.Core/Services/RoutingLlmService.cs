@@ -107,7 +107,8 @@ public class RoutingLlmService : ILlmService
         var result = await inner.ExtractEventsAsync(transcript, context);
 
         // Prefer real token usage; fall back to a prompt-size estimate.
-        var tokens = result?.TokenUsage?.TotalTokens ?? 0;
+        // (long: EstimateTokens and RecordCall both work in long.)
+        long tokens = result?.TokenUsage?.TotalTokens ?? 0;
         if (tokens <= 0)
         {
             tokens = LlmUsageTracker.EstimateTokens(transcript);
