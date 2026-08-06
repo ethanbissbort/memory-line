@@ -67,8 +67,18 @@ public class AppDbContext : DbContext
     {
         public static readonly SqlitePragmaInterceptor Instance = new();
 
-        private const string PragmaSql =
-            "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;";
+        // journal_mode=WAL is a persistent setting that WRITES to the database
+        // file when the file is not already in WAL mode. EF opens read-only
+        // connections for existence checks (EnsureCreated/EnsureDeleted), and
+        // a database restored from an import backup is in the default DELETE
+        // journal mode - on those opens the WAL pragma fails with SQLite
+        // error 8 ("attempt to write a readonly database"), so it is applied
+        // best-effort. The per-connection pragmas below never write and must
+        // always be applied.
+        private const string WalPragmaSql = "PRAGMA journal_mode=WAL;";
+
+        private const string ConnectionPragmaSql =
+            "PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;";
 
         // journal_mode=WAL rewrites the database header, which fails with
         // "attempt to write a readonly database" (SQLITE_READONLY) on the
@@ -95,6 +105,18 @@ public class AppDbContext : DbContext
 
         public override void ConnectionOpened(DbConnection connection, ConnectionEndEventData eventData)
         {
+            try
+            {
+                using var walCommand = connection.CreateCommand();
+                walCommand.CommandText = WalPragmaSql;
+                walCommand.ExecuteNonQuery();
+            }
+            catch (Microsoft.Data.Sqlite.SqliteException)
+            {
+                // Read-only connection or read-only file: WAL cannot be set
+                // here; the next writable open will set it.
+            }
+
             using var command = connection.CreateCommand();
             command.CommandText = GetPragmaSql(connection);
             command.ExecuteNonQuery();
@@ -105,6 +127,18 @@ public class AppDbContext : DbContext
             ConnectionEndEventData eventData,
             CancellationToken cancellationToken = default)
         {
+            try
+            {
+                using var walCommand = connection.CreateCommand();
+                walCommand.CommandText = WalPragmaSql;
+                await walCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Microsoft.Data.Sqlite.SqliteException)
+            {
+                // Read-only connection or read-only file: WAL cannot be set
+                // here; the next writable open will set it.
+            }
+
             using var command = connection.CreateCommand();
             command.CommandText = GetPragmaSql(connection);
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
