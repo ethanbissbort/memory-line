@@ -1,9 +1,81 @@
 # Windows Native Development Status
 
-**Last Updated:** 2026-07-10
-**Current Phase:** Phase 7 - Testing & Deployment
-**Overall Progress:** Phases 0-6 complete; Phase 7 in progress
+**Last Updated:** 2026-08-06
+**Current Phase:** Phase 7 - Testing & Deployment (plus the 2026-08 feature-spec wave, landed)
+**Overall Progress:** Phases 0-6 complete; F1–F12 feature spec implemented; Phase 7 in progress
 **Status:** 🔄 IN PROGRESS — builds green in CI, end-to-end runtime validation ongoing
+
+---
+
+## 2026-08 feature-spec implementation (F1–F12)
+
+**Date:** 2026-08-06
+
+Twelve features from the Memory Timeline feature spec were implemented on top of the
+post-audit base, in dependency-ordered waves (F1/F3/F4 → F2/F7/F5 → F8/F6/F9 →
+F11/F12/F10) with a verification fix pass after each wave. Every wave pushed CI-green
+(`Release|x64`, `windows-latest`).
+
+**Per-feature status (all landed):**
+
+- **F1 — Date precision & uncertainty:** `DatePrecision` enum
+  (Exact/Day/Month/Season/Year/Decade/Unknown) + `earliest_possible`/`latest_possible`
+  window on `events` and `pending_events`; precision-honest date display everywhere;
+  extraction assigns precision instead of inventing days; the category list bug fixed.
+- **F3 — Text/paste capture:** `recording_queue.source_type` (Audio/Text/Imported),
+  persisted `transcript` reused across retries (also for Whisper output), Ctrl+Shift+V
+  paste-capture dialog on the Queue page.
+- **F4 — Ask your timeline:** new Ask page; hybrid keyword+semantic retrieval merged
+  with reciprocal-rank fusion; grounded answers cited to real events; honest refusal
+  when nothing relevant exists; keyword-only degraded mode without embeddings.
+- **F2 — Media attachments:** `event_media` table, managed copy tree under
+  `%LOCALAPPDATA%\MemoryTimeline\Media`, EXIF via MetadataExtractor, thumbnails,
+  content-hash dedupe, lightbox, drag-drop.
+- **F7 — On This Day / Home:** new default landing page; precision-aware anniversaries
+  (only Exact/Day events surface on a specific day); event view tracking; optional
+  daily toast; `event:` deep links fixed; first-run empty state.
+- **F5 — Narrative generation:** grounded prose per scope (range/era/person) with
+  precision-honest dates and code-enforced citation integrity; Markdown/HTML export;
+  story dialog reachable from Eras, Timeline, and People.
+- **F8 — Spans/swimlanes/uncertainty + perf:** duration span bars, collapsible
+  swimlanes, uncertainty band rendering; scroll reload coalescing (major timeline
+  performance fix).
+- **F6 — Guided recall prompts:** `recall_prompts` table; five gap sources (density
+  gaps, dangling people, era edges, thin events, anniversaries); deduped against all
+  prior prompts so a question is never re-asked; cards on Queue and Home.
+- **F9 — People hub:** `person_aliases`, tombstone merges (`people.merged_into_id`),
+  case-insensitive NOCASE identity with a defensive migration that merges case-variant
+  duplicates and backfills contact columns; person profiles; alias-aware extraction.
+- **F10 — Offline map:** coordinates on `locations` (EXIF GPS backfill + pin drop),
+  opt-in Nominatim geocoding **off by default**, fully offline canvas map (deliberately
+  **not** WinUI `MapControl`/Azure Maps).
+- **F11 — Pluggable AI:** local ONNX `all-MiniLM-L6-v2` embeddings (384-dim, CPU EP) —
+  local-first Connections with no OpenAI key; OpenAI-compatible LLM endpoint support
+  (Ollama/LM Studio); per-call provider routing (`RoutingLlmService`/
+  `RoutingEmbeddingService`); embedding dimension guard + re-embed flow; per-session
+  LLM usage counter.
+- **F12 — Backup/restore/revisions:** `.mtbak` online-backup archives (optionally with
+  media), restore with preview + explicit confirmation, append-only `event_revisions`
+  history + history dialog, scheduled daily/weekly backups, and a real Clear Cache.
+
+**Infrastructure fixes in the same wave:** the SQLite pragma interceptor no longer
+rewrites `journal_mode` on read-only connections; CI triggers on the feature branch;
+`app_settings` seed parity is three-way (33 keys, `AppDbContext` seed = `SchemaUpgrader`
+backfill = `SettingKeys`).
+
+**Explicitly deferred (not implemented, by design):** PhotoImportPage bulk-import
+wizard; map tile basemaps (the map is a plain offline canvas); a location chip on
+timeline events; real LLM token streaming (responses arrive whole); PDF narrative
+export (Markdown/HTML only); vertical scrolling within swimlanes; reorderable lanes;
+an EXIF test against a real binary image fixture; a Merge restore mode (restore is
+replace-only, with a pre-restore safety backup); DirectML execution provider for the
+ONNX embedder (CPU is used).
+
+**Honest caveats:** all of the above is code-complete and CI-green, but **runtime
+validation on a real Windows machine is still pending** — none of the new features have
+been exercised end-to-end outside tests. The **EF migration baseline has still not been
+regenerated**; every schema addition above ships through `SchemaUpgrader`'s idempotent
+DDL, and API keys remain plaintext in `app_settings` (DPAPI still a follow-up).
 
 ---
 
@@ -88,11 +160,12 @@ to the context factory.
 
 The Memory Timeline Windows native application has completed **Phases 0-6** and is
 in **Phase 7 (Testing & Deployment)**. Following the July 2026 post-audit hardening
-pass (see above), the app is feature-complete across core functionality, advanced
-features, Windows integration, and polish, and **builds green in CI on a Windows
-runner**. Phase 7 work is in progress: **end-to-end runtime validation is ongoing**,
-followed by performance validation, MSIX packaging, and Microsoft Store submission.
-The application is **not yet production ready**.
+pass and the **August 2026 F1–F12 feature-spec implementation** (see above), the app
+is feature-complete across core functionality, advanced features, Windows
+integration, and polish, and **builds green in CI on a Windows runner**. Phase 7
+work is in progress: **end-to-end runtime validation is ongoing** (now covering the
+feature wave as well), followed by performance validation, MSIX packaging, and
+Microsoft Store submission. The application is **not yet production ready**.
 
 ### Quick Status Overview
 
@@ -655,8 +728,10 @@ validation; MSIX packaging + code signing; Microsoft Store submission.
 | **MVVM** | CommunityToolkit.Mvvm | 8.2.2 | ✅ |
 | **Audio** | Windows.Media.Capture | Windows SDK | ✅ |
 | **STT** | Local Whisper (Whisper.net, ggml base) | offline after first model download | ✅ |
-| **LLM** | Anthropic Claude API | claude-sonnet-4-20250514 | ✅ |
-| **Embeddings** | OpenAI API | text-embedding-3-small | ✅ |
+| **LLM** | Anthropic Claude API **or** OpenAI-compatible endpoint (Ollama / LM Studio), routed per call | claude-sonnet-4-20250514 default | ✅ |
+| **Embeddings** | Local ONNX `all-MiniLM-L6-v2` (default, 384-dim, CPU EP) **or** OpenAI API | text-embedding-3-small (1536-dim) as the cloud option | ✅ |
+| **Media metadata** | MetadataExtractor (EXIF) | 2.8.1 | ✅ |
+| **Geocoding** | Nominatim (opt-in, off by default) | HTTP typed client | ✅ |
 | **Navigation** | Frame-based | WinUI 3 | ✅ |
 | **Theming** | Light/Dark mode | WinUI 3 | ✅ |
 | **Notifications** | AppNotifications | Windows App SDK | ✅ |
@@ -667,17 +742,16 @@ validation; MSIX packaging + code signing; Microsoft Store submission.
 
 ## Code Statistics
 
-### Overall Project
+### Overall Project (after the 2026-08 feature wave)
 - **Total Projects:** 4 (Main App, Core, Data, Tests)
-- **Total Code Files:** 100+
-- **Total Lines of Code:** ~15,000+
-- **Data Models:** 13
-- **Service Interfaces:** 12
-- **Service Implementations:** 12
-- **Repositories:** 9
-- **ViewModels:** 7
-- **Views (XAML Pages):** 6
-- **Test Files:** Pending (Phase 7)
+- **Total Code Files:** 250+ (`.cs`/`.xaml`, excluding build output)
+- **Total Lines of Code:** ~70,000+ (including XAML and tests)
+- **Data Models:** 20
+- **Core Service Interfaces:** 30
+- **Repositories:** 15
+- **ViewModels:** 14
+- **Views (XAML Pages):** 12
+- **Test Files:** unit/integration/performance suites in `MemoryTimeline.Tests` (run in CI; coverage targets still Phase 7)
 
 ### By Phase
 - **Phase 0:** ~1,500 lines (scaffolding, configuration)
@@ -694,24 +768,28 @@ validation; MSIX packaging + code signing; Microsoft Store submission.
 ## Known Issues & Limitations
 
 ### Current Limitations
-1. **Runtime validation:** Post-audit fixes build green in CI but are not yet fully
-   validated end-to-end on real hardware (Phase 7, in progress)
-2. **Automated tests:** Some tests still use the old constructor signatures and need
-   updating to the `IDbContextFactory` pattern; broad coverage still pending (Phase 7)
+1. **Runtime validation:** The post-audit fixes *and* the entire F1–F12 feature wave
+   build green in CI but are not yet validated end-to-end on real hardware (Phase 7,
+   in progress)
+2. **Automated tests:** Some older tests still use the old constructor signatures and
+   need updating to the `IDbContextFactory` pattern; broad coverage still pending (Phase 7)
 3. **EF migrations:** Stale migrations deleted; a real migration baseline still needs
-   regenerating (startup uses `SchemaUpgrader.EnsureSchemaAsync` in the interim)
+   regenerating — all 2026-08 schema additions ship via `SchemaUpgrader.EnsureSchemaAsync`
 4. **API keys:** Stored in plaintext; DPAPI encryption is a follow-up
 5. **Performance:** Not yet validated with 5000+ events (Phase 7)
 6. **MSIX Package / Store Submission:** Not created or submitted yet (Phase 7)
-7. **NPU Acceleration:** Stubs in place, not implemented (future enhancement)
-8. **Local Embeddings:** Embeddings still cloud-based (OpenAI); STT is now local Whisper
-9. **PDF Export:** Interface defined but not implemented
+7. **ONNX acceleration:** The local embedder runs on the CPU execution provider;
+   DirectML/NPU registration is deliberately deferred (can throw on non-DX12 machines)
+8. **PDF Export:** Not implemented — narrative export ships Markdown/HTML only
+9. **Deferred F1–F12 items:** See the deferred list in the 2026-08 section above
+   (photo-import wizard, tile basemaps, token streaming, Merge restore mode, etc.)
 
 ### Future Enhancements
-1. **Local NPU Embeddings:** ONNX text embedding models with DirectML
+1. **DirectML/NPU execution** for the local ONNX embedder (currently CPU)
 2. **Advanced Timeline Features:** Filtering, advanced search from timeline
 3. **Pattern Visualization:** Charts and graphs for detected patterns
-4. **Multiple Embedding Models:** Support for Voyage AI, Cohere, local ONNX
+4. **More Embedding Models:** Voyage AI, Cohere, alternative local ONNX models
+   (local `all-MiniLM-L6-v2` and OpenAI are implemented)
 5. **Performance Optimization:** Caching, lazy loading, pagination for very large datasets
 6. **PDF Export:** Using WinUI 3 printing APIs
 7. **Cloud Sync:** OneDrive/Dropbox integration (optional)
@@ -793,6 +871,6 @@ These reflect the real post-audit follow-ups (see `HARDENING-FOLLOWUPS.md`).
 ---
 
 **Document Owner:** Development Team
-**Phase 7 Status:** In progress (CI Windows build green; runtime validation ongoing)
+**Phase 7 Status:** In progress (CI Windows build green through the F1–F12 wave pushes; runtime validation ongoing)
 **Next Review:** After end-to-end runtime validation
-**Last Updated:** 2026-07-10
+**Last Updated:** 2026-08-06
