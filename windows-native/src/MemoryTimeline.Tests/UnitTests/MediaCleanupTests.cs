@@ -42,7 +42,7 @@ public class MediaCleanupTests : IDisposable
         WriteFile(Path.Combine(_mediaRoot, keepRelative), "keep-media");
         WriteFile(Path.Combine(_mediaRoot, keepThumbRelative), "keep-thumb");
 
-        await using (var context = await _contextFactory.CreateDbContextAsync())
+        await using (var context = _contextFactory.CreateDbContext())
         {
             context.EventMedia.Add(new EventMedia
             {
@@ -91,7 +91,7 @@ public class MediaCleanupTests : IDisposable
         // Arrange - only a referenced file exists
         var keepRelative = Path.Combine("2022", "03", "only.jpg");
         WriteFile(Path.Combine(_mediaRoot, keepRelative), "referenced");
-        await using (var context = await _contextFactory.CreateDbContextAsync())
+        await using (var context = _contextFactory.CreateDbContext())
         {
             context.EventMedia.Add(new EventMedia
             {

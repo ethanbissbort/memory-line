@@ -154,7 +154,7 @@ public class EventRevisionTests : IDisposable
         };
 
         string pendingId;
-        await using (var context = await _contextFactory.CreateDbContextAsync())
+        await using (var context = _contextFactory.CreateDbContext())
         {
             var pending = new PendingEvent
             {
@@ -252,7 +252,7 @@ public class EventRevisionTests : IDisposable
 
         // Delete the "alpha" tag row entirely so restore must exercise the
         // create-or-link path (create by name, not just re-link).
-        await using (var context = await _contextFactory.CreateDbContextAsync())
+        await using (var context = _contextFactory.CreateDbContext())
         {
             var alpha = await context.Tags.FindAsync(alphaId);
             context.Tags.Remove(alpha!);
@@ -321,7 +321,7 @@ public class EventRevisionTests : IDisposable
 
     private async Task<string> SeedTagAsync(string name)
     {
-        await using var context = await _contextFactory.CreateDbContextAsync();
+        await using var context = _contextFactory.CreateDbContext();
         var tag = new Tag { TagId = Guid.NewGuid().ToString(), TagName = name, CreatedAt = DateTime.UtcNow };
         context.Tags.Add(tag);
         await context.SaveChangesAsync();
@@ -330,7 +330,7 @@ public class EventRevisionTests : IDisposable
 
     private async Task<string> SeedPersonAsync(string name)
     {
-        await using var context = await _contextFactory.CreateDbContextAsync();
+        await using var context = _contextFactory.CreateDbContext();
         var person = new Person { PersonId = Guid.NewGuid().ToString(), Name = name, CreatedAt = DateTime.UtcNow };
         context.People.Add(person);
         await context.SaveChangesAsync();

@@ -139,7 +139,7 @@ public class BackupServiceTests : IDisposable
         await targetBackupService.RestoreAsync(backupPath, RestoreMode.Replace);
 
         // Assert - the restored archive reproduces the source exactly
-        await using (var verifyContext = await targetFactory.CreateDbContextAsync())
+        await using (var verifyContext = targetFactory.CreateDbContext())
         {
             (await verifyContext.Events.CountAsync()).Should().Be(4);
         }
@@ -163,7 +163,7 @@ public class BackupServiceTests : IDisposable
         await SeedEventsAsync(2);
 
         // An OPEN, uncommitted write transaction on another factory context
-        await using var writerContext = await _sourceFactory.CreateDbContextAsync();
+        await using var writerContext = _sourceFactory.CreateDbContext();
         await using var transaction = await writerContext.Database.BeginTransactionAsync();
         writerContext.Events.Add(new Event
         {
@@ -307,7 +307,7 @@ public class BackupServiceTests : IDisposable
 
     private async Task SeedEventsAsync(int count)
     {
-        await using var context = await _sourceFactory.CreateDbContextAsync();
+        await using var context = _sourceFactory.CreateDbContext();
         for (var i = 0; i < count; i++)
         {
             context.Events.Add(new Event
