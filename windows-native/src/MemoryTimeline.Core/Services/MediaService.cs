@@ -492,6 +492,99 @@ public class MediaService : IMediaService
         }
     }
 
+    /// <inheritdoc />
+    public async Task<MediaCleanupResult> CleanupOrphansAsync(CancellationToken ct = default)
+    {
+        var result = new MediaCleanupResult();
+
+        if (!System.IO.Directory.Exists(MediaRoot))
+        {
+            return result;
+        }
+
+        // Referenced paths from the database, normalized to forward slashes
+        // (rows store OS-native separators via Path.Combine).
+        HashSet<string> liveFiles;
+        HashSet<string> liveThumbnails;
+        await using (var context = await _contextFactory.CreateDbContextAsync(ct))
+        {
+            var rows = await context.EventMedia
+                .AsNoTracking()
+                .Select(m => new { m.FilePath, m.ThumbnailPath })
+                .ToListAsync(ct);
+
+            liveFiles = rows
+                .Select(r => NormalizeRelativePath(r.FilePath))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            liveThumbnails = rows
+                .Where(r => !string.IsNullOrEmpty(r.ThumbnailPath))
+                .Select(r => NormalizeRelativePath(r.ThumbnailPath!))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+
+        // NOTE: this scan covers the managed media tree only. Export .tmp
+        // leftovers live wherever the user pointed the export/backup pickers
+        // (arbitrary folders we must not sweep - an in-progress backup's .tmp
+        // could be live there); cleaning those is deliberately deferred.
+        foreach (var file in System.IO.Directory.EnumerateFiles(MediaRoot, "*", SearchOption.AllDirectories))
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var relative = NormalizeRelativePath(Path.GetRelativePath(MediaRoot, file));
+            var isTemp = relative.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase);
+            var isThumbnail = relative.StartsWith(ThumbsDirectoryName + "/", StringComparison.OrdinalIgnoreCase);
+
+            var isOrphan = isTemp
+                || (isThumbnail && !liveThumbnails.Contains(relative))
+                || (!isThumbnail && !liveFiles.Contains(relative));
+            if (!isOrphan)
+            {
+                continue;
+            }
+
+            try
+            {
+                var sizeBytes = new FileInfo(file).Length;
+                File.Delete(file);
+
+                result.FilesDeleted++;
+                result.BytesFreed += sizeBytes;
+                if (isTemp)
+                {
+                    result.TempFilesDeleted++;
+                }
+                else if (isThumbnail)
+                {
+                    result.ThumbnailsDeleted++;
+                }
+                else
+                {
+                    result.MediaFilesDeleted++;
+                }
+            }
+            catch (Exception ex)
+            {
+                // A locked/vanished file must not abort the sweep.
+                _logger.LogWarning(ex, "Could not delete orphaned file {Path} during cleanup.", file);
+            }
+        }
+
+        _logger.LogInformation(
+            "Media cleanup: deleted {Files} file(s) ({Bytes} bytes) - {Media} orphaned media, {Thumbs} orphaned thumbnails, {Temp} temp leftovers.",
+            result.FilesDeleted, result.BytesFreed,
+            result.MediaFilesDeleted, result.ThumbnailsDeleted, result.TempFilesDeleted);
+
+        return result;
+    }
+
+    /// <summary>
+    /// Normalizes a media-root-relative path for comparison: forward slashes,
+    /// trimmed. Rows written on Windows carry backslashes; the scan compares
+    /// case-insensitively (NTFS semantics).
+    /// </summary>
+    private static string NormalizeRelativePath(string path)
+        => path.Replace('\\', '/').Trim();
+
     /// <summary>
     /// Reads EXIF DateTimeOriginal and GPS coordinates from an image via
     /// MetadataExtractor, normalized through

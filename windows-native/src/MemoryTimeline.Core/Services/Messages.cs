@@ -65,3 +65,12 @@ public sealed record MediaAttachedMessage(string EventId, string MediaId);
 /// "Auto", "Category"), so other views can react to the new grouping.
 /// </summary>
 public sealed record LaneModeChangedMessage(string LaneMode);
+
+/// <summary>
+/// Published via <c>WeakReferenceMessenger.Default</c> after the archive has
+/// been replaced from a backup file (<c>IBackupService.RestoreAsync</c>).
+/// Consumers should surface a "restart recommended" notice: in-memory caches
+/// (settings, singleton view-model state) may still reflect the pre-restore
+/// database.
+/// </summary>
+public sealed record ArchiveRestoredMessage(string BackupPath);

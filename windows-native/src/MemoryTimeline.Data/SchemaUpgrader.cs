@@ -252,6 +252,27 @@ public static class SchemaUpgrader
                 CREATE INDEX IF NOT EXISTS "IX_person_aliases_person_id" ON "person_aliases" ("person_id");
                 """);
 
+            // Event revision history (2026-08 F12). Deliberately NO foreign
+            // key to events - history must outlive event deletion (matches
+            // OnModelCreating, which configures no relationship). revision_kind
+            // is an INTEGER enum (RevisionKind: 0=Created 1=Edited 2=Approved
+            // 3=Imported 4=Merged 5=Restored). The composite index is
+            // descending on revised_at to serve newest-first history reads.
+            await EnsureTableAsync(connection, existingTables, "event_revisions", logger,
+                """
+                CREATE TABLE IF NOT EXISTS "event_revisions" (
+                    "revision_id" TEXT NOT NULL CONSTRAINT "PK_event_revisions" PRIMARY KEY,
+                    "event_id" TEXT NOT NULL,
+                    "revised_at" TEXT NOT NULL,
+                    "revision_kind" INTEGER NOT NULL,
+                    "snapshot_json" TEXT NOT NULL,
+                    "changed_fields_csv" TEXT NULL
+                );
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS "IX_event_revisions_event_id_revised_at" ON "event_revisions" ("event_id", "revised_at" DESC);
+                """);
+
             // ---- Missing columns on pre-existing tables ----
             // Note: SQLite's ALTER TABLE ADD COLUMN cannot add foreign key
             // constraints, so eras.category_id is added without one; the FK is
@@ -406,11 +427,16 @@ public static class SchemaUpgrader
                         ('ask_include_transcripts',  'false',                    '2025-01-21 00:00:00'),
                         ('home_is_default_page',     'true',                     '2025-01-21 00:00:00'),
                         ('daily_toast_enabled',      'true',                     '2025-01-21 00:00:00'),
-                        ('weekly_digest_enabled',    'true',                     '2025-01-21 00:00:00');
+                        ('weekly_digest_enabled',    'true',                     '2025-01-21 00:00:00'),
+                        ('backup_destination',       '',                         '2025-01-21 00:00:00'),
+                        ('backup_include_media',     'true',                     '2025-01-21 00:00:00'),
+                        ('backup_schedule',          'off',                      '2025-01-21 00:00:00'),
+                        ('revision_history_enabled', 'true',                     '2025-01-21 00:00:00');
                     """);
                 // Note: last_toast_date is deliberately NOT seeded (here or in
                 // AppDbContext.SeedDefaultSettings) - an absent row means "the
-                // On This Day toast has never been shown".
+                // On This Day toast has never been shown". Likewise
+                // last_backup_at is NOT seeded - absent means "never backed up".
             }
         }
         finally

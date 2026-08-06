@@ -214,6 +214,12 @@
                                                     <FontIcon Glyph="&#xE70F;"/>
                                                 </MenuFlyoutItem.Icon>
                                             </MenuFlyoutItem>
+                                            <MenuFlyoutItem Text="History&#x2026;"
+                                                           Click="EventHistoryMenuItem_Click">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="&#xE81C;"/>
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
                                             <MenuFlyoutSeparator/>
                                             <MenuFlyoutItem Text="Delete Event"
                                                            Click="DeleteEventMenuItem_Click">
@@ -261,6 +267,12 @@
                                                            Click="EditEventMenuItem_Click">
                                                 <MenuFlyoutItem.Icon>
                                                     <FontIcon Glyph="&#xE70F;"/>
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                            <MenuFlyoutItem Text="History&#x2026;"
+                                                           Click="EventHistoryMenuItem_Click">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="&#xE81C;"/>
                                                 </MenuFlyoutItem.Icon>
                                             </MenuFlyoutItem>
                                             <MenuFlyoutSeparator/>

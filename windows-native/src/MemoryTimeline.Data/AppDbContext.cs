@@ -32,6 +32,7 @@ public class AppDbContext : DbContext
     public DbSet<SavedSearch> SavedSearches { get; set; } = null!;
     public DbSet<Draft> Drafts { get; set; } = null!;
     public DbSet<RecallPrompt> RecallPrompts { get; set; } = null!;
+    public DbSet<EventRevision> EventRevisions { get; set; } = null!;
 
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
     {
@@ -388,6 +389,18 @@ public class AppDbContext : DbContext
             entity.HasIndex(p => new { p.Kind, p.EntityId });
         });
 
+        // Configure EventRevision entity (F12 revision history)
+        modelBuilder.Entity<EventRevision>(entity =>
+        {
+            entity.HasKey(r => r.RevisionId);
+            // Deliberately NO foreign key to events (and the entity has no
+            // navigation property that would create one by convention):
+            // revision history must outlive event deletion so a deleted
+            // event's past remains inspectable. History lookups run through
+            // this composite index, newest revision first.
+            entity.HasIndex(r => new { r.EventId, r.RevisedAt }).IsDescending(false, true);
+        });
+
         // Seed default settings
         SeedDefaultSettings(modelBuilder);
     }
@@ -437,7 +450,13 @@ public class AppDbContext : DbContext
             // seeded: an absent row means "the daily toast has never been shown".
             new AppSetting { SettingKey = "home_is_default_page", SettingValue = "true", UpdatedAt = SeedTimestamp },
             new AppSetting { SettingKey = "daily_toast_enabled", SettingValue = "true", UpdatedAt = SeedTimestamp },
-            new AppSetting { SettingKey = "weekly_digest_enabled", SettingValue = "true", UpdatedAt = SeedTimestamp }
+            new AppSetting { SettingKey = "weekly_digest_enabled", SettingValue = "true", UpdatedAt = SeedTimestamp },
+            // Backup & revision history (2026-08 F12). last_backup_at is
+            // deliberately not seeded: an absent row means "never backed up".
+            new AppSetting { SettingKey = "backup_destination", SettingValue = "", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "backup_include_media", SettingValue = "true", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "backup_schedule", SettingValue = "off", UpdatedAt = SeedTimestamp },
+            new AppSetting { SettingKey = "revision_history_enabled", SettingValue = "true", UpdatedAt = SeedTimestamp }
         );
 
         // Seed default era categories

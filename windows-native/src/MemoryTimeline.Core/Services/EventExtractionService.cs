@@ -22,6 +22,7 @@ public class EventExtractionService : IEventExtractionService
     private readonly IPersonService _personService;
     private readonly IDbContextFactory<Data.AppDbContext> _contextFactory;
     private readonly ILogger<EventExtractionService> _logger;
+    private readonly EventRevisionWriter? _revisionWriter;
 
     private const string MissingApiKeyMessage = "Anthropic API key not configured — add it in Settings";
     private const string MissingBaseUrlMessage = "LLM base URL not configured — add it in Settings (e.g. http://localhost:11434/v1 for Ollama)";
@@ -34,7 +35,8 @@ public class EventExtractionService : IEventExtractionService
         IRecordingQueueRepository queueRepository,
         IPersonService personService,
         IDbContextFactory<Data.AppDbContext> contextFactory,
-        ILogger<EventExtractionService> logger)
+        ILogger<EventExtractionService> logger,
+        EventRevisionWriter? revisionWriter = null)
     {
         _llmService = llmService;
         _sttService = sttService;
@@ -44,6 +46,7 @@ public class EventExtractionService : IEventExtractionService
         _personService = personService;
         _contextFactory = contextFactory;
         _logger = logger;
+        _revisionWriter = revisionWriter;
     }
 
     /// <summary>
@@ -300,6 +303,16 @@ public class EventExtractionService : IEventExtractionService
             pendingEvent.IsApproved = true;
             pendingEvent.Status = PendingStatus.Approved.ToStringValue();
             pendingEvent.ReviewedAt = DateTime.UtcNow;
+
+            // Revision history (F12): record the Approved snapshot INSIDE the
+            // approve transaction (same context, same commit) with the junction
+            // names MapExtractedMetadataAsync just added. Gated on the
+            // revision_history_enabled setting; failures are logged and never
+            // affect the approve itself.
+            if (_revisionWriter != null)
+            {
+                await _revisionWriter.TryAddApprovedToContextAsync(dbContext, realEvent);
+            }
 
             await dbContext.SaveChangesAsync();
             await transaction.CommitAsync();

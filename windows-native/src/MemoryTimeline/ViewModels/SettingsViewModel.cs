@@ -2,6 +2,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using MemoryTimeline.Core.Services;
 using MemoryTimeline.Services;
 using System.Reflection;
@@ -22,12 +23,17 @@ public partial class SettingsViewModel : ObservableObject
     private readonly IImportService _importService;
     private readonly IEventService _eventService;
     private readonly ILlmUsageTracker _llmUsageTracker;
+    private readonly IBackupService _backupService;
+    private readonly IMediaService _mediaService;
     private readonly ILogger<SettingsViewModel> _logger;
 
     // Embedding provider persisted at load time; a differing selection shows
     // the re-embed warning until "Re-embed all events" completes.
     private string _loadedEmbeddingProviderKey = EmbeddingProviderKeys.Local;
     private CancellationTokenSource? _reEmbedCts;
+
+    // Suppresses persist-on-change while InitializeAsync loads stored values.
+    private bool _isLoadingBackupSettings;
 
     [ObservableProperty]
     private string _selectedTheme = "System";
@@ -92,6 +98,40 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private string _importStatusMessage = string.Empty;
 
+    // ---- Backup & restore (F12, Data Management card) ----
+
+    [ObservableProperty]
+    private string _backupDestination = string.Empty;
+
+    [ObservableProperty]
+    private string _selectedBackupSchedule = "Off";
+
+    [ObservableProperty]
+    private bool _includeMediaInBackup = true;
+
+    // Session-only by design: the only persisted include toggle is
+    // backup_include_media (which also governs audio for SCHEDULED backups);
+    // this checkbox refines a manual "Back Up Now" run.
+    [ObservableProperty]
+    private bool _includeAudioInBackup = true;
+
+    [ObservableProperty]
+    private string _lastBackupDisplay = "Last backup: never";
+
+    [ObservableProperty]
+    private bool _isBackingUp;
+
+    [ObservableProperty]
+    private int _backupProgress;
+
+    [ObservableProperty]
+    private string _backupStatusMessage = string.Empty;
+
+    [ObservableProperty]
+    private bool _isRestoring;
+
+    public List<string> BackupScheduleOptions { get; } = new() { "Off", "Daily", "Weekly" };
+
     // About information
     public string AppName => "Memory Timeline";
     public string AppVersion => Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0";
@@ -123,6 +163,8 @@ public partial class SettingsViewModel : ObservableObject
         IImportService importService,
         IEventService eventService,
         ILlmUsageTracker llmUsageTracker,
+        IBackupService backupService,
+        IMediaService mediaService,
         ILogger<SettingsViewModel> logger)
     {
         _settingsService = settingsService;
@@ -131,6 +173,8 @@ public partial class SettingsViewModel : ObservableObject
         _importService = importService;
         _eventService = eventService;
         _llmUsageTracker = llmUsageTracker;
+        _backupService = backupService;
+        _mediaService = mediaService;
         _logger = logger;
     }
 
@@ -190,6 +234,29 @@ public partial class SettingsViewModel : ObservableObject
             // Load embedding API key (masked)
             var embeddingApiKey = await _settingsService.GetSettingAsync<string>(SettingKeys.EmbeddingApiKey, string.Empty);
             EmbeddingApiKey = !string.IsNullOrEmpty(embeddingApiKey) ? "••••••••" : string.Empty;
+
+            // Load backup settings (F12). The loading flag suppresses the
+            // persist-on-change handlers while stored values stream in.
+            _isLoadingBackupSettings = true;
+            try
+            {
+                BackupDestination = await _settingsService.GetSettingAsync<string>(
+                    SettingKeys.BackupDestination, string.Empty) ?? string.Empty;
+
+                var storedSchedule = await _settingsService.GetSettingAsync<string>(
+                    SettingKeys.BackupSchedule, "off");
+                SelectedBackupSchedule = ToDisplayOption(storedSchedule, BackupScheduleOptions, "Off");
+
+                var includeMedia = await _settingsService.GetSettingAsync<string>(
+                    SettingKeys.BackupIncludeMedia, "true");
+                IncludeMediaInBackup = !string.Equals(includeMedia, "false", StringComparison.OrdinalIgnoreCase);
+
+                await RefreshLastBackupDisplayAsync();
+            }
+            finally
+            {
+                _isLoadingBackupSettings = false;
+            }
 
             StatusMessage = "Settings loaded";
         }
@@ -384,22 +451,311 @@ public partial class SettingsViewModel : ObservableObject
             : $"{calls} LLM call(s) this session, ~{_llmUsageTracker.EstimatedTokens:N0} tokens";
     }
 
+    /// <summary>
+    /// Real cache/orphan cleanup (replaces the old placebo stub): deletes
+    /// orphaned thumbnails, orphaned managed media files, and *.tmp leftovers
+    /// in the media tree, reporting the ACTUAL bytes freed. Never claims
+    /// success without doing the work.
+    /// </summary>
     [RelayCommand]
     private async Task ClearCacheAsync()
     {
         try
         {
-            // TODO: Implement cache clearing logic
-            StatusMessage = "Cache cleared (placeholder)";
-            _logger.LogInformation("Cache cleared");
-            await Task.Delay(1000);
+            StatusMessage = "Scanning for orphaned files...";
+            var result = await _mediaService.CleanupOrphansAsync();
+
+            StatusMessage = result.FilesDeleted == 0
+                ? "Nothing to clean"
+                : $"Freed {FormatBytes(result.BytesFreed)} ({result.FilesDeleted} file(s): " +
+                  $"{result.MediaFilesDeleted} media, {result.ThumbnailsDeleted} thumbnails, {result.TempFilesDeleted} temp)";
+            _logger.LogInformation(
+                "Clear Cache deleted {Files} file(s), freeing {Bytes} bytes", result.FilesDeleted, result.BytesFreed);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error clearing cache");
-            StatusMessage = "Error clearing cache";
+            StatusMessage = $"Error clearing cache: {ex.Message}";
         }
     }
+
+    #region Backup & Restore Commands (F12)
+
+    /// <summary>
+    /// Manual backup: pick a .mtbak destination (any writable location,
+    /// including network shares), then write the archive with progress.
+    /// A successful manual backup also stamps last_backup_at, postponing the
+    /// next scheduled run.
+    /// </summary>
+    [RelayCommand]
+    private async Task BackUpNowAsync()
+    {
+        if (IsBackingUp) return;
+
+        try
+        {
+            IsBackingUp = true;
+            BackupProgress = 0;
+            BackupStatusMessage = "Selecting backup location...";
+
+            var savePicker = new FileSavePicker
+            {
+                SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+                SuggestedFileName = $"MemoryTimeline-{DateTime.Now:yyyyMMdd-HHmmss}"
+            };
+            savePicker.FileTypeChoices.Add("Memory Timeline Backup", new List<string> { ".mtbak" });
+
+            var hwnd = WindowNative.GetWindowHandle(App.Current.Window);
+            InitializeWithWindow.Initialize(savePicker, hwnd);
+
+            var file = await savePicker.PickSaveFileAsync();
+            if (file == null)
+            {
+                BackupStatusMessage = "Backup cancelled";
+                return;
+            }
+
+            BackupStatusMessage = "Backing up...";
+            var progress = new Progress<int>(p => BackupProgress = p);
+            var options = new BackupOptions
+            {
+                IncludeMedia = IncludeMediaInBackup,
+                IncludeAudio = IncludeAudioInBackup
+            };
+
+            var result = await _backupService.CreateBackupAsync(file.Path, options, progress);
+
+            await _settingsService.SetSettingAsync(
+                SettingKeys.LastBackupAt,
+                DateTime.UtcNow.ToString("o", System.Globalization.CultureInfo.InvariantCulture));
+            await RefreshLastBackupDisplayAsync();
+
+            BackupStatusMessage =
+                $"Backup complete: {result.EventCount} events, {FormatBytes(result.SizeBytes)} — {result.FilePath}";
+            _logger.LogInformation("Manual backup written to {Path}", result.FilePath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Manual backup failed");
+            BackupStatusMessage = $"Backup failed: {ex.Message}";
+        }
+        finally
+        {
+            IsBackingUp = false;
+        }
+    }
+
+    /// <summary>
+    /// Restore flow: pick a .mtbak, preview its manifest (zero writes), show
+    /// an explicit confirmation dialog whose primary button is the confirm
+    /// phrase "Replace current archive", then restore and recommend a restart.
+    /// </summary>
+    [RelayCommand]
+    private async Task RestoreBackupAsync()
+    {
+        if (IsRestoring || IsBackingUp) return;
+
+        try
+        {
+            BackupStatusMessage = "Selecting backup to restore...";
+
+            var openPicker = new FileOpenPicker
+            {
+                ViewMode = PickerViewMode.List,
+                SuggestedStartLocation = PickerLocationId.DocumentsLibrary
+            };
+            openPicker.FileTypeFilter.Add(".mtbak");
+
+            var hwnd = WindowNative.GetWindowHandle(App.Current.Window);
+            InitializeWithWindow.Initialize(openPicker, hwnd);
+
+            var file = await openPicker.PickSingleFileAsync();
+            if (file == null)
+            {
+                BackupStatusMessage = "Restore cancelled";
+                return;
+            }
+
+            BackupStatusMessage = "Reading backup...";
+            var preview = await _backupService.PreviewRestoreAsync(file.Path);
+
+            var xamlRoot = App.Current.Window?.Content?.XamlRoot;
+            if (xamlRoot == null)
+            {
+                BackupStatusMessage = "Restore failed: no window available for confirmation";
+                return;
+            }
+
+            var detail =
+                $"Backup created: {preview.CreatedAtUtc.ToLocalTime():g}\n" +
+                $"Events: {preview.EventCount}\n" +
+                $"Media files: {preview.MediaFileCount}\n" +
+                $"Audio files: {preview.AudioFileCount}\n" +
+                $"Size: {FormatBytes(preview.SizeBytes)}\n\n" +
+                "Restoring REPLACES your current archive (database" +
+                (preview.MediaFileCount > 0 || preview.AudioFileCount > 0 ? ", media and audio files" : "") +
+                "). A safety backup of the current database is written first.";
+
+            var confirmDialog = new ContentDialog
+            {
+                Title = "Restore from backup?",
+                Content = new TextBlock { Text = detail, TextWrapping = TextWrapping.Wrap },
+                PrimaryButtonText = "Replace current archive",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = xamlRoot
+            };
+
+            var choice = await confirmDialog.ShowAsync();
+            if (choice != ContentDialogResult.Primary)
+            {
+                BackupStatusMessage = "Restore cancelled";
+                return;
+            }
+
+            IsRestoring = true;
+            BackupStatusMessage = "Restoring archive... (safety backup, database, files)";
+
+            await _backupService.RestoreAsync(file.Path, RestoreMode.Replace);
+
+            BackupStatusMessage = "Restore complete — restart Memory Timeline to load the restored archive.";
+            StatusMessage = "Restore complete — please restart the app";
+            _logger.LogWarning("Archive restored from {Path}; restart recommended", file.Path);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Restore failed");
+            BackupStatusMessage = $"Restore failed: {ex.Message}";
+        }
+        finally
+        {
+            IsRestoring = false;
+        }
+    }
+
+    /// <summary>Folder picker persisting backup_destination immediately.</summary>
+    [RelayCommand]
+    private async Task PickBackupDestinationAsync()
+    {
+        try
+        {
+            var folderPicker = new FolderPicker
+            {
+                SuggestedStartLocation = PickerLocationId.DocumentsLibrary
+            };
+            folderPicker.FileTypeFilter.Add("*");
+
+            var hwnd = WindowNative.GetWindowHandle(App.Current.Window);
+            InitializeWithWindow.Initialize(folderPicker, hwnd);
+
+            var folder = await folderPicker.PickSingleFolderAsync();
+            if (folder == null)
+            {
+                return;
+            }
+
+            BackupDestination = folder.Path;
+            await _settingsService.SetSettingAsync(SettingKeys.BackupDestination, folder.Path);
+            BackupStatusMessage = $"Backup folder set to {folder.Path}";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error picking backup destination");
+            BackupStatusMessage = $"Could not set backup folder: {ex.Message}";
+        }
+    }
+
+    /// <summary>Opens the configured backup folder in File Explorer.</summary>
+    [RelayCommand]
+    private async Task OpenBackupFolderAsync()
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(BackupDestination))
+            {
+                BackupStatusMessage = "No backup folder configured yet — choose one first";
+                return;
+            }
+
+            if (!Directory.Exists(BackupDestination))
+            {
+                BackupStatusMessage = $"The backup folder no longer exists: {BackupDestination}";
+                return;
+            }
+
+            var opened = await Windows.System.Launcher.LaunchFolderPathAsync(BackupDestination);
+            if (!opened)
+            {
+                BackupStatusMessage = "Windows could not open the backup folder";
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error opening backup folder");
+            BackupStatusMessage = $"Could not open backup folder: {ex.Message}";
+        }
+    }
+
+    /// <summary>Schedule changes persist immediately (canonical lowercase).</summary>
+    partial void OnSelectedBackupScheduleChanged(string value)
+    {
+        if (_isLoadingBackupSettings) return;
+        _ = PersistBackupSettingAsync(SettingKeys.BackupSchedule, (value ?? "Off").ToLowerInvariant());
+    }
+
+    /// <summary>Include-media changes persist immediately.</summary>
+    partial void OnIncludeMediaInBackupChanged(bool value)
+    {
+        if (_isLoadingBackupSettings) return;
+        _ = PersistBackupSettingAsync(SettingKeys.BackupIncludeMedia, value ? "true" : "false");
+    }
+
+    private async Task PersistBackupSettingAsync(string key, string value)
+    {
+        try
+        {
+            await _settingsService.SetSettingAsync(key, value);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error persisting setting {Key}", key);
+            BackupStatusMessage = $"Could not save setting: {ex.Message}";
+        }
+    }
+
+    private async Task RefreshLastBackupDisplayAsync()
+    {
+        var lastBackupRaw = await _settingsService.GetSettingAsync<string>(SettingKeys.LastBackupAt, string.Empty);
+        if (DateTime.TryParse(
+                lastBackupRaw,
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind,
+                out var lastBackup))
+        {
+            LastBackupDisplay = $"Last backup: {lastBackup.ToLocalTime():g}";
+        }
+        else
+        {
+            // Absent row = never backed up (last_backup_at is deliberately unseeded).
+            LastBackupDisplay = "Last backup: never";
+        }
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        string[] units = { "B", "KB", "MB", "GB", "TB" };
+        double value = bytes;
+        var unit = 0;
+        while (value >= 1024 && unit < units.Length - 1)
+        {
+            value /= 1024;
+            unit++;
+        }
+
+        return unit == 0 ? $"{bytes} B" : $"{value:0.#} {units[unit]}";
+    }
+
+    #endregion
 
     #region Export/Import Commands
 

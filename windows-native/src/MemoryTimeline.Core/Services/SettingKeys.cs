@@ -28,4 +28,11 @@ public static class SettingKeys
     public const string DailyToastEnabled = "daily_toast_enabled";  // matches DB seed
     public const string WeeklyDigestEnabled = "weekly_digest_enabled"; // matches DB seed
     public const string LastToastDate = "last_toast_date";     // NOT seeded: absent = toast never shown
+
+    // Backup & revision history (2026-08 F12)
+    public const string BackupDestination = "backup_destination";           // matches DB seed ("")
+    public const string BackupIncludeMedia = "backup_include_media";        // matches DB seed ("true")
+    public const string BackupSchedule = "backup_schedule";                 // matches DB seed: "off" | "daily" | "weekly"
+    public const string LastBackupAt = "last_backup_at";                    // NOT seeded: absent = never backed up; invariant "o" round-trip format
+    public const string RevisionHistoryEnabled = "revision_history_enabled"; // matches DB seed ("true")
 }

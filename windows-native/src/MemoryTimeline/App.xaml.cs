@@ -106,9 +106,16 @@ public partial class App : Application
                     services.AddSingleton<IDraftRepository, DraftRepository>();
                     services.AddSingleton<IEventMediaRepository, EventMediaRepository>();
                     services.AddSingleton<IRecallPromptRepository, RecallPromptRepository>();
+                    services.AddSingleton<IEventRevisionRepository, EventRevisionRepository>();
 
                     // Register core services (stateless over the factory/repositories)
                     services.AddSingleton<ISettingsService, SettingsService>();
+                    // Revision history (F12): the writer is an optional ctor
+                    // dependency of EventService/EventExtractionService/
+                    // ImportService (registered => injected, absent => null);
+                    // RevisionService restores prior versions.
+                    services.AddSingleton<EventRevisionWriter>();
+                    services.AddSingleton<IRevisionService, RevisionService>();
                     services.AddSingleton<IEventService, EventService>();
                     services.AddSingleton<ITimelineService, TimelineService>();
                     services.AddSingleton<IPersonService, PersonService>();
@@ -162,6 +169,8 @@ public partial class App : Application
                     // Phase 6: Export/Import & Windows Integration services
                     services.AddSingleton<IExportService, ExportService>();
                     services.AddSingleton<IImportService, ImportService>();
+                    // User backups (.mtbak) + restore + scheduled backup (F12)
+                    services.AddSingleton<IBackupService, BackupService>();
                     services.AddSingleton<INotificationService, Services.NotificationService>();
                     services.AddSingleton<IWindowsTimelineService, WindowsTimelineService>();
                     services.AddSingleton<IJumpListService, JumpListService>();
@@ -427,6 +436,58 @@ public partial class App : Application
     }
 
     /// <summary>
+    /// Runs a scheduled backup when one is due: backup_schedule is
+    /// "daily"/"weekly", backup_destination is set, and last_backup_at is
+    /// absent or older than the cadence (the pure decision lives in
+    /// <see cref="BackupService.ShouldRunScheduledBackup"/>). On success the
+    /// last_backup_at stamp is written in invariant round-trip ("o") format.
+    /// The single backup_include_media setting governs both media and audio
+    /// for scheduled backups.
+    /// </summary>
+    private async Task RunScheduledBackupIfDueAsync()
+    {
+        var settingsService = Services.GetRequiredService<ISettingsService>();
+
+        var schedule = await settingsService.GetSettingAsync<string>(SettingKeys.BackupSchedule, "off");
+        var destination = await settingsService.GetSettingAsync<string>(SettingKeys.BackupDestination, string.Empty);
+        if (string.IsNullOrWhiteSpace(destination))
+        {
+            return;
+        }
+
+        DateTime? lastBackupAt = null;
+        var lastBackupRaw = await settingsService.GetSettingAsync<string>(SettingKeys.LastBackupAt, string.Empty);
+        if (DateTime.TryParse(
+                lastBackupRaw,
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind,
+                out var parsedLastBackup))
+        {
+            lastBackupAt = parsedLastBackup.ToUniversalTime();
+        }
+
+        if (!BackupService.ShouldRunScheduledBackup(schedule, lastBackupAt, DateTime.UtcNow))
+        {
+            return;
+        }
+
+        var includeMediaSetting = await settingsService.GetSettingAsync<string>(SettingKeys.BackupIncludeMedia, "true");
+        var includeMedia = !string.Equals(includeMediaSetting, "false", StringComparison.OrdinalIgnoreCase);
+
+        var backupService = Services.GetRequiredService<IBackupService>();
+        var backupPath = Path.Combine(destination, $"MemoryTimeline-{DateTime.Now:yyyyMMdd-HHmmss}.mtbak");
+        var result = await backupService.CreateBackupAsync(
+            backupPath,
+            new BackupOptions { IncludeMedia = includeMedia, IncludeAudio = includeMedia });
+
+        await settingsService.SetSettingAsync(
+            SettingKeys.LastBackupAt,
+            DateTime.UtcNow.ToString("o", System.Globalization.CultureInfo.InvariantCulture));
+
+        WriteToLog($"Scheduled backup written to {result.FilePath} ({result.EventCount} events, {result.SizeBytes} bytes)");
+    }
+
+    /// <summary>
     /// Invoked when the application is launched.
     /// </summary>
     /// <param name="args">Details about the launch request and process.</param>
@@ -514,6 +575,22 @@ public partial class App : Application
             {
                 LogException("On This Day launch toast failed", toastEx);
             }
+
+            // Scheduled backup (F12): fire-and-forget after the schema is
+            // ready - a slow or failing backup must never block or crash
+            // startup. Runs only when a schedule is active, a destination is
+            // configured, and the last backup is older than the cadence.
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await RunScheduledBackupIfDueAsync();
+                }
+                catch (Exception backupEx)
+                {
+                    LogException("Scheduled backup failed", backupEx);
+                }
+            });
         }
         catch (Exception ex)
         {

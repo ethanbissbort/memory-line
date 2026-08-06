@@ -73,6 +73,35 @@ public interface IMediaService
     /// Failures are logged, never thrown.
     /// </summary>
     void DeleteFiles(IEnumerable<EventMedia> media);
+
+    /// <summary>
+    /// Maintenance scan of the managed media tree (Settings "Clear Cache"):
+    /// deletes thumbnails with no referencing event_media row, managed media
+    /// files with no row, and *.tmp leftovers, reporting the files deleted
+    /// and the ACTUAL bytes freed. Files referenced by the database are never
+    /// touched. Per-file deletion failures are logged and skipped; the scan
+    /// itself throws only on database failure.
+    /// </summary>
+    Task<MediaCleanupResult> CleanupOrphansAsync(CancellationToken ct = default);
+}
+
+/// <summary>Result of <see cref="IMediaService.CleanupOrphansAsync"/>.</summary>
+public class MediaCleanupResult
+{
+    /// <summary>Total files deleted (media + thumbnails + temp files).</summary>
+    public int FilesDeleted { get; set; }
+
+    /// <summary>Actual bytes freed (sizes measured before deletion).</summary>
+    public long BytesFreed { get; set; }
+
+    /// <summary>Orphaned managed media files deleted.</summary>
+    public int MediaFilesDeleted { get; set; }
+
+    /// <summary>Orphaned thumbnails deleted.</summary>
+    public int ThumbnailsDeleted { get; set; }
+
+    /// <summary>*.tmp leftovers deleted.</summary>
+    public int TempFilesDeleted { get; set; }
 }
 
 /// <summary>

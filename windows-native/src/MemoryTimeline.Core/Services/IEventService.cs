@@ -77,6 +77,7 @@ public class EventService : IEventService
     private readonly IEventRepository _eventRepository;
     private readonly IEmbeddingService? _embeddingService;
     private readonly IMediaService? _mediaService;
+    private readonly EventRevisionWriter? _revisionWriter;
     private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly ILogger<EventService> _logger;
 
@@ -85,13 +86,15 @@ public class EventService : IEventService
         IDbContextFactory<AppDbContext> contextFactory,
         ILogger<EventService> logger,
         IEmbeddingService? embeddingService = null,
-        IMediaService? mediaService = null)
+        IMediaService? mediaService = null,
+        EventRevisionWriter? revisionWriter = null)
     {
         _eventRepository = eventRepository;
         _contextFactory = contextFactory;
         _logger = logger;
         _embeddingService = embeddingService;
         _mediaService = mediaService;
+        _revisionWriter = revisionWriter;
     }
 
     // CRUD operations
@@ -109,6 +112,18 @@ public class EventService : IEventService
 
             var createdEvent = await _eventRepository.AddAsync(eventData);
             _logger.LogInformation("Event created: {EventId} - {Title}", createdEvent.EventId, createdEvent.Title);
+
+            // Revision history (F12): record the creation-time state. Junctions
+            // are always empty at this moment (tags/people/locations attach
+            // afterwards via the association APIs). Gated on the
+            // revision_history_enabled setting inside the writer; never throws.
+            if (_revisionWriter != null)
+            {
+                await _revisionWriter.TryWriteSnapshotAsync(
+                    EventRevisionWriter.BuildSnapshot(
+                        createdEvent, Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>()),
+                    RevisionKind.Created);
+            }
 
             // Notify subscribers (e.g. TimelineViewModel) that a new event exists.
             // A subscriber failure must not turn a successful create into an error.
@@ -186,8 +201,43 @@ public class EventService : IEventService
                 throw new InvalidOperationException($"Event not found: {eventData.EventId}");
             }
 
+            // Revision history (F12): capture the PRE-edit state (scalars +
+            // junction names, loaded fresh) BEFORE the update overwrites it,
+            // plus a field-by-field changed-fields csv. Failures here are
+            // logged and must never fail the update itself.
+            EventSnapshot? preEditSnapshot = null;
+            string? changedFieldsCsv = null;
+            if (_revisionWriter != null)
+            {
+                try
+                {
+                    if (await _revisionWriter.IsEnabledAsync())
+                    {
+                        preEditSnapshot = await _revisionWriter.BuildSnapshotFromDatabaseAsync(eventData.EventId);
+                        if (preEditSnapshot != null)
+                        {
+                            changedFieldsCsv = EventRevisionWriter.ComputeChangedFieldsCsv(preEditSnapshot, eventData);
+                        }
+                    }
+                }
+                catch (Exception revisionEx)
+                {
+                    preEditSnapshot = null;
+                    _logger.LogWarning(revisionEx,
+                        "Could not capture the pre-edit revision snapshot for event {EventId}; the update proceeds without one.",
+                        eventData.EventId);
+                }
+            }
+
             eventData.UpdatedAt = DateTime.UtcNow;
             await _eventRepository.UpdateAsync(eventData);
+
+            // The revision is written only after the update succeeded, so a
+            // failed save never leaves a phantom Edited revision.
+            if (_revisionWriter != null && preEditSnapshot != null)
+            {
+                await _revisionWriter.TryWriteSnapshotAsync(preEditSnapshot, RevisionKind.Edited, changedFieldsCsv);
+            }
 
             _logger.LogInformation("Event updated: {EventId} - {Title}", eventData.EventId, eventData.Title);
             return eventData;

@@ -1051,6 +1051,15 @@ public sealed partial class TimelineControl : UserControl
         EventCategoryCombo.SelectedIndex = fallbackIndex;
     }
 
+    /// <summary>Opens the revision-history dialog for the right-clicked event (F12).</summary>
+    private async void EventHistoryMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_contextMenuEvent == null) return;
+        var historyDialog = new EventHistoryDialog(_contextMenuEvent.EventId, _contextMenuEvent.Title);
+        historyDialog.XamlRoot = XamlRoot;
+        await historyDialog.ShowAsync();
+    }
+
     private async void DeleteEventMenuItem_Click(object sender, RoutedEventArgs e)
     {
         if (_contextMenuEvent != null)

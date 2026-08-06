@@ -24,13 +24,16 @@ public class ImportService : IImportService
 {
     private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly ILogger<ImportService> _logger;
+    private readonly EventRevisionWriter? _revisionWriter;
 
     public ImportService(
         IDbContextFactory<AppDbContext> contextFactory,
-        ILogger<ImportService> logger)
+        ILogger<ImportService> logger,
+        EventRevisionWriter? revisionWriter = null)
     {
         _contextFactory = contextFactory;
         _logger = logger;
+        _revisionWriter = revisionWriter;
     }
 
     /// <summary>
@@ -82,11 +85,14 @@ public class ImportService : IImportService
 
             progress?.Report((30, "Importing data..."));
 
+            // Events created by this import, for post-save revision writes.
+            var createdEvents = new List<Event>();
+
             // Import events
             if (importData.Events?.Any() == true)
             {
                 progress?.Report((40, $"Importing {importData.Events.Count} events..."));
-                await ImportEventsAsync(dbContext, importData.Events, options, result);
+                await ImportEventsAsync(dbContext, importData.Events, options, result, createdEvents);
             }
 
             // Import eras
@@ -104,6 +110,21 @@ public class ImportService : IImportService
             }
 
             await dbContext.SaveChangesAsync();
+
+            // Revision history (F12): CreateEventFromJson is the single event
+            // creation point of the import, so newly created events get one
+            // Imported revision each AFTER the save committed them (the writer
+            // reloads each event fresh, so snapshots include imported tag
+            // names). Gated on revision_history_enabled inside the writer;
+            // failures are logged there and never fail the import.
+            if (_revisionWriter != null)
+            {
+                foreach (var createdEvent in createdEvents)
+                {
+                    await _revisionWriter.TryWriteForEventIdAsync(
+                        createdEvent.EventId, RevisionKind.Imported);
+                }
+            }
 
             result.Success = true;
             progress?.Report((100, "Import complete"));
@@ -238,7 +259,12 @@ public class ImportService : IImportService
         }
     }
 
-    private async Task ImportEventsAsync(AppDbContext dbContext, List<JsonEvent> events, ImportOptions options, ImportResult result)
+    private async Task ImportEventsAsync(
+        AppDbContext dbContext,
+        List<JsonEvent> events,
+        ImportOptions options,
+        ImportResult result,
+        List<Event> createdEvents)
     {
         foreach (var jsonEvent in events)
         {
@@ -288,7 +314,7 @@ public class ImportService : IImportService
                             break;
 
                         case ConflictResolution.CreateDuplicate:
-                            await CreateEventFromJson(dbContext, jsonEvent, result);
+                            await CreateEventFromJson(dbContext, jsonEvent, result, createdEvents);
                             result.EventsImported++;
                             break;
 
@@ -307,7 +333,7 @@ public class ImportService : IImportService
                 }
                 else
                 {
-                    await CreateEventFromJson(dbContext, jsonEvent, result);
+                    await CreateEventFromJson(dbContext, jsonEvent, result, createdEvents);
                     result.EventsImported++;
                 }
             }
@@ -319,7 +345,11 @@ public class ImportService : IImportService
         }
     }
 
-    private async Task CreateEventFromJson(AppDbContext dbContext, JsonEvent jsonEvent, ImportResult result)
+    private async Task CreateEventFromJson(
+        AppDbContext dbContext,
+        JsonEvent jsonEvent,
+        ImportResult result,
+        List<Event> createdEvents)
     {
         var evt = new Event
         {
@@ -371,6 +401,7 @@ public class ImportService : IImportService
         }
 
         dbContext.Events.Add(evt);
+        createdEvents.Add(evt);
     }
 
     private void UpdateEventFromJson(Event existingEvent, JsonEvent jsonEvent)
