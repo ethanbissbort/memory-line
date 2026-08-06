@@ -145,6 +145,8 @@ public class RagDimensionGuardTests : IDisposable
         _context.SaveChanges();
 
         _embeddingServiceMock.Setup(e => e.EmbeddingDimension).Returns(384);
+        _embeddingServiceMock.Setup(e => e.GenerateEmbeddingAsync(It.IsAny<string>()))
+            .ReturnsAsync(new float[384]);
 
         // Act
         var act = () => _ragService.SuggestTagsForTextAsync("New title", "New description");
@@ -155,21 +157,49 @@ public class RagDimensionGuardTests : IDisposable
         exception.StoredDimension.Should().Be(1536);
         exception.Message.Should().Contain("384").And.Contain("1536").And.ContainEquivalentOf("re-embed");
 
-        // The guard must fire BEFORE paying for a query embedding
-        _embeddingServiceMock.Verify(e => e.GenerateEmbeddingAsync(It.IsAny<string>()), Times.Never);
+        // The guard keys on the ACTUAL query vector (generated exactly once) -
+        // never on the potentially lagging EmbeddingDimension display property.
+        _embeddingServiceMock.Verify(e => e.GenerateEmbeddingAsync(It.IsAny<string>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task SuggestTagsForTextAsync_ProviderSwitchWithLaggingDisplayDimension_StillThrowsTypedException()
+    {
+        // Arrange - the in-session provider-switch scenario: stored rows are
+        // 1536-dim (old provider) and the router's EmbeddingDimension display
+        // property STILL reports 1536 (it lags until an embedding call), but
+        // per-call routing already produces 384-dim vectors. A guard keyed on
+        // the display property would pass and then silently return empty
+        // suggestions; the guard must instead throw the typed exception.
+        SeedEvent("e1", "Old event");
+        SeedEmbedding("e1", 1536, "openai");
+        _context.SaveChanges();
+
+        _embeddingServiceMock.Setup(e => e.EmbeddingDimension).Returns(1536); // lagging
+        _embeddingServiceMock.Setup(e => e.GenerateEmbeddingAsync(It.IsAny<string>()))
+            .ReturnsAsync(new float[384]); // what the CURRENT provider really returns
+
+        // Act
+        var act = () => _ragService.SuggestTagsForTextAsync("New title", "New description");
+
+        // Assert
+        var exception = (await act.Should().ThrowAsync<EmbeddingDimensionMismatchException>()).Which;
+        exception.QueryDimension.Should().Be(384);
+        exception.StoredDimension.Should().Be(1536);
     }
 
     [Fact]
     public async Task SuggestTagsForTextAsync_MatchingDimension_DoesNotThrow()
     {
-        // Arrange
+        // Arrange - the query vector's length (384) matches the stored rows'
+        // embedding_dimension column
         SeedEvent("e1", "Existing event");
         SeedEmbedding("e1", 384, "local");
         _context.SaveChanges();
 
         _embeddingServiceMock.Setup(e => e.EmbeddingDimension).Returns(384);
         _embeddingServiceMock.Setup(e => e.GenerateEmbeddingAsync(It.IsAny<string>()))
-            .ReturnsAsync(new float[] { 0.1f, 0.2f, 0.3f });
+            .ReturnsAsync(new float[384]);
         _embeddingServiceMock.Setup(e => e.FindKNearestNeighbors(
                 It.IsAny<float[]>(),
                 It.IsAny<IEnumerable<(string id, float[] embedding)>>(),

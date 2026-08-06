@@ -793,9 +793,7 @@ public class EventService : IEventService
         _logger.LogInformation("Generating embedding for event {EventId}", eventData.EventId);
 
         // Create text representation of event
-        var text = string.IsNullOrWhiteSpace(eventData.Description)
-            ? eventData.Title
-            : $"{eventData.Title}. {eventData.Description}";
+        var text = ComposeEmbeddingText(eventData);
 
         // Generate embedding
         var embedding = await _embeddingService.GenerateEmbeddingAsync(text);
@@ -835,6 +833,16 @@ public class EventService : IEventService
 
         _logger.LogInformation("Embedding generated and saved for event {EventId}", eventData.EventId);
     }
+
+    /// <summary>
+    /// The text an event is embedded from: title, or "title. description".
+    /// Shared by the per-event embedding path and the re-embed dimension probe
+    /// so both always embed identical input.
+    /// </summary>
+    private static string ComposeEmbeddingText(Event eventData)
+        => string.IsNullOrWhiteSpace(eventData.Description)
+            ? eventData.Title
+            : $"{eventData.Title}. {eventData.Description}";
 
     // Embeddings
 
@@ -880,9 +888,11 @@ public class EventService : IEventService
     /// <summary>
     /// Regenerates embeddings for every event with the CURRENT provider (used by
     /// the Settings "Re-embed all events" action after a provider switch).
-    /// Stale-dimension rows are deleted first so a cancelled run never leaves a
-    /// cross-dimension mix; each event is then re-embedded one at a time (the
-    /// per-event upsert replaces same-dimension rows too).
+    /// The current dimension is resolved from an actual probe embedding (never
+    /// the router's lagging EmbeddingDimension display property), stale-dimension
+    /// rows are deleted before anything is persisted so a cancelled run never
+    /// leaves a cross-dimension mix, and each event is then re-embedded one at a
+    /// time (the per-event upsert replaces same-dimension rows too).
     /// </summary>
     public async Task<int> ReEmbedAllAsync(IProgress<(int done, int total)>? progress = null, CancellationToken ct = default)
     {
@@ -893,7 +903,32 @@ public class EventService : IEventService
 
         try
         {
-            var currentDimension = _embeddingService.EmbeddingDimension;
+            ct.ThrowIfCancellationRequested();
+
+            var events = (await _eventRepository.GetAllAsync()).ToList();
+            var total = events.Count;
+            var done = 0;
+            progress?.Report((0, total));
+
+            if (total == 0)
+            {
+                _logger.LogInformation("Re-embed requested but the archive has no events");
+                return 0;
+            }
+
+            // Resolve the ACTIVE provider's true dimension by generating a
+            // probe embedding (nothing is persisted). The routing facade's
+            // EmbeddingDimension display property lags behind a just-persisted
+            // provider switch (it reflects the provider of the LAST embedding
+            // call), so keying the stale delete on it would delete nothing
+            // right after a switch — and a cancelled run could then leave the
+            // cross-dimension mix this method promises to prevent. The probe
+            // also fails fast (bad key, missing model) BEFORE any row is
+            // deleted, and its actual vector length is authoritative for any
+            // provider. Cost: the first event's text is embedded twice.
+            var probeEmbedding = await _embeddingService.GenerateEmbeddingAsync(
+                ComposeEmbeddingText(events[0]));
+            var currentDimension = probeEmbedding.Length;
 
             await using (var context = await _contextFactory.CreateDbContextAsync(ct))
             {
@@ -909,11 +944,6 @@ public class EventService : IEventService
                         staleRows.Count, currentDimension);
                 }
             }
-
-            var events = (await _eventRepository.GetAllAsync()).ToList();
-            var total = events.Count;
-            var done = 0;
-            progress?.Report((0, total));
 
             foreach (var eventData in events)
             {

@@ -255,6 +255,45 @@ public class MemoryQueryServiceTests : IDisposable
         result.Citations.Should().ContainSingle(c => c.EventId == "evt-1");
     }
 
+    [Fact]
+    public async Task AskAsync_StoredEmbeddingsFromOtherProvider_DegradesToKeywordAndReportsNoSemantics()
+    {
+        // Arrange: the archive was embedded by the OLD provider (1536-dim
+        // rows) but the current provider returns 384-dim query vectors —
+        // a provider switch without re-embedding. The semantic leg must throw
+        // the typed mismatch internally; AskAsync must NOT surface it, must
+        // answer keyword-only, and must report UsedSemanticRetrieval=false
+        // instead of "semantic with zero contribution".
+        await SeedEventAsync("evt-1", "Coffee with Sarah", new DateTime(2019, 3, 14), "Met Sarah for coffee downtown.");
+        await SeedEmbeddingAsync("evt-1", new float[1536]);
+
+        _embeddingServiceMock
+            .Setup(e => e.GenerateEmbeddingAsync(It.IsAny<string>()))
+            .ReturnsAsync(new float[384]);
+
+        SetupLlmSequence(
+            planJson: "{\"semanticQuery\":\"Sarah\",\"from\":null,\"to\":null,\"people\":[],\"tags\":[],\"locations\":[],\"answerMode\":\"Factual\"}",
+            answerJson: "{\"answer\":\"You had coffee with Sarah on 14 March 2019 [event:evt-1].\",\"answeredFromArchive\":true,\"confidence\":0.85}");
+
+        // Act — must not throw
+        var result = await _service.AskAsync(
+            "When did I last see Sarah?", new MemoryQueryOptions { TopK = 5 });
+
+        // Assert: keyword-only result with honest semantic metadata.
+        result.UsedSemanticRetrieval.Should().BeFalse();
+        result.RetrievedEventIds.Should().Contain("evt-1");
+        result.AnsweredFromArchive.Should().BeTrue();
+        result.Citations.Should().ContainSingle(c => c.EventId == "evt-1");
+        _embeddingServiceMock.Verify(
+            e => e.FindKNearestNeighbors(
+                It.IsAny<float[]>(),
+                It.IsAny<IEnumerable<(string id, float[] embedding)>>(),
+                It.IsAny<int>(),
+                It.IsAny<double>()),
+            Times.Never,
+            "mixed-dimension candidates must never reach the kNN math");
+    }
+
     #endregion
 
     #region AskAsync — defensive parsing
@@ -379,6 +418,27 @@ public class MemoryQueryServiceTests : IDisposable
         {
             EventId = eventId,
             PersonId = survivorId,
+            CreatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Seeds a stored event embedding row whose vector (and dimension column)
+    /// come from <paramref name="vector"/> — e.g. a 1536-dim row left behind
+    /// by a previous embedding provider.
+    /// </summary>
+    private async Task SeedEmbeddingAsync(string eventId, float[] vector)
+    {
+        await using var context = _contextFactory.CreateDbContext();
+        context.EventEmbeddings.Add(new EventEmbedding
+        {
+            EmbeddingId = Guid.NewGuid().ToString(),
+            EventId = eventId,
+            EmbeddingVector = System.Text.Json.JsonSerializer.Serialize(vector),
+            EmbeddingProvider = "openai",
+            EmbeddingModel = "text-embedding-3-small",
+            EmbeddingDimension = vector.Length,
             CreatedAt = DateTime.UtcNow
         });
         await context.SaveChangesAsync();

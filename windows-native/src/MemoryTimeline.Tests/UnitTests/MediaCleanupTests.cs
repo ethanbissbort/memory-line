@@ -113,6 +113,32 @@ public class MediaCleanupTests : IDisposable
     }
 
     [Fact]
+    public async Task CleanupOrphansAsync_FreshRowlessFile_SurvivesGraceWindow()
+    {
+        // Arrange - a just-created file with no event_media row: exactly what
+        // an in-flight AttachAsync looks like between its file copy and its
+        // row insert. The grace window must keep the sweep's hands off it.
+        var freshMedia = Path.Combine(_mediaRoot, "2024", "07", "just-attached.jpg");
+        var freshThumb = Path.Combine(_mediaRoot, ".thumbs", "just-attached.jpg");
+        WriteFreshFile(freshMedia, "fresh-media");
+        WriteFreshFile(freshThumb, "fresh-thumb");
+
+        // ...next to a genuinely old orphan that must still be swept.
+        var oldOrphan = Path.Combine(_mediaRoot, "2020", "01", "old-orphan.jpg");
+        WriteFile(oldOrphan, "old-orphan");
+
+        // Act
+        var result = await _mediaService.CleanupOrphansAsync();
+
+        // Assert - the fresh files survived; only the aged orphan went.
+        File.Exists(freshMedia).Should().BeTrue();
+        File.Exists(freshThumb).Should().BeTrue();
+        File.Exists(oldOrphan).Should().BeFalse();
+        result.FilesDeleted.Should().Be(1);
+        result.MediaFilesDeleted.Should().Be(1);
+    }
+
+    [Fact]
     public async Task CleanupOrphansAsync_MissingMediaRoot_IsANoOp()
     {
         // The media root does not exist until the first attachment.
@@ -122,7 +148,21 @@ public class MediaCleanupTests : IDisposable
         result.BytesFreed.Should().Be(0);
     }
 
+    /// <summary>
+    /// Writes a file and ages its creation time past the cleanup grace window
+    /// (CleanupOrphansAsync never touches files created within the window, so
+    /// just-written fixtures would otherwise always "survive").
+    /// </summary>
     private static void WriteFile(string path, string content)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, content);
+        File.SetCreationTimeUtc(
+            path, DateTime.UtcNow - MediaService.CleanupGraceWindow - TimeSpan.FromMinutes(5));
+    }
+
+    /// <summary>Writes a file WITHOUT aging it - creation time is "now".</summary>
+    private static void WriteFreshFile(string path, string content)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, content);

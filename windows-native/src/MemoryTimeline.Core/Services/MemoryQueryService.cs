@@ -120,8 +120,12 @@ public class MemoryQueryService : IMemoryQueryService
         }
         catch (Exception ex)
         {
-            // ConfigurationException (no embedding key) or any embedding failure:
-            // degrade to keyword-only retrieval instead of failing the question.
+            // ConfigurationException (no embedding key), an
+            // EmbeddingDimensionMismatchException (stored rows are from a
+            // different provider - re-embed to restore semantic retrieval), or
+            // any embedding failure: degrade to keyword-only retrieval instead
+            // of failing the question. usedSemantic stays false, so the answer
+            // metadata honestly reports that semantics contributed nothing.
             _logger.LogWarning(ex, "Semantic retrieval unavailable; degrading to keyword-only retrieval");
         }
 
@@ -496,11 +500,30 @@ public class MemoryQueryService : IMemoryQueryService
             .Where(ee => ee.EmbeddingVector != null && ee.EmbeddingVector != "")
             .ToListAsync(ct);
 
-        var candidates = storedEmbeddings
+        var deserialized = storedEmbeddings
             .Select(ee => (ee.EventId, Embedding: TryDeserializeEmbedding(ee.EmbeddingVector)))
-            .Where(x => x.Embedding != null && x.Embedding.Length == queryEmbedding.Length)
+            .Where(x => x.Embedding != null)
+            .ToList();
+
+        var candidates = deserialized
+            .Where(x => x.Embedding!.Length == queryEmbedding.Length)
             .Select(x => (x.EventId, x.Embedding!))
             .ToList();
+
+        // Stored embeddings exist but NONE match the query dimension: the
+        // archive was embedded by a different provider (e.g. a provider switch
+        // without re-embedding). Throw the typed mismatch instead of silently
+        // contributing nothing - the caller's catch degrades to keyword-only
+        // retrieval, logs the warning, and keeps usedSemantic=false so
+        // MemoryAnswer.UsedSemanticRetrieval reports honestly.
+        if (deserialized.Count > 0 && candidates.Count == 0)
+        {
+            var storedDimension = deserialized
+                .GroupBy(x => x.Embedding!.Length)
+                .OrderByDescending(g => g.Count())
+                .First().Key;
+            throw new EmbeddingDimensionMismatchException(queryEmbedding.Length, storedDimension);
+        }
 
         var neighbors = _embeddingService.FindKNearestNeighbors(
             queryEmbedding,

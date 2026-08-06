@@ -365,9 +365,8 @@ public class RagService : IRagService
         {
             _logger.LogInformation("Suggesting tags for text: {Title}", title);
 
-            // Load stored embeddings FIRST (mapped EmbeddingVector column — the
-            // [NotMapped] Embedding alias is untranslatable in EF queries) so
-            // the dimension guard can run before paying for a query embedding.
+            // Load stored embeddings (mapped EmbeddingVector column — the
+            // [NotMapped] Embedding alias is untranslatable in EF queries).
             await using var dbContext = await _contextFactory.CreateDbContextAsync();
 
             var allEmbeddings = await dbContext.EventEmbeddings
@@ -375,14 +374,33 @@ public class RagService : IRagService
                 .Where(ee => ee.EmbeddingVector != null && ee.EmbeddingVector != "")
                 .ToListAsync();
 
-            // Dimension guard (F11): the query embedding comes from the CURRENT
-            // provider; stored rows from another dimension cannot be compared.
-            var currentDimension = _embeddingService.EmbeddingDimension;
+            if (allEmbeddings.Count == 0)
+            {
+                // Nothing to compare against — no point paying for a query
+                // embedding.
+                _logger.LogInformation("No stored embeddings; returning no tag suggestions for text");
+                return new List<TagSuggestion>();
+            }
+
+            // Generate the query embedding FIRST: per-call routing resolves the
+            // CURRENT provider, so the returned vector's length is the
+            // authoritative dimension for the guard below. (The routing
+            // facade's EmbeddingDimension display property lags behind an
+            // in-session provider switch until an embedding call refreshes it —
+            // a pre-check keyed on it can pass while the query comes back a
+            // different length, silently yielding zero candidates instead of
+            // the typed guard.)
+            var text = string.IsNullOrWhiteSpace(description) ? title : $"{title}. {description}";
+            var queryEmbedding = await _embeddingService.GenerateEmbeddingAsync(text);
+
+            // Dimension guard (F11): stored rows from another dimension cannot
+            // be compared with the query embedding.
+            var currentDimension = queryEmbedding.Length;
             var matchingEmbeddings = allEmbeddings
                 .Where(ee => ee.EmbeddingDimension == currentDimension)
                 .ToList();
 
-            if (allEmbeddings.Count > 0 && matchingEmbeddings.Count == 0)
+            if (matchingEmbeddings.Count == 0)
             {
                 var storedDimension = allEmbeddings
                     .GroupBy(ee => ee.EmbeddingDimension)
@@ -398,10 +416,6 @@ public class RagService : IRagService
                     "({Dimension}); re-embed all events to include them.",
                     allEmbeddings.Count - matchingEmbeddings.Count, currentDimension);
             }
-
-            // Generate embedding for the text with the current provider
-            var text = string.IsNullOrWhiteSpace(description) ? title : $"{title}. {description}";
-            var queryEmbedding = await _embeddingService.GenerateEmbeddingAsync(text);
 
             var candidateEmbeddings = matchingEmbeddings
                 .Select(ee => (ee.EventId, Embedding: TryDeserializeEmbedding(ee.EmbeddingVector)))

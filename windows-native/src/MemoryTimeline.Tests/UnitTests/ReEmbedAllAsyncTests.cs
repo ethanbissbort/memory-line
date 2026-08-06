@@ -143,6 +143,56 @@ public class ReEmbedAllAsyncTests : IDisposable
     }
 
     [Fact]
+    public async Task ReEmbedAllAsync_ProviderSwitchWithLaggingDisplayDimension_CancelledRunLeavesNoOldDimensionRows()
+    {
+        // Arrange - the in-session provider-switch scenario: every stored row
+        // is 1536-dim (old provider) and the router's EmbeddingDimension
+        // display property STILL reports 1536 (it lags until an embedding
+        // call refreshes it), while actual embedding calls already return the
+        // new provider's 4-dim vectors. The stale delete must key on the
+        // ACTUAL vector length: a run cancelled mid-way must leave no
+        // 1536-dim row behind. (The old bug: a delete keyed on the lagging
+        // display property removed nothing, so a cancel left exactly the
+        // cross-dimension mix the method promises to prevent.)
+        SeedEvent("e1", "Event one");
+        SeedEvent("e2", "Event two");
+        SeedEvent("e3", "Event three");
+        SeedEmbedding("e1", 1536, "openai");
+        SeedEmbedding("e2", 1536, "openai");
+        SeedEmbedding("e3", 1536, "openai");
+        _context.SaveChanges();
+
+        using var cts = new CancellationTokenSource();
+        var embeddingCalls = 0;
+        _embeddingServiceMock.Setup(e => e.EmbeddingDimension).Returns(1536); // lagging display value
+        _embeddingServiceMock.Setup(e => e.GenerateEmbeddingAsync(It.IsAny<string>()))
+            .Callback(() =>
+            {
+                // Cancel after the dimension probe (call 1) plus the first
+                // event (call 2): two of three events are never re-embedded.
+                if (++embeddingCalls == 2)
+                {
+                    cts.Cancel();
+                }
+            })
+            .ReturnsAsync(LocalVector);
+
+        // Act
+        var act = () => _eventService.ReEmbedAllAsync(progress: null, ct: cts.Token);
+
+        // Assert - cancelled, and the interrupted state is dimension-coherent:
+        // the up-front stale delete removed every old-dimension row, so only
+        // the one freshly re-embedded event has a row.
+        await act.Should().ThrowAsync<OperationCanceledException>();
+
+        using var verifyContext = _contextFactory.CreateDbContext();
+        var rows = verifyContext.EventEmbeddings.ToList();
+        rows.Should().HaveCount(1);
+        rows.Should().OnlyContain(r => r.EmbeddingDimension == LocalVector.Length);
+        rows.Should().OnlyContain(r => r.EmbeddingProvider == EmbeddingProviderKeys.Local);
+    }
+
+    [Fact]
     public async Task ReEmbedAllAsync_NoEvents_ReturnsZero()
     {
         // Act

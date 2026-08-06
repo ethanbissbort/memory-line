@@ -23,11 +23,16 @@ namespace MemoryTimeline.Core.Services;
 /// </para>
 /// <para>
 /// The expensive <see cref="InferenceSession"/> is created once and cached
-/// under a semaphore (the Whisper factory pattern); InferenceSession.Run is
-/// thread-safe, so concurrent embedding calls share the cached session. Any
-/// native/init failure is reported as a <see cref="ConfigurationException"/>
-/// ("Local embedding model unavailable: ...") and flips
-/// <see cref="IsAvailableAsync"/> to false — never a crash.
+/// (with its matching tokenizer) in an immutable holder under a semaphore
+/// (the Whisper factory pattern); InferenceSession.Run is thread-safe, so
+/// concurrent embedding calls share the cached session. When
+/// local_model_path changes, the holder is swapped and the OLD session is
+/// parked until service disposal — never disposed while an in-flight batch
+/// may still be using it. Any native/init failure is reported as a
+/// <see cref="ConfigurationException"/> ("Local embedding model
+/// unavailable: ...") and flips <see cref="IsAvailableAsync"/> to false —
+/// never a crash; a later successful load OR a fully successful embedding
+/// pass clears the flag again.
 /// </para>
 /// </summary>
 public class OnnxEmbeddingService : IEmbeddingService, IDisposable
@@ -52,11 +57,33 @@ public class OnnxEmbeddingService : IEmbeddingService, IDisposable
     private readonly ISettingsService _settingsService;
     private readonly ILogger<OnnxEmbeddingService> _logger;
     private readonly SemaphoreSlim _initLock = new(1, 1);
-    private InferenceSession? _session;
-    private WordPieceTokenizer? _tokenizer;
-    private string? _loadedModelDirectory;
+    private volatile ModelHolder? _holder;
+    private readonly List<InferenceSession> _retiredSessions = new();
     private string? _initFailureMessage;
     private bool _disposed;
+
+    /// <summary>
+    /// Immutable (session, tokenizer, directory) triple. An embedding batch
+    /// captures ONE holder up front and uses it for the whole batch, so a
+    /// concurrent local_model_path reload can never swap the tokenizer or
+    /// session out from under it mid-batch. Replaced holders' sessions are
+    /// parked in <see cref="_retiredSessions"/> (InferenceSession.Run is
+    /// thread-safe against concurrent Run calls but NOT against
+    /// Dispose-during-Run) and disposed only on service <see cref="Dispose"/>.
+    /// </summary>
+    private sealed class ModelHolder
+    {
+        public ModelHolder(InferenceSession session, WordPieceTokenizer tokenizer, string modelDirectory)
+        {
+            Session = session;
+            Tokenizer = tokenizer;
+            ModelDirectory = modelDirectory;
+        }
+
+        public InferenceSession Session { get; }
+        public WordPieceTokenizer Tokenizer { get; }
+        public string ModelDirectory { get; }
+    }
 
     public int EmbeddingDimension => Dimension;
     public string ModelName => ModelFolderName;
@@ -74,7 +101,9 @@ public class OnnxEmbeddingService : IEmbeddingService, IDisposable
     /// <summary>
     /// Local embeddings need no API key, so availability only turns false after
     /// an init/native failure has actually been observed (the model download
-    /// happens lazily on first use). A later successful init clears the flag.
+    /// happens lazily on first use). A later successful init OR a fully
+    /// successful embedding pass clears the flag — one transient inference
+    /// failure must not latch unavailability for the whole app session.
     /// </summary>
     public Task<bool> IsAvailableAsync()
     {
@@ -89,7 +118,10 @@ public class OnnxEmbeddingService : IEmbeddingService, IDisposable
 
     public async Task<List<float[]>> GenerateEmbeddingsAsync(IEnumerable<string> texts)
     {
-        var (session, tokenizer) = await GetOrCreateSessionAsync();
+        // Capture the holder ONCE: the whole batch runs on this immutable
+        // (session, tokenizer) pair even if a settings change swaps _holder
+        // mid-batch (the replaced session is parked, never disposed under us).
+        var holder = await GetOrCreateSessionAsync();
 
         try
         {
@@ -100,8 +132,14 @@ public class OnnxEmbeddingService : IEmbeddingService, IDisposable
             var results = new List<float[]>();
             foreach (var text in texts)
             {
-                results.Add(EmbedSingle(session, tokenizer, text ?? string.Empty));
+                results.Add(EmbedSingle(holder.Session, holder.Tokenizer, text ?? string.Empty));
             }
+
+            // A whole successful pass proves the model works: clear any
+            // earlier TRANSIENT inference failure so IsAvailableAsync does not
+            // stay latched false for the rest of the app session while the
+            // cached session keeps embedding happily.
+            _initFailureMessage = null;
 
             _logger.LogInformation("Generated {Count} local embeddings with {Model}", results.Count, ModelName);
             return results;
@@ -323,28 +361,35 @@ public class OnnxEmbeddingService : IEmbeddingService, IDisposable
     }
 
     /// <summary>
-    /// Returns the cached session + tokenizer, downloading model files and
-    /// loading them on first use (or after local_model_path changed). Follows
-    /// the Whisper factory pattern: creation is serialized with a semaphore so
-    /// concurrent calls never double-download or double-load.
+    /// Returns the cached holder, downloading model files and loading them on
+    /// first use (or after local_model_path changed). Follows the Whisper
+    /// factory pattern: creation is serialized with a semaphore so concurrent
+    /// calls never double-download or double-load. When local_model_path
+    /// changes, the OLD session is parked in <see cref="_retiredSessions"/>
+    /// instead of being disposed: an in-flight batch may still be running on
+    /// it, and disposing a session mid-Run can fault the native ORT handle.
+    /// The parked native memory (one session per path change, a rare
+    /// user-initiated event) is reclaimed on service Dispose.
     /// </summary>
-    private async Task<(InferenceSession Session, WordPieceTokenizer Tokenizer)> GetOrCreateSessionAsync()
+    private async Task<ModelHolder> GetOrCreateSessionAsync()
     {
         var modelDirectory = await ResolveModelDirectoryAsync();
 
-        if (_session != null && _tokenizer != null &&
-            string.Equals(_loadedModelDirectory, modelDirectory, StringComparison.OrdinalIgnoreCase))
+        var holder = _holder;
+        if (holder != null &&
+            string.Equals(holder.ModelDirectory, modelDirectory, StringComparison.OrdinalIgnoreCase))
         {
-            return (_session, _tokenizer);
+            return holder;
         }
 
         await _initLock.WaitAsync();
         try
         {
-            if (_session != null && _tokenizer != null &&
-                string.Equals(_loadedModelDirectory, modelDirectory, StringComparison.OrdinalIgnoreCase))
+            holder = _holder;
+            if (holder != null &&
+                string.Equals(holder.ModelDirectory, modelDirectory, StringComparison.OrdinalIgnoreCase))
             {
-                return (_session, _tokenizer);
+                return holder;
             }
 
             ObjectDisposedException.ThrowIf(_disposed, this);
@@ -366,14 +411,19 @@ public class OnnxEmbeddingService : IEmbeddingService, IDisposable
                 // the 384-dim MiniLM model is fast enough on CPU for this workload.
                 var session = new InferenceSession(modelPath);
 
-                _session?.Dispose(); // replaced when local_model_path changed
-                _session = session;
-                _tokenizer = tokenizer;
-                _loadedModelDirectory = modelDirectory;
+                var previous = _holder;
+                _holder = new ModelHolder(session, tokenizer, modelDirectory);
+                if (previous != null)
+                {
+                    // Deliberately NOT previous.Session.Dispose(): an in-flight
+                    // batch may still hold the old holder. Parked until Dispose.
+                    _retiredSessions.Add(previous.Session);
+                }
+
                 _initFailureMessage = null; // recovered (e.g. network is back)
 
                 _logger.LogInformation("Local embedding model loaded and cached");
-                return (_session, _tokenizer);
+                return _holder;
             }
             catch (Exception ex)
             {
@@ -494,8 +544,13 @@ public class OnnxEmbeddingService : IEmbeddingService, IDisposable
         }
 
         _disposed = true;
-        _session?.Dispose();
-        _session = null;
+        _holder?.Session.Dispose();
+        _holder = null;
+        foreach (var retired in _retiredSessions)
+        {
+            retired.Dispose();
+        }
+        _retiredSessions.Clear();
         _initLock.Dispose();
         GC.SuppressFinalize(this);
     }

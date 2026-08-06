@@ -113,6 +113,16 @@ public class MediaService : IMediaService
     /// <summary>Longest edge (px) of generated thumbnails.</summary>
     public const int ThumbnailLongestEdge = 256;
 
+    /// <summary>
+    /// Files created within this window are never deleted by
+    /// <see cref="CleanupOrphansAsync"/>. <see cref="AttachAsync"/> copies a
+    /// file into the managed tree BEFORE inserting its EventMedia row, so a
+    /// just-copied file can look orphaned while its row is still on the way;
+    /// 5 minutes comfortably covers the copy→hash→thumbnail→insert span of
+    /// even a huge attachment. Internal so tests can age files past it.
+    /// </summary>
+    internal static readonly TimeSpan CleanupGraceWindow = TimeSpan.FromMinutes(5);
+
     private const string ThumbsDirectoryName = ".thumbs";
 
     private readonly IEventMediaRepository _mediaRepository;
@@ -519,6 +529,21 @@ public class MediaService : IMediaService
             return result;
         }
 
+        // Snapshot ORDER matters: materialize the FILE list first, the DB row
+        // sets second. AttachAsync copies a file into the managed tree BEFORE
+        // inserting its EventMedia row, so with this order a file that appears
+        // after the file snapshot is never even considered, and a row that
+        // commits before the row query still protects its file. The reverse
+        // order (rows first, lazy file walk second) could delete a
+        // just-attached file whose row commits — permanent media loss.
+        // NOTE: this scan covers the managed media tree only. Export .tmp
+        // leftovers live wherever the user pointed the export/backup pickers
+        // (arbitrary folders we must not sweep - an in-progress backup's .tmp
+        // could be live there); cleaning those is deliberately deferred.
+        var files = System.IO.Directory
+            .EnumerateFiles(MediaRoot, "*", SearchOption.AllDirectories)
+            .ToList();
+
         // Referenced paths from the database, normalized to forward slashes
         // (rows store OS-native separators via Path.Combine).
         HashSet<string> liveFiles;
@@ -539,13 +564,20 @@ public class MediaService : IMediaService
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
         }
 
-        // NOTE: this scan covers the managed media tree only. Export .tmp
-        // leftovers live wherever the user pointed the export/backup pickers
-        // (arbitrary folders we must not sweep - an in-progress backup's .tmp
-        // could be live there); cleaning those is deliberately deferred.
-        foreach (var file in System.IO.Directory.EnumerateFiles(MediaRoot, "*", SearchOption.AllDirectories))
+        var graceCutoffUtc = DateTime.UtcNow - CleanupGraceWindow;
+        foreach (var file in files)
         {
             ct.ThrowIfCancellationRequested();
+
+            // Grace window (belt and braces with the snapshot order above):
+            // never touch a file created moments ago - it may belong to an
+            // attach whose row has not committed yet. A vanished file reports
+            // an ancient creation time and simply falls through to the
+            // tolerant delete below.
+            if (File.GetCreationTimeUtc(file) > graceCutoffUtc)
+            {
+                continue;
+            }
 
             var relative = NormalizeRelativePath(Path.GetRelativePath(MediaRoot, file));
             var isTemp = relative.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase);

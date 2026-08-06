@@ -79,8 +79,10 @@ public interface IMediaService
     /// deletes thumbnails with no referencing event_media row, managed media
     /// files with no row, and *.tmp leftovers, reporting the files deleted
     /// and the ACTUAL bytes freed. Files referenced by the database are never
-    /// touched. Per-file deletion failures are logged and skipped; the scan
-    /// itself throws only on database failure.
+    /// touched, and files created within the last few minutes are skipped (an
+    /// in-flight attach copies its file before committing the row) - they are
+    /// swept on a later run if truly orphaned. Per-file deletion failures are
+    /// logged and skipped; the scan itself throws only on database failure.
     /// </summary>
     Task<MediaCleanupResult> CleanupOrphansAsync(CancellationToken ct = default);
 }

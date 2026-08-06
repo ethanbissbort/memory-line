@@ -126,60 +126,73 @@ public class BackupService : IBackupService
 
         try
         {
-            progress?.Report(5);
-
-            // WAL-safe snapshot of the live database (online backup API; the
-            // proven pattern from ImportService.TryCreateDatabaseBackup).
-            SnapshotDatabase(databasePath, tmpDbPath);
-            var eventCount = TryCountEvents(tmpDbPath);
-            progress?.Report(25);
-
-            using (var zipStream = new FileStream(tmpZipPath, FileMode.Create, FileAccess.Write, FileShare.None))
-            using (var zip = new ZipArchive(zipStream, ZipArchiveMode.Create))
+            // ALL the heavy lifting (db snapshot, zip build over the media +
+            // audio trees, manifest, publish move) runs on the thread pool -
+            // mirroring PreviewRestoreAsync/RestoreAsync - so "Back Up Now"
+            // never freezes the awaiting UI thread. progress is a Progress<T>
+            // in production, which marshals its callbacks to the captured UI
+            // context, so reporting from inside Task.Run is safe. ct is both
+            // the Task.Run token (skips the body when already cancelled) and
+            // checked inside the body/AddTree loops.
+            var (eventCount, sizeBytes) = await Task.Run(() =>
             {
-                zip.CreateEntryFromFile(tmpDbPath, DatabaseEntryName, CompressionLevel.Optimal);
+                progress?.Report(5);
+
+                // WAL-safe snapshot of the live database (online backup API;
+                // the proven pattern from ImportService.TryCreateDatabaseBackup).
+                SnapshotDatabase(databasePath, tmpDbPath);
+                var snapshotEventCount = TryCountEvents(tmpDbPath);
+                progress?.Report(25);
+
+                using (var zipStream = new FileStream(tmpZipPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                using (var zip = new ZipArchive(zipStream, ZipArchiveMode.Create))
+                {
+                    zip.CreateEntryFromFile(tmpDbPath, DatabaseEntryName, CompressionLevel.Optimal);
+                    ct.ThrowIfCancellationRequested();
+                    progress?.Report(35);
+
+                    if (options.IncludeMedia)
+                    {
+                        AddTree(zip, _mediaService.MediaRoot, MediaEntryPrefix, ct);
+                    }
+
+                    progress?.Report(70);
+
+                    if (options.IncludeAudio)
+                    {
+                        AddTree(zip, _audioRoot, AudioEntryPrefix, ct);
+                    }
+
+                    progress?.Report(90);
+
+                    var manifest = new BackupManifest
+                    {
+                        FormatVersion = CurrentFormatVersion,
+                        AppVersion = typeof(BackupService).Assembly.GetName().Version?.ToString() ?? "unknown",
+                        CreatedAtUtc = DateTime.UtcNow,
+                        EventCount = snapshotEventCount,
+                        IncludesMedia = options.IncludeMedia,
+                        IncludesAudio = options.IncludeAudio
+                    };
+                    var manifestEntry = zip.CreateEntry(ManifestEntryName, CompressionLevel.Optimal);
+                    using var manifestWriter = new StreamWriter(manifestEntry.Open());
+                    manifestWriter.Write(JsonSerializer.Serialize(manifest, ManifestJsonOptions));
+                }
+
                 ct.ThrowIfCancellationRequested();
-                progress?.Report(35);
 
-                if (options.IncludeMedia)
-                {
-                    AddTree(zip, _mediaService.MediaRoot, MediaEntryPrefix, ct);
-                }
+                // Atomic-ish publish: the finished archive appears in one move -
+                // a reader can never observe a torn .mtbak.
+                File.Move(tmpZipPath, destinationPath, overwrite: true);
+                progress?.Report(100);
 
-                progress?.Report(70);
-
-                if (options.IncludeAudio)
-                {
-                    AddTree(zip, _audioRoot, AudioEntryPrefix, ct);
-                }
-
-                progress?.Report(90);
-
-                var manifest = new BackupManifest
-                {
-                    FormatVersion = CurrentFormatVersion,
-                    AppVersion = typeof(BackupService).Assembly.GetName().Version?.ToString() ?? "unknown",
-                    CreatedAtUtc = DateTime.UtcNow,
-                    EventCount = eventCount,
-                    IncludesMedia = options.IncludeMedia,
-                    IncludesAudio = options.IncludeAudio
-                };
-                var manifestEntry = zip.CreateEntry(ManifestEntryName, CompressionLevel.Optimal);
-                using var manifestWriter = new StreamWriter(manifestEntry.Open());
-                manifestWriter.Write(JsonSerializer.Serialize(manifest, ManifestJsonOptions));
-            }
-
-            ct.ThrowIfCancellationRequested();
-
-            // Atomic-ish publish: the finished archive appears in one move -
-            // a reader can never observe a torn .mtbak.
-            File.Move(tmpZipPath, destinationPath, overwrite: true);
-            progress?.Report(100);
+                return (snapshotEventCount, new FileInfo(destinationPath).Length);
+            }, ct);
 
             var result = new BackupResult
             {
                 FilePath = destinationPath,
-                SizeBytes = new FileInfo(destinationPath).Length,
+                SizeBytes = sizeBytes,
                 EventCount = eventCount,
                 DurationSeconds = stopwatch.Elapsed.TotalSeconds
             };
@@ -286,6 +299,9 @@ public class BackupService : IBackupService
         // a restore of the wrong file is recoverable. Goes to the configured
         // backup destination; falls back to the database's own directory when
         // none is configured. A safety-backup failure ABORTS the restore.
+        // CreateBackupAsync runs its snapshot/zip work in Task.Run, so this
+        // call - like the preview/extract phases - never blocks the awaiting
+        // (possibly UI) thread.
         var safetyDirectory = await _settingsService.GetSettingAsync<string>(
             SettingKeys.BackupDestination, string.Empty);
         if (string.IsNullOrWhiteSpace(safetyDirectory))
