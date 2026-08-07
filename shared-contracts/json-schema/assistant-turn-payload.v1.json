@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://memory-line.dev/schemas/assistant-turn-payload.v1.json",
+  "title": "AssistantTurnChangePayload",
+  "description": "One assistant turn, carried as the payloadJson of an assistant_turn sync change (design doc section 19, Phase 4). Mirrors the C# DTO MemoryTimeline.SyncContracts.AssistantTurnChangePayload. Windows is the brain by default: the archive, the retrieval index and the extraction prompts live there, so the service stores and routes turns rather than retrieving or generating. Unlike every other entity type this one flows in BOTH directions over the same feed — the service publishes a pending turn toward Windows, and Windows publishes the answered turn back — so both directions carry this one shape and a consumer applies the newest revision without caring which way it came. entityId is the turnId, and only upsert is used: a turn has nothing to tombstone, since cancellation is a status rather than a delete. Nothing here carries audio, a full transcript or a file path: speech-to-text happens on the device and excerpts are bounded, per the same section 14.5 rule that governs capture-status-payload.v1.json. Payloads are camelCase and do not strip nulls, so an absent optional value is present as null. additionalProperties is false because this validates what a publisher emits at this schema version; consumers still ignore fields they do not recognize, per the additive versioning rules in ../README.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "turnId",
+    "sessionId",
+    "sequence",
+    "question",
+    "status",
+    "requestedResponder",
+    "originDeviceId",
+    "updatedAtUtc"
+  ],
+  "properties": {
+    "turnId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "The turn this revision describes. Client-generated, which is what makes turn submission idempotent: a resubmitted turnId returns the existing turn rather than asking the same question twice. Must equal the change's entityId."
+    },
+    "sessionId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Conversation the turn belongs to. Sessions scope turn ordering and shared context; only the device that opened one may add turns."
+    },
+    "sequence": {
+      "type": "integer",
+      "description": "Position within the session, monotonic and assigned by the service, so a responder can reconstruct conversation order without trusting client clocks."
+    },
+    "question": {
+      "type": "string",
+      "description": "The question as text. Speech-to-text happens on the device, so no audio ever reaches this payload, and this is the user's question alone — never a transcript of the surrounding conversation or of a capture (design doc section 14.5)."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pending", "dispatched", "answering", "completed", "failed", "cancelled"],
+      "description": "Turn lifecycle: pending (accepted and durable, not yet routed), dispatched (published toward a responder), answering (a responder claimed it and is producing an answer), then the terminal completed, failed and cancelled. cancelled covers user interruption, an explicit Phase 4 requirement."
+    },
+    "requestedResponder": {
+      "type": "string",
+      "enum": ["windows", "provider", "on_device"],
+      "description": "Responder the client asked for. windows is the default and the only one grounded in the full archive, but it needs Windows online; provider has the service call a configured LLM directly, grounded only in client-supplied context; on_device means the phone pre-processed and brought its own. The choice is per turn rather than per session, so a client can fall back mid-conversation when Windows goes offline without starting over."
+    },
+    "actualResponder": {
+      "type": ["string", "null"],
+      "enum": ["windows", "provider", "on_device", null],
+      "description": "Responder that actually answered. Recorded separately from requestedResponder because the two differ whenever a fallback happened, and a client showing an answer should be able to say where it came from. Null until something claims the turn."
+    },
+    "originDeviceId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Device that asked, so Windows can scope retrieval and address the reply. Distinct from the change's sourceDeviceId, which names whichever device published this particular revision."
+    },
+    "clientContext": {
+      "type": ["array", "null"],
+      "items": { "$ref": "#/$defs/assistantContextItem" },
+      "description": "Grounding the device retrieved itself (on_device pre-processing), null when the turn carried none. Bounded by the service, which refuses an oversized list rather than truncating it, so a client is never silently answered on a fraction of what it sent."
+    },
+    "result": {
+      "oneOf": [
+        { "$ref": "#/$defs/assistantTurnResult" },
+        { "type": "null" }
+      ],
+      "description": "The answer, present once status is completed and null before that."
+    },
+    "failureReason": {
+      "type": ["string", "null"],
+      "description": "Display-safe reason when status is failed; null otherwise. By contract it never carries archive content, file paths, or credentials (design doc section 14.5), so publishers send fixed text keyed on the failure rather than raw error output."
+    },
+    "failureRetryable": {
+      "type": ["boolean", "null"],
+      "description": "True when the failure is expected to clear on retry (design doc section 16.2). Null when the responder cannot classify it, which is not evidence either way."
+    },
+    "updatedAtUtc": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the publisher produced this revision, UTC ISO 8601. Display and last-write-wins tie-breaking only — changes are applied in changeId order, never by this clock."
+    }
+  },
+  "$defs": {
+    "assistantContextItem": {
+      "title": "AssistantContextItem",
+      "description": "One piece of device-supplied grounding: an event the phone believes is relevant, with a bounded excerpt. Deliberately shaped like a Windows retrieval hit so a responder can treat device-supplied and archive context alike.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eventId", "title"],
+      "properties": {
+        "eventId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The archive's identifier for the event, as Windows minted it. Constrained here because context is client input the service validates before handing it to a responder; a citation's eventId, which the service only forwards, is deliberately not constrained."
+        },
+        "title": {
+          "type": "string",
+          "description": "Event title as the device knows it."
+        },
+        "eventDateUtc": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "Event date as the device knows it; may be imprecise, which is why a responder treats it as a hint rather than a fact to quote back."
+        },
+        "excerpt": {
+          "type": ["string", "null"],
+          "description": "Bounded excerpt — never the full event text (design doc section 14.5). This payload crosses devices, so it carries what a responder needs to read, not the archive itself."
+        },
+        "score": {
+          "type": ["number", "null"],
+          "description": "Device-side similarity score, if the device computed one. Advisory: the responder decides what to use."
+        }
+      }
+    },
+    "assistantTurnResult": {
+      "title": "AssistantTurnResult",
+      "description": "An answer.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["answer", "grounding", "citations"],
+      "properties": {
+        "answer": {
+          "type": "string",
+          "description": "The answer text. Clients speak it via on-device TTS, which is why no audio is returned here."
+        },
+        "grounding": {
+          "type": "string",
+          "enum": ["archive", "client_context", "none"],
+          "description": "How well the answer is anchored to the user's actual archive: archive (retrieved from the full archive, citations refer to real events), client_context (grounded only in context the client supplied with the turn), none (no retrieval, general knowledge). Clients must surface anything other than archive rather than presenting a general-knowledge answer as if it came from the user's own history."
+        },
+        "citations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assistantCitation" },
+          "description": "Events the answer rests on. An empty array is legitimate and meaningful: Windows refuses honestly when the archive holds nothing relevant, and that refusal arrives as a completed turn with no citations."
+        },
+        "model": {
+          "type": ["string", "null"],
+          "description": "Model that produced the answer, for display and diagnostics."
+        },
+        "elapsedMs": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Wall-clock milliseconds the responder took."
+        }
+      }
+    },
+    "assistantCitation": {
+      "title": "AssistantCitation",
+      "description": "An event an answer cites.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eventId", "title"],
+      "properties": {
+        "eventId": {
+          "type": "string",
+          "description": "The cited event's identifier. Deliberately unconstrained, unlike a context item's eventId: the service forwards what a responder cited without validating it, and an imported event can carry an ID Windows did not mint, so consumers keep it as an opaque string."
+        },
+        "title": {
+          "type": "string",
+          "description": "Event title, already display-ready."
+        },
+        "displayDate": {
+          "type": ["string", "null"],
+          "description": "Precision-honest display date (\"Summer 2003\"), already formatted by the responder. The wire carries the formatted string rather than a date plus a precision enum so every client renders exactly what Windows would, instead of each reinventing the rounding."
+        },
+        "excerpt": {
+          "type": ["string", "null"],
+          "description": "Bounded excerpt supporting the claim — never the full event (design doc section 14.5)."
+        }
+      }
+    }
+  }
+}
