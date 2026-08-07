@@ -1,8 +1,0 @@
-# Keep build outputs and local state out of the Docker build context.
-# NOTE: the documented build context is the repo root (see Dockerfile); with
-# BuildKit this file also applies when named next to the Dockerfile it serves.
-**/bin/
-**/obj/
-**/data/
-**/.vs/
-**/*.user

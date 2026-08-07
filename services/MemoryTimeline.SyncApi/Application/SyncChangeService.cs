@@ -87,7 +87,10 @@ public sealed class SyncChangeService : ISyncChangeService
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                // One bad entry must not fail the batch (design §12.1); surface it per-entry.
+                // One bad entry must not fail the batch (design §12.1); surface
+                // it per-entry, and drop its tracked rows so they cannot leak
+                // into the next entry's save on the shared context.
+                db.ChangeTracker.Clear();
                 _logger.LogError(
                     ex,
                     "Failed to apply pushed change (device {DeviceId}, sequence {ClientSequence}, entity type {EntityType}).",
@@ -184,13 +187,18 @@ public sealed class SyncChangeService : ISyncChangeService
             ChangedAtUtc = entry.ChangedAtUtc == default ? DateTime.UtcNow : entry.ChangedAtUtc,
         };
         db.SyncChanges.Add(change);
-        await db.SaveChangesAsync(cancellationToken);
 
+        // ServerChangeId carries the change row's temporary key (readable only
+        // through the change tracker before save); the FK configured in
+        // SyncDbContext replaces it with the store-generated change ID at save
+        // time. One SaveChanges commits the change row, the receipt, and any
+        // capture update atomically, so a crashed request that the client
+        // retries can never leave a receipt-less duplicate change row.
         db.PushReceipts.Add(new PushReceipt
         {
             DeviceId = caller.DeviceId,
             ClientSequence = entry.ClientSequence,
-            ServerChangeId = change.ChangeId,
+            ServerChangeId = db.Entry(change).Property(c => c.ChangeId).CurrentValue,
             ReceivedAtUtc = DateTime.UtcNow,
         });
 
@@ -200,8 +208,9 @@ public sealed class SyncChangeService : ISyncChangeService
         }
         catch (DbUpdateException ex)
         {
-            // Concurrent push of the same sequence from the same device; the
-            // change row above stands, but report the winning receipt.
+            // Concurrent push of the same sequence from the same device: the
+            // whole save rolled back (no orphan change row); report the
+            // winning receipt.
             _logger.LogWarning(
                 ex,
                 "Concurrent push receipt for device {DeviceId} sequence {ClientSequence}.",

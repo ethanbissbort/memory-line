@@ -16,9 +16,10 @@ namespace MemoryTimeline.SyncApi.Tests;
 /// SyncApi:MaxPartSizeBytes (<see cref="PartSizeBytes"/>) so multi-part
 /// artifact uploads are exercised with small payloads. The temporary directory
 /// (SQLite database, signing key, pairing code file, artifact blobs) is
-/// deleted on dispose.
+/// deleted on dispose. Derived fixtures can layer extra host settings on top
+/// (see <see cref="StrictRotationSyncApiFixture"/>).
 /// </summary>
-public sealed class SyncApiFixture : IDisposable
+public class SyncApiFixture : IDisposable
 {
     /// <summary>Pairing code the test host is configured with (SyncApi:PairingCode).</summary>
     public const string PairingCode = "test-pairing";
@@ -37,6 +38,12 @@ public sealed class SyncApiFixture : IDisposable
     private readonly WebApplicationFactory<Program> _factory;
 
     public SyncApiFixture()
+        : this(extraSettings: null)
+    {
+    }
+
+    /// <summary>Boots the host with the standard settings plus <paramref name="extraSettings"/> (which win on key collisions).</summary>
+    protected SyncApiFixture(IReadOnlyDictionary<string, string>? extraSettings)
     {
         _dataDir = Path.Combine(
             Path.GetTempPath(), "memory-line-syncapi-tests", Guid.NewGuid().ToString("N"));
@@ -48,6 +55,10 @@ public sealed class SyncApiFixture : IDisposable
             builder.UseSetting("SyncApi:DataDir", _dataDir);
             builder.UseSetting("SyncApi:PairingCode", PairingCode);
             builder.UseSetting("SyncApi:MaxPartSizeBytes", PartSizeBytes.ToString());
+            foreach (var (key, value) in extraSettings ?? new Dictionary<string, string>())
+            {
+                builder.UseSetting(key, value);
+            }
         });
     }
 
@@ -257,5 +268,18 @@ public sealed class SyncApiFixture : IDisposable
         {
             // Same as above — cleanup only.
         }
+    }
+}
+
+/// <summary>
+/// Host configured with SyncApi:RefreshTokenGraceSeconds=0 — strict refresh
+/// rotation, where the pre-rotation token dies immediately with no recovery
+/// window.
+/// </summary>
+public sealed class StrictRotationSyncApiFixture : SyncApiFixture
+{
+    public StrictRotationSyncApiFixture()
+        : base(new Dictionary<string, string> { ["SyncApi:RefreshTokenGraceSeconds"] = "0" })
+    {
     }
 }

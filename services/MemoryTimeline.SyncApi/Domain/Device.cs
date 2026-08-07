@@ -22,10 +22,24 @@ public class Device
     /// <summary>Optional device public key (base64) for future artifact envelope encryption.</summary>
     public string? PublicKey { get; set; }
 
-    /// <summary>Lowercase hex SHA-256 of the current refresh token; rotated on every refresh.</summary>
+    /// <summary>
+    /// Lowercase hex SHA-256 of the current refresh token; rotated on every
+    /// refresh. Declared as an EF concurrency token so concurrent rotations
+    /// conflict instead of silently overwriting each other.
+    /// </summary>
     public string RefreshTokenHash { get; set; } = string.Empty;
 
     public DateTime RefreshTokenExpiresAtUtc { get; set; }
+
+    /// <summary>
+    /// Hash of the refresh token that was current before the last rotation,
+    /// honored until <see cref="PreviousRefreshTokenExpiresAtUtc"/> so a client
+    /// that never received the rotation response can recover.
+    /// </summary>
+    public string? PreviousRefreshTokenHash { get; set; }
+
+    /// <summary>End of the recovery grace window for the previous refresh token.</summary>
+    public DateTime? PreviousRefreshTokenExpiresAtUtc { get; set; }
 
     /// <summary>Highest change ID this device has durably applied (sync diagnostics).</summary>
     public long AckedCursor { get; set; }

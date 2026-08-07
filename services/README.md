@@ -69,8 +69,14 @@ value has a working default, so an empty configuration runs.
 | `PairingCode` | `SyncApi__PairingCode` | generated on first run | Owner pairing code required by device registration. When configured, it overwrites `{DataDir}/pairing-code.txt`. |
 | `AccessTokenLifetimeMinutes` | `SyncApi__AccessTokenLifetimeMinutes` | `60` | JWT access token lifetime. |
 | `RefreshTokenLifetimeDays` | `SyncApi__RefreshTokenLifetimeDays` | `30` | Refresh token lifetime. |
+| `RefreshTokenGraceSeconds` | `SyncApi__RefreshTokenGraceSeconds` | `300` | How long the previous refresh token stays usable after a rotation, so a client that never received the rotation response can recover. `0` = strict rotation. |
 | `MaxPartSizeBytes` | `SyncApi__MaxPartSizeBytes` | `8388608` (8 MiB) | Maximum accepted bytes per uploaded artifact part. |
 | `TokenSigningKeyBase64` | `SyncApi__TokenSigningKeyBase64` | generated on first run, persisted to `{DataDir}/signing.key` | Base64 HMAC-SHA256 signing key, at least 32 bytes decoded. |
+
+> **Note:** raising `SyncApi:MaxPartSizeBytes` above ~28.6 MB (Kestrel's
+> 30,000,000-byte default `MaxRequestBodySize`) additionally requires raising
+> Kestrel's request body size limit, or part uploads fail with 413 before the
+> service sees them.
 
 ## Docker
 
@@ -84,18 +90,18 @@ docker build -f services/MemoryTimeline.SyncApi/Dockerfile -t memory-line-sync .
 
 docker run -d --name memory-line-sync \
   -p 8080:8080 \
-  -v memory-line-sync-data:/app/data \
+  -v memory-line-sync-data:/data \
   memory-line-sync
 ```
 
 - The container listens on port `8080` (the ASP.NET Core 8 container
   default); map it to whatever host port you like (`-p 5210:8080`).
-- `/app/data` is the data directory (`SyncApi__DataDir` defaults to `data`
-  under the `/app` working directory) — **always mount a volume there** or
-  the database, artifacts, signing key, and pairing code vanish with the
+- `/data` is the data directory (the image sets `SyncApi__DataDir=/data` and
+  declares `VOLUME /data`) — **always mount a volume there** or the
+  database, artifacts, signing key, and pairing code vanish with the
   container.
 - Read the generated pairing code with
-  `docker exec memory-line-sync cat /app/data/pairing-code.txt`
+  `docker exec memory-line-sync cat /data/pairing-code.txt`
   (or from `docker logs memory-line-sync`), or pin your own via
   `-e SyncApi__PairingCode=...`.
 
@@ -148,8 +154,9 @@ Errors use the `ApiError` envelope (`code`, `message`, `retryable`,
 
 - **Auth model:** registration is gated by the owner pairing code; every
   other call requires a short-lived, device-bound, self-issued HMAC-SHA256
-  JWT. Refresh tokens rotate on every use (the previous one is invalidated)
-  and revocation takes effect immediately.
+  JWT. Refresh tokens rotate on every use — the previous token stays usable
+  only for the short `RefreshTokenGraceSeconds` recovery window (`0` for
+  strict rotation) — and revocation takes effect immediately.
 - **Transport:** the service itself speaks **plain HTTP**. Do not expose it
   to the public internet directly — reach it over a private overlay network
   (**Tailscale/WireGuard recommended**, per the design's Mode A) or put a

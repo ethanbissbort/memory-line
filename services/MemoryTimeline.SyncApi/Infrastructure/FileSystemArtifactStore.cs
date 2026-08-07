@@ -6,8 +6,9 @@ namespace MemoryTimeline.SyncApi.Infrastructure;
 /// <summary>
 /// <see cref="IArtifactStore"/> over the local filesystem. Layout under
 /// {DataDir}/artifacts: parts at {guid}/part_00001..., assembled blob at
-/// {guid}.bin. Part writes and assembly go through temp files so a crashed
-/// request never leaves a partially written final file.
+/// {guid}.bin. Part writes and assembly go through per-request unique temp
+/// files so a crashed request never leaves a partially written final file and
+/// a concurrent request's cleanup can never unlink another request's work.
 /// </summary>
 public sealed class FileSystemArtifactStore : IArtifactStore
 {
@@ -51,13 +52,16 @@ public sealed class FileSystemArtifactStore : IArtifactStore
     {
         var partPath = GetPartPath(artifactId, partNumber);
         Directory.CreateDirectory(Path.GetDirectoryName(partPath)!);
-        var tempPath = partPath + ".tmp";
+        // Unique per request (CreateNew asserts it): a concurrent uploader of
+        // the same part never shares this file, so the catch below can only
+        // ever delete this request's own work.
+        var tempPath = $"{partPath}.{Guid.NewGuid():N}.tmp";
 
         try
         {
             long total = 0;
             await using (var output = new FileStream(
-                tempPath, FileMode.Create, FileAccess.Write, FileShare.None, BufferSize, useAsync: true))
+                tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, BufferSize, useAsync: true))
             {
                 var buffer = new byte[BufferSize];
                 int read;
@@ -90,14 +94,17 @@ public sealed class FileSystemArtifactStore : IArtifactStore
         int partCount,
         CancellationToken cancellationToken)
     {
-        var tempPath = Path.Combine(_artifactsDirectory, $"{artifactId:D}.bin.tmp");
+        // Unique per request (CreateNew asserts it): concurrent completes of the
+        // same artifact assemble into separate files, so the catch below can
+        // only ever delete this request's own work.
+        var tempPath = Path.Combine(_artifactsDirectory, $"{artifactId:D}.bin.{Guid.NewGuid():N}.tmp");
 
         try
         {
             long total = 0;
             using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             await using (var output = new FileStream(
-                tempPath, FileMode.Create, FileAccess.Write, FileShare.None, BufferSize, useAsync: true))
+                tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, BufferSize, useAsync: true))
             {
                 var buffer = new byte[BufferSize];
                 for (var part = 1; part <= partCount; part++)

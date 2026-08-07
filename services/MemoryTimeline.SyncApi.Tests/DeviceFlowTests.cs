@@ -7,10 +7,12 @@ using Xunit;
 namespace MemoryTimeline.SyncApi.Tests;
 
 /// <summary>
-/// Device lifecycle flows against the real host: pairing-gated registration,
-/// bearer-token enforcement on every authenticated route, refresh token
-/// rotation (old token dies, new access token works), and immediate
-/// revocation by a peer device.
+/// Device lifecycle flows against the real host (default refresh grace
+/// window): pairing-gated registration, idempotent registration replay with
+/// fresh tokens, bearer-token enforcement on every authenticated route,
+/// refresh token rotation with lost-response recovery inside the grace
+/// window, and immediate revocation by a peer device. Strict rotation
+/// (grace 0) is covered by <see cref="DeviceRefreshStrictRotationTests"/>.
 /// </summary>
 public class DeviceFlowTests : IClassFixture<SyncApiFixture>
 {
@@ -105,42 +107,104 @@ public class DeviceFlowTests : IClassFixture<SyncApiFixture>
     }
 
     [Fact]
-    public async Task Refresh_RotatesRefreshToken_OldTokenDiesAndNewAccessTokenWorks()
+    public async Task Register_ReplayWithSameIdempotencyKey_ReturnsSameDeviceWithFreshTokens()
+    {
+        using var client = _fixture.CreateClient();
+        var idempotencyKey = Guid.NewGuid().ToString("N");
+
+        var first = await client.SendAsync(NewRegisterRequest(idempotencyKey));
+        first.StatusCode.Should().Be(HttpStatusCode.Created);
+        var original = await first.Content.ReadFromJsonAsync<DeviceRegisterResponse>(SyncApiFixture.Json);
+
+        var replay = await client.SendAsync(NewRegisterRequest(idempotencyKey));
+        replay.StatusCode.Should().Be(HttpStatusCode.Created);
+        var replayed = await replay.Content.ReadFromJsonAsync<DeviceRegisterResponse>(SyncApiFixture.Json);
+
+        // Same identity — the replay must not create a second device.
+        replayed!.DeviceId.Should().Be(original!.DeviceId);
+        replayed.OwnerId.Should().Be(original.OwnerId);
+
+        // Fresh credentials: the replay mints a new token pair rather than
+        // replaying a stored response, proving idempotency_records holds no
+        // token material.
+        replayed.RefreshToken.Should().NotBeNullOrEmpty();
+        replayed.RefreshToken.Should().NotBe(original.RefreshToken, "replays mint fresh tokens");
+
+        // The replayed pair works: the access token authenticates (and sees
+        // exactly one device for this ID)...
+        using var authed = _fixture.CreateClient(replayed.AccessToken);
+        var devices = await authed.GetFromJsonAsync<List<DeviceInfoResponse>>(
+            "/api/v1/devices", SyncApiFixture.Json);
+        devices!.Should().ContainSingle(d => d.DeviceId == replayed.DeviceId);
+
+        // ...and the replayed refresh token is the live credential.
+        var refresh = await client.PostAsJsonAsync(
+            $"/api/v1/devices/{replayed.DeviceId}/refresh",
+            new TokenRefreshRequest { RefreshToken = replayed.RefreshToken },
+            SyncApiFixture.Json);
+        refresh.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Refresh_OldTokenWithinGraceWindow_RecoversWithWorkingFreshPair()
     {
         var device = await _fixture.RegisterDeviceAsync("windows", "Desktop");
         using var client = _fixture.CreateClient();
 
-        // First refresh with the original token succeeds and rotates.
+        // First refresh rotates; the original token enters the grace window.
         var first = await client.PostAsJsonAsync(
             $"/api/v1/devices/{device.DeviceId}/refresh",
             new TokenRefreshRequest { RefreshToken = device.RefreshToken },
             SyncApiFixture.Json);
         first.StatusCode.Should().Be(HttpStatusCode.OK);
         var rotated = await first.Content.ReadFromJsonAsync<TokenRefreshResponse>(SyncApiFixture.Json);
-        rotated!.AccessToken.Should().NotBeNullOrEmpty();
-        rotated.RefreshToken.Should().NotBeNullOrEmpty();
-        rotated.RefreshToken.Should().NotBe(device.RefreshToken, "refresh rotates the token");
+        rotated!.RefreshToken.Should().NotBe(device.RefreshToken, "refresh rotates the token");
 
-        // Replaying the pre-rotation token is rejected.
-        var replay = await client.PostAsJsonAsync(
+        // Presenting the pre-rotation token within the grace window is the
+        // crash/lost-response recovery path: 200 with another fresh pair.
+        var recovery = await client.PostAsJsonAsync(
             $"/api/v1/devices/{device.DeviceId}/refresh",
             new TokenRefreshRequest { RefreshToken = device.RefreshToken },
             SyncApiFixture.Json);
-        replay.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-        var error = await SyncApiFixture.ReadApiErrorAsync(replay);
-        error.Code.Should().Be("refresh_token_invalid");
+        recovery.StatusCode.Should().Be(HttpStatusCode.OK);
+        var recovered = await recovery.Content.ReadFromJsonAsync<TokenRefreshResponse>(SyncApiFixture.Json);
+        recovered!.RefreshToken.Should().NotBe(device.RefreshToken);
+        recovered.RefreshToken.Should().NotBe(rotated.RefreshToken);
 
-        // The rotated access token authenticates.
-        using var authed = _fixture.CreateClient(rotated.AccessToken);
+        // The recovered pair works: the access token authenticates...
+        using var authed = _fixture.CreateClient(recovered.AccessToken);
         var list = await authed.GetAsync("/api/v1/devices");
         list.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        // And the rotated refresh token is the live credential.
-        var second = await client.PostAsJsonAsync(
+        // ...and the recovered refresh token is the current credential.
+        var next = await client.PostAsJsonAsync(
             $"/api/v1/devices/{device.DeviceId}/refresh",
-            new TokenRefreshRequest { RefreshToken = rotated.RefreshToken },
+            new TokenRefreshRequest { RefreshToken = recovered.RefreshToken },
             SyncApiFixture.Json);
-        second.StatusCode.Should().Be(HttpStatusCode.OK);
+        next.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Refresh_TokenMatchingNeitherCurrentNorPrevious_Returns401()
+    {
+        var device = await _fixture.RegisterDeviceAsync("windows", "Desktop");
+        using var client = _fixture.CreateClient();
+
+        // Rotate once so both a current and a previous (in-grace) token exist.
+        var rotate = await client.PostAsJsonAsync(
+            $"/api/v1/devices/{device.DeviceId}/refresh",
+            new TokenRefreshRequest { RefreshToken = device.RefreshToken },
+            SyncApiFixture.Json);
+        rotate.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // A token matching neither slot is rejected even inside the grace window.
+        var response = await client.PostAsJsonAsync(
+            $"/api/v1/devices/{device.DeviceId}/refresh",
+            new TokenRefreshRequest { RefreshToken = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" },
+            SyncApiFixture.Json);
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        var error = await SyncApiFixture.ReadApiErrorAsync(response);
+        error.Code.Should().Be("refresh_token_invalid");
     }
 
     [Fact]
@@ -176,5 +240,24 @@ public class DeviceFlowTests : IClassFixture<SyncApiFixture>
                 "/api/v1/devices", SyncApiFixture.Json);
             devices!.Should().Contain(d => d.DeviceId == deviceA.DeviceId && d.RevokedAtUtc != null);
         }
+    }
+
+    /// <summary>A valid registration request carrying the given Idempotency-Key header (single-use — build one per send).</summary>
+    private static HttpRequestMessage NewRegisterRequest(string idempotencyKey)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/devices/register")
+        {
+            Content = JsonContent.Create(
+                new DeviceRegisterRequest
+                {
+                    PairingCode = SyncApiFixture.PairingCode,
+                    Platform = "ios",
+                    DisplayName = "iPhone 15",
+                    AppVersion = "1.0.0",
+                },
+                options: SyncApiFixture.Json),
+        };
+        request.Headers.Add("Idempotency-Key", idempotencyKey);
+        return request;
     }
 }

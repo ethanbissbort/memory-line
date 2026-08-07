@@ -1,0 +1,11 @@
+# Keep build outputs and local state out of the Docker build context.
+# NOTE: the documented build context is the repo root (see Dockerfile). BuildKit
+# only honors an ignore file beside a Dockerfile when it is named
+# "<Dockerfile-name>.dockerignore" — hence this file is Dockerfile.dockerignore;
+# a plain .dockerignore here would never be applied when building from the
+# repo root.
+**/bin/
+**/obj/
+**/data/
+**/.vs/
+**/*.user

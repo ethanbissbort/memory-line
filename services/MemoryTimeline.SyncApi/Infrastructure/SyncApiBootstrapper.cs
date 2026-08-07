@@ -17,6 +17,9 @@ public static class SyncApiBootstrapper
     private const string PairingCodeFileName = "pairing-code.txt";
     private const int MinimumSigningKeyBytes = 32;
 
+    /// <summary>Idempotency record retention window (design §11.4).</summary>
+    private const int IdempotencyRetentionHours = 48;
+
     /// <summary>
     /// Validates options and prepares the on-disk environment. Runs before the
     /// host is built because the JWT signing key must exist for authentication
@@ -32,6 +35,11 @@ public static class SyncApiBootstrapper
         if (options.RefreshTokenLifetimeDays <= 0)
         {
             throw new InvalidOperationException("SyncApi:RefreshTokenLifetimeDays must be positive.");
+        }
+
+        if (options.RefreshTokenGraceSeconds < 0)
+        {
+            throw new InvalidOperationException("SyncApi:RefreshTokenGraceSeconds must be zero or positive.");
         }
 
         if (options.MaxPartSizeBytes <= 0)
@@ -56,13 +64,19 @@ public static class SyncApiBootstrapper
 
     /// <summary>
     /// Creates the schema (EnsureCreated — the service owns it) and the single
-    /// owner row on first run. Returns the owner ID.
+    /// owner row on first run, and sweeps idempotency records older than the
+    /// retention window (design §11.4). Returns the owner ID.
     /// </summary>
     public static async Task<string> InitializeDatabaseAsync(IServiceProvider services)
     {
         var factory = services.GetRequiredService<IDbContextFactory<SyncDbContext>>();
         await using var db = await factory.CreateDbContextAsync();
         await db.Database.EnsureCreatedAsync();
+
+        var retentionCutoffUtc = DateTime.UtcNow.AddHours(-IdempotencyRetentionHours);
+        await db.IdempotencyRecords
+            .Where(r => r.CreatedAtUtc < retentionCutoffUtc)
+            .ExecuteDeleteAsync();
 
         var owner = await db.Owners.OrderBy(o => o.CreatedAtUtc).FirstOrDefaultAsync();
         if (owner is null)

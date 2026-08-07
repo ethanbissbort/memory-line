@@ -27,6 +27,13 @@ public class SyncApiOptions
     /// <summary>Refresh token lifetime in days.</summary>
     public int RefreshTokenLifetimeDays { get; set; } = 30;
 
+    /// <summary>
+    /// Seconds the previous refresh token remains usable after a rotation so a
+    /// client that never received the rotation response can recover instead of
+    /// being stranded. 0 means strict rotation (the old token dies immediately).
+    /// </summary>
+    public int RefreshTokenGraceSeconds { get; set; } = 300;
+
     /// <summary>Maximum accepted bytes per uploaded artifact part (default 8 MiB).</summary>
     public long MaxPartSizeBytes { get; set; } = 8_388_608;
 

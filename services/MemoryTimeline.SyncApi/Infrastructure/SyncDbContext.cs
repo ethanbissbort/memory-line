@@ -58,8 +58,12 @@ public class SyncDbContext : DbContext
             e.Property(x => x.DisplayName).HasColumnName("display_name");
             e.Property(x => x.AppVersion).HasColumnName("app_version");
             e.Property(x => x.PublicKey).HasColumnName("public_key");
-            e.Property(x => x.RefreshTokenHash).HasColumnName("refresh_token_hash");
+            // Concurrency token: concurrent refresh rotations conflict with
+            // DbUpdateConcurrencyException instead of silently clobbering.
+            e.Property(x => x.RefreshTokenHash).HasColumnName("refresh_token_hash").IsConcurrencyToken();
             e.Property(x => x.RefreshTokenExpiresAtUtc).HasColumnName("refresh_token_expires_at_utc");
+            e.Property(x => x.PreviousRefreshTokenHash).HasColumnName("previous_refresh_token_hash");
+            e.Property(x => x.PreviousRefreshTokenExpiresAtUtc).HasColumnName("previous_refresh_token_expires_at_utc");
             e.Property(x => x.AckedCursor).HasColumnName("acked_cursor");
             e.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
             e.Property(x => x.LastSeenAtUtc).HasColumnName("last_seen_at_utc");
@@ -133,6 +137,11 @@ public class SyncDbContext : DbContext
             e.Property(x => x.ClientSequence).HasColumnName("client_sequence");
             e.Property(x => x.ServerChangeId).HasColumnName("server_change_id");
             e.Property(x => x.ReceivedAtUtc).HasColumnName("received_at_utc");
+
+            // FK to the change row so a receipt added alongside a new change
+            // picks up the store-generated change ID and both rows commit in
+            // one SaveChanges (a retried push can never duplicate the change).
+            e.HasOne<SyncChangeRow>().WithMany().HasForeignKey(x => x.ServerChangeId);
         });
 
         modelBuilder.Entity<IdempotencyRecord>(e =>

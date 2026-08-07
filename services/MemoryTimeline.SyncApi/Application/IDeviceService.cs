@@ -13,15 +13,19 @@ public interface IDeviceService
     /// <summary>
     /// Registers a device after validating the pairing code (constant-time).
     /// When <paramref name="idempotencyKey"/> is supplied, a replay returns the
-    /// original registration (same device and tokens) instead of creating a
-    /// second device.
+    /// original registration (same device, freshly minted tokens — no token
+    /// material is stored) instead of creating a second device.
     /// </summary>
     Task<ServiceResult<DeviceRegisterResponse>> RegisterAsync(
         DeviceRegisterRequest request,
         string? idempotencyKey,
         CancellationToken cancellationToken);
 
-    /// <summary>Rotates the refresh token and issues a new access token. Stale or revoked credentials fail with 401.</summary>
+    /// <summary>
+    /// Rotates the refresh token and issues a new access token. The outgoing
+    /// token stays usable for the configured grace window so a lost response
+    /// is recoverable. Stale or revoked credentials fail with 401.
+    /// </summary>
     Task<ServiceResult<TokenRefreshResponse>> RefreshAsync(
         string deviceId,
         TokenRefreshRequest request,
