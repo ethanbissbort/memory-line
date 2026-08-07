@@ -129,7 +129,12 @@ struct ArchiveTimelineView: View {
     /// no longer exists on Windows.
     private var selectedEvent: EventProjectionPayload? {
         guard let selectedEventId else { return nil }
-        return years.lazy.flatMap(\.events).first { $0.eventId == selectedEventId }
+        for group in years {
+            if let match = group.events.first(where: { $0.eventId == selectedEventId }) {
+                return match
+            }
+        }
+        return nil
     }
 
     private func load() {

@@ -176,11 +176,11 @@ final class MacReviewCoordinatorTests: XCTestCase {
         let coordinator = makeCoordinator(f, api: api)
 
         await coordinator.decide(pendingEventId: "pending-1", verdict: .approve)
-        let first = try XCTUnwrap(try f.decisions.decision(for: "pending-1")?.clientSequence)
+        let first = try XCTUnwrap(f.decisions.decision(for: "pending-1")?.clientSequence)
 
         try f.decisions.delete(pendingEventId: "pending-1")
         await coordinator.decide(pendingEventId: "pending-2", verdict: .approve)
-        let second = try XCTUnwrap(try f.decisions.decision(for: "pending-2")?.clientSequence)
+        let second = try XCTUnwrap(f.decisions.decision(for: "pending-2")?.clientSequence)
 
         XCTAssertGreaterThan(second, first)
     }
