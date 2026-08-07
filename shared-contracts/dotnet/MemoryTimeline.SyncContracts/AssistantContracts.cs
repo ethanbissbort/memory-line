@@ -38,7 +38,11 @@ namespace MemoryTimeline.SyncContracts;
 /// <para><b>Privacy (§14.5).</b> Nothing here carries a full transcript or a
 /// file path. Citation snippets are bounded excerpts, and the same rule that
 /// governs <c>CaptureStatusChangePayload</c> applies: these payloads cross
-/// devices, so they carry what a user needs to read, not the archive itself.</para>
+/// devices, so they carry what a user needs to read, not the archive itself.
+/// Audio is never inline — a spoken question or answer is uploaded through the
+/// existing artifact endpoints and referenced here by id, so this API stays
+/// small and voice data follows the same path, and the same retention rules,
+/// as a recorded capture.</para>
 /// </summary>
 public static class AssistantResponder
 {
@@ -103,6 +107,24 @@ public static class AssistantGrounding
     public const string None = "none";
 }
 
+/// <summary>
+/// What a session is for (design doc §6.6). The mode is advisory routing
+/// context for the responder, not an access control: it tells Windows whether
+/// to weight the archive, the current trip, or the capture the user just made,
+/// so the same question can mean different things in different places.
+/// </summary>
+public static class AssistantSessionMode
+{
+    /// <summary>Questions over the timeline. The default.</summary>
+    public const string MemoryQuery = "memory_query";
+
+    /// <summary>Trip-aware assistance; pairs with <see cref="AssistantSessionCreateRequest.TripId"/>.</summary>
+    public const string TripAssistant = "trip_assistant";
+
+    /// <summary>Follow-up about a capture the user just made.</summary>
+    public const string CaptureFollowup = "capture_followup";
+}
+
 /// <summary>Opens a conversation. Sessions scope turn ordering and shared context.</summary>
 public class AssistantSessionCreateRequest
 {
@@ -118,6 +140,20 @@ public class AssistantSessionCreateRequest
     /// ("carplay", "watch", "mac"), for diagnostics only. Never used for routing.
     /// </summary>
     public string? Surface { get; set; }
+
+    /// <summary>
+    /// What this conversation is for, one of <see cref="AssistantSessionMode"/>.
+    /// Defaults to <see cref="AssistantSessionMode.MemoryQuery"/>.
+    /// </summary>
+    public string Mode { get; set; } = AssistantSessionMode.MemoryQuery;
+
+    /// <summary>
+    /// Trip this session belongs to, when the mode is
+    /// <see cref="AssistantSessionMode.TripAssistant"/>. Null otherwise. Trips
+    /// arrive in Phase 5; the field exists now so a Phase 4 client does not
+    /// have to be revised to carry one.
+    /// </summary>
+    public string? TripId { get; set; }
 }
 
 /// <summary>A conversation.</summary>
@@ -136,6 +172,12 @@ public class AssistantSessionResponse
     public DateTime LastTurnAtUtc { get; set; }
 
     public int TurnCount { get; set; }
+
+    /// <summary>One of <see cref="AssistantSessionMode"/>.</summary>
+    public string Mode { get; set; } = AssistantSessionMode.MemoryQuery;
+
+    /// <summary>Trip this session belongs to, when it has one.</summary>
+    public string? TripId { get; set; }
 }
 
 /// <summary>Asks a question.</summary>
@@ -148,11 +190,23 @@ public class AssistantTurnCreateRequest
     public string TurnId { get; set; } = string.Empty;
 
     /// <summary>
-    /// The question as text. Speech-to-text happens on the device — the service
-    /// never receives audio for a turn, which keeps this endpoint cheap and
-    /// keeps voice data on the phone.
+    /// The question as text. When the device transcribes locally — the
+    /// on-device path — this is the whole turn and no audio moves at all.
     /// </summary>
     public string Question { get; set; } = string.Empty;
+
+    /// <summary>
+    /// A completed audio artifact holding the spoken question, for clients that
+    /// do NOT transcribe locally (design doc §6.6).
+    ///
+    /// On-device speech-to-text is an option, not the only path, so the audio
+    /// route has to stay expressible: a watch or a car surface may have no
+    /// usable local recogniser. The artifact is uploaded through the existing
+    /// artifact endpoints and referenced here, so audio never travels inline
+    /// through this API. Null on the on-device path, where
+    /// <see cref="Question"/> already carries the transcript.
+    /// </summary>
+    public string? UserAudioArtifactId { get; set; }
 
     /// <summary>
     /// Overrides the session's preferred responder for this turn only. Null
@@ -262,6 +316,14 @@ public class AssistantTurnResult
 
     /// <summary>Wall-clock milliseconds the responder took.</summary>
     public int? ElapsedMs { get; set; }
+
+    /// <summary>
+    /// A completed audio artifact holding the spoken answer, when the responder
+    /// synthesised one (design doc §6.6). Null when the client is expected to
+    /// speak <see cref="Answer"/> with on-device text-to-speech, which is the
+    /// cheaper default; a responder may provide both and let the client choose.
+    /// </summary>
+    public string? AssistantAudioArtifactId { get; set; }
 }
 
 /// <summary>An event an answer cites.</summary>
