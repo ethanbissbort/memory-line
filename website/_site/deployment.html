@@ -102,8 +102,6 @@
             </li>
             <li><a class="nav-link" href="development-history.html">Development history</a>
             </li>
-            <li><a class="nav-link" href="migration-to-native-windows.html">Migration to native Windows</a>
-            </li>
           </ul>
         </li>
         <li class="nav-section">
@@ -120,6 +118,8 @@
         <li class="nav-section">
           <p class="nav-section-title">Design notes</p>
           <ul class="nav-list">
+            <li><a class="nav-link" href="macos-port-plan.html">macOS port plan</a>
+            </li>
             <li><a class="nav-link" href="people-feature-contracts.html">People feature contracts</a>
             </li>
           </ul>
@@ -184,7 +184,7 @@ This means: use the <strong>.NET 8 SDK</strong> if it is installed, otherwise <s
 </ul>
 <h3 id="for-packaging--store-deployment-phase-7--in-progress" class="anchored">For Packaging / Store Deployment (Phase 7 — in progress)<a class="heading-anchor" href="#for-packaging--store-deployment-phase-7--in-progress" aria-label="Link to this section">#</a></h3>
 <ul>
-<li><strong>Windows SDK</strong> (10.0.22621.0 or later)</li>
+<li><strong>Windows SDK</strong> (10.0.26100.0 or later)</li>
 <li><strong>MSIX Packaging Tool</strong> (from Microsoft Store)</li>
 <li><strong>Code Signing Certificate</strong> (EV certificate for Microsoft Store)</li>
 <li><strong>Microsoft Partner Center account</strong> (for Store deployment)</li>
@@ -210,7 +210,7 @@ This means: use the <strong>.NET 8 SDK</strong> if it is installed, otherwise <s
 <p>You can also simply open <code>windows-native/src/MemoryTimeline.sln</code> in Visual Studio 2022, select the <strong>Release / x64</strong> (or <strong>Debug / x64</strong>) configuration, and Build.</p>
 <h3 id="build-output" class="anchored">Build Output<a class="heading-anchor" href="#build-output" aria-label="Link to this section">#</a></h3>
 <p>The compiled application is placed under the platform-specific output folder, for example:</p>
-<div class="codeblock" data-lang="text"><div class="codeblock-bar"><span class="codeblock-lang">text</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-text">windows-native/src/MemoryTimeline/bin/x64/Release/net8.0-windows10.0.22621.0/</code></pre></div>
+<div class="codeblock" data-lang="text"><div class="codeblock-bar"><span class="codeblock-lang">text</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-text">windows-native/src/MemoryTimeline/bin/x64/Release/net8.0-windows10.0.26100.0/</code></pre></div>
 <p>Because the app is unpackaged and self-contained, this folder contains <code>MemoryTimeline.exe</code> plus the Windows App SDK runtime and can be launched directly.</p>
 <hr>
 <h2 id="data--runtime-layout" class="anchored">Data &amp; Runtime Layout<a class="heading-anchor" href="#data--runtime-layout" aria-label="Link to this section">#</a></h2>
@@ -249,7 +249,7 @@ This means: use the <strong>.NET 8 SDK</strong> if it is installed, otherwise <s
 <span class="tok-builtin">msbuild</span> MemoryTimeline.sln /t:Restore,Build /p:Configuration=Release /p:Platform=x64 /m
 
 <span class="tok-comment"># 2. Run the compiled test DLL with vstest (no rebuild)</span>
-<span class="tok-builtin">dotnet</span> <span class="tok-builtin">vstest</span> MemoryTimeline.Tests/bin/x64/Release/net8.<span class="tok-number">0</span>-windows10.<span class="tok-number">0.22621.0</span>/MemoryTimeline.Tests.dll `
+<span class="tok-builtin">dotnet</span> <span class="tok-builtin">vstest</span> MemoryTimeline.Tests/bin/x64/Release/net8.<span class="tok-number">0</span>-windows10.<span class="tok-number">0.26100.0</span>/MemoryTimeline.Tests.dll `
   --logger:<span class="tok-string">&quot;trx;LogFileName=test.trx&quot;</span> --ResultsDirectory:TestResults</code></pre></div>
 <h3 id="filtering" class="anchored">Filtering<a class="heading-anchor" href="#filtering" aria-label="Link to this section">#</a></h3>
 <p><code>dotnet vstest</code> supports test filtering via <code>--TestCaseFilter</code>, e.g.:</p>

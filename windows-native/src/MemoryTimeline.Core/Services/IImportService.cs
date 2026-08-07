@@ -5,8 +5,11 @@ namespace MemoryTimeline.Core.Services;
 /// </summary>
 public interface IImportService
 {
+    /// <summary>
+    /// Imports a JSON export. Accepts both the native camelCase export and older
+    /// exports that use snake_case SQL column names (see <c>ParseImportJson</c>).
+    /// </summary>
     Task<ImportResult> ImportFromJsonAsync(string filePath, ImportOptions? options = null, IProgress<(int, string)>? progress = null);
-    Task<ImportResult> ImportFromElectronAsync(string filePath, ImportOptions? options = null, IProgress<(int, string)>? progress = null);
     Task<ValidationResult> ValidateImportFileAsync(string filePath);
 }
 

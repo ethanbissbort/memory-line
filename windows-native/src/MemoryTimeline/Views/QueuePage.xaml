@@ -221,7 +221,7 @@
                                           Glyph="{x:Bind StatusGlyph, Mode=OneWay}"
                                           FontSize="32"
                                           Margin="0,0,16,0"
-                                          Foreground="{x:Bind StatusColor, Mode=OneWay}"/>
+                                          Foreground="{x:Bind StatusColorHex, Mode=OneWay, Converter={StaticResource HexToBrushConverter}}"/>
 
                                 <!-- Info -->
                                 <StackPanel Grid.Column="1" Spacing="4">

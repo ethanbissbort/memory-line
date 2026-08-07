@@ -100,8 +100,6 @@
             </li>
             <li><a class="nav-link" href="development-history.html">Development history</a>
             </li>
-            <li><a class="nav-link" href="migration-to-native-windows.html">Migration to native Windows</a>
-            </li>
           </ul>
         </li>
         <li class="nav-section">
@@ -118,6 +116,8 @@
         <li class="nav-section">
           <p class="nav-section-title">Design notes</p>
           <ul class="nav-list">
+            <li><a class="nav-link" href="macos-port-plan.html">macOS port plan</a>
+            </li>
             <li><a class="nav-link" href="people-feature-contracts.html">People feature contracts</a>
             </li>
           </ul>
@@ -200,7 +200,7 @@
 <span class="tok-builtin">msbuild</span> MemoryTimeline.sln /t:Restore,Build /p:Configuration=Release /p:Platform=x64 /m
 
 <span class="tok-comment"># 2. Run the already-built test assembly (no rebuild).</span>
-<span class="tok-variable">$dll</span> = <span class="tok-string">&quot;MemoryTimeline.Tests/bin/x64/Release/net8.0-windows10.0.22621.0/MemoryTimeline.Tests.dll&quot;</span>
+<span class="tok-variable">$dll</span> = <span class="tok-string">&quot;MemoryTimeline.Tests/bin/x64/Release/net8.0-windows10.0.26100.0/MemoryTimeline.Tests.dll&quot;</span>
 <span class="tok-builtin">dotnet</span> <span class="tok-builtin">vstest</span> <span class="tok-variable">$dll</span> --logger:<span class="tok-string">&quot;trx;LogFileName=test.trx&quot;</span> --ResultsDirectory:TestResults</code></pre></div>
 <h3 id="by-category--class--method" class="anchored">By Category / Class / Method<a class="heading-anchor" href="#by-category--class--method" aria-label="Link to this section">#</a></h3>
 <p><code>dotnet vstest</code> filters with <code>--TestCaseFilter</code>:</p>

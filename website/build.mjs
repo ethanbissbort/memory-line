@@ -15,7 +15,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { landing, legacy, sections, site } from './site.config.mjs';
+import { landing, sections, site } from './site.config.mjs';
 import { renderMarkdown, toPlainText } from './lib/render.mjs';
 import {
   layout,
@@ -188,7 +188,6 @@ ${renderToc(page.toc)}
         sections: liveSections,
         pageIndex,
         totals,
-        legacy,
       }),
     })
   );
@@ -208,7 +207,6 @@ ${renderToc(page.toc)}
         totals,
         repoUrl: site.repoUrl,
         branch: site.branch,
-        legacy,
       }),
     })
   );

@@ -1,8 +1,6 @@
 using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Microsoft.UI;
-using Microsoft.UI.Xaml.Media;
 using MemoryTimeline.Core.Models;
 using MemoryTimeline.Core.Services;
 using MemoryTimeline.Data.Models;
@@ -127,16 +125,20 @@ public partial class PendingEventDto : ObservableObject
 
     public string ConfidenceDisplay => $"{ConfidenceScore:P0}";
 
-    public SolidColorBrush ConfidenceColor
+    /// <summary>
+    /// Confidence tint as a "#RRGGBB" token. Core stays UI-framework-neutral;
+    /// the view turns this into a brush via HexToBrushConverter.
+    /// </summary>
+    public string ConfidenceColorHex
     {
         get
         {
             if (ConfidenceScore >= 0.8)
-                return new SolidColorBrush(Colors.Green);
+                return "#008000"; // Green
             else if (ConfidenceScore >= 0.6)
-                return new SolidColorBrush(Colors.Orange);
+                return "#FFA500"; // Orange
             else
-                return new SolidColorBrush(Colors.Red);
+                return "#FF0000"; // Red
         }
     }
 
@@ -244,7 +246,7 @@ public partial class PendingEventDto : ObservableObject
     partial void OnConfidenceScoreChanged(double value)
     {
         OnPropertyChanged(nameof(ConfidenceDisplay));
-        OnPropertyChanged(nameof(ConfidenceColor));
+        OnPropertyChanged(nameof(ConfidenceColorHex));
     }
 
     partial void OnCategoryChanged(string value)

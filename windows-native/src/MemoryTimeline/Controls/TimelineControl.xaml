@@ -69,7 +69,7 @@
                         <DataTemplate x:DataType="dto:EraFilterDto">
                             <CheckBox Content="{x:Bind Name}"
                                      IsChecked="{x:Bind IsVisible, Mode=TwoWay}"
-                                     Foreground="{x:Bind ColorBrush, Mode=OneWay}"/>
+                                     Foreground="{x:Bind ColorCode, Mode=OneWay, Converter={StaticResource HexToBrushConverter}}"/>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
@@ -160,7 +160,7 @@
                             <DataTemplate x:DataType="dto:TimelineEventDto">
                                 <Rectangle Width="{x:Bind WindowWidth, Mode=OneWay}"
                                           Height="{x:Bind Height, Mode=OneWay}"
-                                          Fill="{x:Bind UncertaintyBrush}"
+                                          Fill="{x:Bind CategoryColor, Converter={StaticResource HexToUncertaintyBrushConverter}}"
                                           RadiusX="4"
                                           RadiusY="4"
                                           IsHitTestVisible="False"
@@ -302,7 +302,7 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="dto:EraBarDto">
-                            <Rectangle Fill="{x:Bind ColorBrush, Mode=OneWay}"
+                            <Rectangle Fill="{x:Bind ColorCode, Mode=OneWay, Converter={StaticResource HexToBrushConverter}}"
                                       Width="{x:Bind Width}"
                                       Height="4"
                                       RadiusX="2"

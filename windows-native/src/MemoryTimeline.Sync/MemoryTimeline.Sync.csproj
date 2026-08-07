@@ -1,19 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
-    <TargetPlatformMinVersion>10.0.22621.0</TargetPlatformMinVersion>
-    <RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
-    <UseWinUI>true</UseWinUI>
+    <!-- Platform-neutral like Core: the sync client is pure HTTP + EF Core and
+         never touched WinRT, so it stays buildable off Windows. -->
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>12.0</LangVersion>
   </PropertyGroup>
-
-  <ItemGroup>
-    <!-- WinUI/WindowsAppSDK flows from Core, referenced explicitly for msbuild parity -->
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.3.1" />
-  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\MemoryTimeline.Core\MemoryTimeline.Core.csproj" />

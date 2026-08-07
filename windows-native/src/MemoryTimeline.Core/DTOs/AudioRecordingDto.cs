@@ -1,9 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MemoryTimeline.Data.Models;
-using Microsoft.UI;
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Media;
 
 namespace MemoryTimeline.Core.DTOs;
 
@@ -56,13 +53,6 @@ public partial class AudioRecordingDto : ObservableObject
     public IRelayCommand? PlayCommand { get; set; }
     public IRelayCommand? RetryCommand { get; set; }
     public IRelayCommand? RemoveCommand { get; set; }
-
-    // Cached brushes for StatusColor
-    private static readonly SolidColorBrush PendingBrush = new(Colors.Orange);
-    private static readonly SolidColorBrush ProcessingBrush = new(Colors.DodgerBlue);
-    private static readonly SolidColorBrush CompletedBrush = new(Colors.Green);
-    private static readonly SolidColorBrush FailedBrush = new(Colors.Red);
-    private static readonly SolidColorBrush DefaultBrush = new(Colors.Gray);
 
     // Display properties
 
@@ -119,13 +109,17 @@ public partial class AudioRecordingDto : ObservableObject
 
     public string StatusGlyph => StatusIcon;
 
-    public SolidColorBrush StatusColor => Status switch
+    /// <summary>
+    /// Status tint as a "#RRGGBB" token. Core stays UI-framework-neutral; the
+    /// view turns this into a brush via HexToBrushConverter.
+    /// </summary>
+    public string StatusColorHex => Status switch
     {
-        "pending" => PendingBrush,
-        "processing" => ProcessingBrush,
-        "completed" => CompletedBrush,
-        "failed" => FailedBrush,
-        _ => DefaultBrush
+        "pending" => "#FFA500",    // Orange
+        "processing" => "#1E90FF", // DodgerBlue
+        "completed" => "#008000",  // Green
+        "failed" => "#FF0000",     // Red
+        _ => "#808080"             // Gray
     };
 
     public bool IsProcessing => Status == "processing";
@@ -143,7 +137,7 @@ public partial class AudioRecordingDto : ObservableObject
         OnPropertyChanged(nameof(StatusText));
         OnPropertyChanged(nameof(StatusIcon));
         OnPropertyChanged(nameof(StatusGlyph));
-        OnPropertyChanged(nameof(StatusColor));
+        OnPropertyChanged(nameof(StatusColorHex));
         OnPropertyChanged(nameof(IsProcessing));
         OnPropertyChanged(nameof(CanPlay));
         OnPropertyChanged(nameof(CanRetry));

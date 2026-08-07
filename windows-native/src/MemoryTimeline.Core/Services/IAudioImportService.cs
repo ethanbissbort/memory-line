@@ -4,7 +4,6 @@ using MemoryTimeline.Core.DTOs;
 using MemoryTimeline.Core.Models;
 using MemoryTimeline.Data;
 using MemoryTimeline.Data.Models;
-using Windows.Storage;
 
 namespace MemoryTimeline.Core.Services;
 
@@ -353,12 +352,12 @@ public class AudioImportService : IAudioImportService
             Format = fileInfo.Extension.ToLowerInvariant()
         };
 
-        // Try to get audio duration using Windows APIs
+        // Duration is read straight out of the WAV header rather than from a
+        // platform media-properties API: import only accepts .wav (see
+        // WhisperCompatibleFormats), and this keeps Core free of Windows types.
         try
         {
-            var storageFile = await StorageFile.GetFileFromPathAsync(filePath);
-            var properties = await storageFile.Properties.GetMusicPropertiesAsync();
-            item.Duration = properties.Duration;
+            item.Duration = await Task.Run(() => TryReadWavDuration(filePath));
         }
         catch (Exception ex)
         {
@@ -366,6 +365,77 @@ public class AudioImportService : IAudioImportService
         }
 
         return item;
+    }
+
+    /// <summary>
+    /// Reads the playing time of a RIFF/WAVE file from its header chunks.
+    /// Returns <see cref="TimeSpan.Zero"/> for anything it cannot parse — a
+    /// missing duration is cosmetic, so this never throws for a malformed file.
+    /// </summary>
+    private static TimeSpan TryReadWavDuration(string filePath)
+    {
+        using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var reader = new BinaryReader(stream);
+
+        // "RIFF" <size> "WAVE"
+        if (stream.Length < 12
+            || new string(reader.ReadChars(4)) != "RIFF")
+        {
+            return TimeSpan.Zero;
+        }
+
+        reader.ReadUInt32(); // riff chunk size (unreliable; ignored)
+        if (new string(reader.ReadChars(4)) != "WAVE")
+        {
+            return TimeSpan.Zero;
+        }
+
+        uint byteRate = 0;
+
+        // Walk the chunk list looking for "fmt " (for the byte rate) and "data"
+        // (for the payload size). Chunks are word-aligned with a pad byte.
+        while (stream.Position + 8 <= stream.Length)
+        {
+            var chunkId = new string(reader.ReadChars(4));
+            var chunkSize = reader.ReadUInt32();
+            var chunkStart = stream.Position;
+
+            if (chunkId == "fmt " && chunkSize >= 16)
+            {
+                reader.ReadUInt16(); // audio format
+                reader.ReadUInt16(); // channels
+                reader.ReadUInt32(); // sample rate
+                byteRate = reader.ReadUInt32();
+            }
+            else if (chunkId == "data")
+            {
+                if (byteRate == 0)
+                {
+                    return TimeSpan.Zero;
+                }
+
+                // A streamed writer can leave data's size as 0/0xFFFFFFFF; fall
+                // back to what is actually on disk after the header.
+                var dataSize = chunkSize;
+                var remaining = stream.Length - chunkStart;
+                if (dataSize == 0 || dataSize > remaining)
+                {
+                    dataSize = (uint)Math.Max(0, remaining);
+                }
+
+                return TimeSpan.FromSeconds((double)dataSize / byteRate);
+            }
+
+            var next = chunkStart + chunkSize + (chunkSize % 2); // word alignment
+            if (next <= chunkStart || next > stream.Length)
+            {
+                break;
+            }
+
+            stream.Position = next;
+        }
+
+        return TimeSpan.Zero;
     }
 
     private async Task<bool> CheckForDuplicateAsync(AudioImportItem item)

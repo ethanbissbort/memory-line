@@ -74,7 +74,7 @@
                 <li><a class="nav-sublink" href="#project-structure">Project structure</a></li>
                 <li><a class="nav-sublink" href="#testing">Testing</a></li>
                 <li><a class="nav-sublink" href="#privacy--security">Privacy &amp; security</a></li>
-                <li><a class="nav-sublink" href="#legacy-electron-app">Legacy Electron app</a></li>
+                <li><a class="nav-sublink" href="#macos-app-in-progress">macOS app (in progress)</a></li>
                 <li><a class="nav-sublink" href="#documentation">Documentation</a></li>
                 <li><a class="nav-sublink" href="#contributing">Contributing</a></li>
                 <li><a class="nav-sublink" href="#license">License</a></li>
@@ -104,8 +104,6 @@
             </li>
             <li><a class="nav-link" href="development-history.html">Development history</a>
             </li>
-            <li><a class="nav-link" href="migration-to-native-windows.html">Migration to native Windows</a>
-            </li>
           </ul>
         </li>
         <li class="nav-section">
@@ -122,6 +120,8 @@
         <li class="nav-section">
           <p class="nav-section-title">Design notes</p>
           <ul class="nav-list">
+            <li><a class="nav-link" href="macos-port-plan.html">macOS port plan</a>
+            </li>
             <li><a class="nav-link" href="people-feature-contracts.html">People feature contracts</a>
             </li>
           </ul>
@@ -143,8 +143,8 @@
   <p class="doc-lede">The repository README: what Memory Timeline is, the memory pipeline, the full feature list, tech stack, architecture, setup, configuration, and privacy model.</p>
   <div class="doc-meta">
     <span class="doc-meta-item"><b>For</b> Everyone</span>
-    <span class="doc-meta-item"><b>2,932</b> words</span>
-    <span class="doc-meta-item"><b>13</b> min read</span>
+    <span class="doc-meta-item"><b>2,999</b> words</span>
+    <span class="doc-meta-item"><b>14</b> min read</span>
     <a class="doc-meta-item doc-source" href="https://github.com/ethanbissbort/memory-line/blob/main/README.md" target="_blank" rel="noopener noreferrer">
       README.md ↗
     </a>
@@ -154,7 +154,7 @@
 <div class="doc-grid">
   <article class="prose">
 <p>Capture your memories by voice or text, let AI turn them into structured events, and explore your life as an interactive timeline that surfaces the connections between moments — then ask it questions, read it back as stories, and see it on a map.</p>
-<p><strong>Primary implementation:</strong> Windows Native (.NET 8 · WinUI 3)<br><strong>Status:</strong> Active development — core pipeline recently rebuilt and hardened; builds green in CI, runtime validation ongoing.<br><strong>Also in the repo:</strong> an earlier cross-platform Electron build, now in maintenance (see <a href="#legacy-electron-app">Legacy Electron app</a>).  </p>
+<p><strong>Primary implementation:</strong> Windows Native (.NET 10 · WinUI 3)<br><strong>Status:</strong> Active development — core pipeline recently rebuilt and hardened; builds green in CI, runtime validation ongoing.<br><strong>Also in the repo:</strong> an iOS roadtrip companion (SwiftUI) with its self-hosted sync service, and an in-progress <a href="#macos-app-in-progress">macOS app</a>.  </p>
 <hr>
 <h2 id="what-it-is" class="anchored">What it is<a class="heading-anchor" href="#what-it-is" aria-label="Link to this section">#</a></h2>
 <p>Memory Timeline is a <strong>local-first</strong> desktop app for recording, organizing, and rediscovering your personal history:</p>
@@ -165,8 +165,8 @@
 <li>The app helps you <strong>rediscover</strong> what you captured: an <strong>On This Day</strong> home page, <strong>guided recall prompts</strong> that ask about gaps in your archive, <strong>Ask your timeline</strong> for grounded, cited answers, generated <strong>narrative stories</strong>, an <strong>offline map</strong>, plus connections, search, and analytics. <strong>Backups and revision history</strong> protect the archive itself.</li>
 </ol>
 <p>Your data lives in a local SQLite database. Embeddings run <strong>locally by default</strong> (a bundled ONNX model), so nothing leaves your machine except the specific text you choose to send to the LLM/embedding providers you configure — and geocoding is off unless you opt in.</p>
-<div class="callout callout-feature"><div class="callout-body"><h3 id="-going-forward-the-windows-native-app-is-the-primary-and-actively-developed-product" class="anchored">🧭 Going forward, the <strong>Windows Native</strong> app is the primary and actively developed product.<a class="heading-anchor" href="#-going-forward-the-windows-native-app-is-the-primary-and-actively-developed-product" aria-label="Link to this section">#</a></h3>
-<p>The rest of this README focuses on it. The Electron version remains in the tree for reference and is documented briefly at the end.</p>
+<div class="callout callout-feature"><div class="callout-body"><h3 id="-the-windows-native-app-is-the-primary-and-actively-developed-product" class="anchored">🧭 The <strong>Windows Native</strong> app is the primary and actively developed product.<a class="heading-anchor" href="#-the-windows-native-app-is-the-primary-and-actively-developed-product" aria-label="Link to this section">#</a></h3>
+<p>The rest of this README focuses on it. A native macOS app is being brought up alongside it — see <a href="#macos-app-in-progress">macOS app</a>.</p>
 </div></div>
 <hr>
 <h2 id="the-memory-pipeline" class="anchored">The memory pipeline<a class="heading-anchor" href="#the-memory-pipeline" aria-label="Link to this section">#</a></h2>
@@ -251,11 +251,11 @@
 </tr>
 <tr>
 <td>Runtime</td>
-<td><strong>.NET 8</strong> (<code>net8.0-windows10.0.22621.0</code>)</td>
+<td><strong>.NET 10</strong> (<code>net10.0-windows10.0.26100.0</code> for the UI head; the Core/Data/Sync layers are plain <code>net10.0</code>)</td>
 </tr>
 <tr>
 <td>Data</td>
-<td><strong>SQLite</strong> via <strong>EF Core 8</strong>, WAL mode, <code>IDbContextFactory</code> per-operation contexts</td>
+<td><strong>SQLite</strong> via <strong>EF Core 10</strong>, WAL mode, <code>IDbContextFactory</code> per-operation contexts</td>
 </tr>
 <tr>
 <td>Audio</td>
@@ -288,17 +288,20 @@
 </tbody></table></div>
 <hr>
 <h2 id="architecture" class="anchored">Architecture<a class="heading-anchor" href="#architecture" aria-label="Link to this section">#</a></h2>
-<p>Clean, layered separation across four projects:</p>
-<div class="codeblock" data-lang="text"><div class="codeblock-bar"><span class="codeblock-lang">text</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-text">MemoryTimeline            WinUI 3 app  — Views, ViewModels, Controls, Converters,
+<p>Clean, layered separation. Only the UI head targets Windows; everything below it is
+plain <code>net10.0</code> and builds on any OS:</p>
+<div class="codeblock" data-lang="text"><div class="codeblock-bar"><span class="codeblock-lang">text</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-text">MemoryTimeline            WinUI 3 app  — Views, ViewModels, Controls, Converters,   [net10.0-windows]
                                          platform services (audio, STT, notifications,
                                          jump list, navigation, theme)
-MemoryTimeline.Core       Business logic — services (events, timeline, queue, extraction,
+MemoryTimeline.Core       Business logic — services (events, timeline, queue, extraction,   [net10.0]
                                          RAG, ask/query, narrative, resurfacing, recall
                                          prompts, media, backup/revisions, export/import,
                                          settings), DTOs, timeline math
-MemoryTimeline.Data       Data access  — EF Core DbContext, entity models, repositories,
+MemoryTimeline.Data       Data access  — EF Core DbContext, entity models, repositories,    [net10.0]
                                          SchemaUpgrader
-MemoryTimeline.Tests      xUnit unit, integration, and performance tests</code></pre></div>
+MemoryTimeline.Sync       Sync client  — pairing, push/pull/ack, outbox publisher,          [net10.0]
+                                         capture-status publisher, background worker
+MemoryTimeline.Tests      xUnit unit, integration, and performance tests            [net10.0-windows]</code></pre></div>
 <p>Key architectural decisions (recently reworked — see <a href="#recent-engineering-work">Recent engineering</a>):</p>
 <ul>
 <li><strong>Per-operation <code>DbContext</code> via <code>IDbContextFactory</code>.</strong> A desktop app has no request scope, so every repository and service opens a short-lived context per operation (<code>await using var ctx = await factory.CreateDbContextAsync()</code>). This replaced a single app-lifetime context that was shared across all features and was the root cause of intermittent &quot;second operation on this context&quot; failures.</li>
@@ -312,7 +315,7 @@ MemoryTimeline.Tests      xUnit unit, integration, and performance tests</code><
 <ul>
 <li><strong>Windows 11</strong> (22H2 or later).</li>
 <li><strong>Visual Studio 2022</strong> (17.8+) with the <strong>.NET Desktop Development</strong> and <strong>Windows App SDK</strong> workloads.</li>
-<li>A <strong>.NET SDK</strong>: the repo pins the build to the <strong>.NET 8</strong> SDK via <code>windows-native/src/global.json</code>. If you only have a newer major installed (e.g. .NET 9), the pin&#39;s <code>rollForward: &quot;major&quot;</code> lets the build use it — it just won&#39;t select the .NET 10 SDK, which is incompatible with the WindowsAppSDK PRI build task.</li>
+<li>A <strong>.NET SDK</strong>: the repo pins the build to the <strong>.NET 10</strong> SDK via <code>windows-native/src/global.json</code>, to the <code>10.0.1xx</code> feature band. That band is deliberate — it declares MSBuild 17.14 as its minimum, so Visual Studio 2022 can still build it; bands <code>10.0.2xx</code>+ require MSBuild 18 / Visual Studio 2026.</li>
 </ul>
 <h3 id="build--run" class="anchored">Build &amp; run<a class="heading-anchor" href="#build--run" aria-label="Link to this section">#</a></h3>
 <div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell"><span class="tok-builtin">git</span> clone &lt;repository-url&gt;
@@ -398,6 +401,7 @@ cd memory-line/windows-native/src
 <li><strong>Whisper model options</strong> (larger models for accuracy; language selection UI).</li>
 <li><strong>Analytics export</strong> and a few remaining UI polish items.</li>
 <li>MSIX packaging and Microsoft Store submission (Phase 7).</li>
+<li><strong>macOS app</strong> — SwiftUI head under <code>macos-native/</code>; see <a href="macos-port-plan.html"><code>docs/design/MACOS-PORT-PLAN.md</code></a>.</li>
 </ul>
 <p>See <a href="development-status.html"><code>windows-native/DEVELOPMENT-STATUS.md</code></a> for phase-level status.</p>
 <hr>
@@ -418,10 +422,14 @@ cd memory-line/windows-native/src
 │   ├── DEVELOPMENT-HISTORY.md       consolidated phase reports
 │   ├── TESTING.md · DEPLOYMENT.md
 │
-├── src/                            Legacy: Electron app (React + Electron + SQLite)
-├── docs/reviews/                   multi-agent code-review reports
+├── macos-native/                   macOS app (SwiftUI) — in progress
+├── ios-companion/                  iOS roadtrip companion (SwiftUI) + widgets
+├── services/                       self-hosted sync service (ASP.NET Core)
+├── shared-contracts/               wire contracts (OpenAPI, JSON Schema, .NET DTOs)
+├── docs/design/                    system designs &amp; port plans
+├── docs/reviews/                   code-review and audit reports
 ├── website/                        documentation website generator + built site
-├── .github/workflows/              CI (Windows Native build + test, docs site)
+├── .github/workflows/              CI (Windows + macOS builds, sync API, docs site)
 └── README.md                       this file</pre></figure>
 <hr>
 <h2 id="testing" class="anchored">Testing<a class="heading-anchor" href="#testing" aria-label="Link to this section">#</a></h2>
@@ -440,19 +448,22 @@ cd memory-line/windows-native/src
 <li><strong>Note:</strong> API keys are currently stored in the local settings database; encrypting them at rest is a tracked follow-up.</li>
 </ul>
 <hr>
-<h2 id="legacy-electron-app" class="anchored">Legacy Electron app<a class="heading-anchor" href="#legacy-electron-app" aria-label="Link to this section">#</a></h2>
-<p>An earlier cross-platform build (React + Electron + SQLite) lives under <a href="https://github.com/ethanbissbort/memory-line/tree/main/src" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>src/</code></a> and is feature-complete for its own scope, but it is <strong>no longer the focus</strong> of development. It shares the same conceptual model and a compatible SQLite schema.</p>
-<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-builtin">npm</span> install
-<span class="tok-builtin">npm</span> run dev        <span class="tok-comment"># development</span>
-<span class="tok-builtin">npm</span> run package    <span class="tok-comment"># production build</span></code></pre></div>
-<p>See <a href="https://github.com/ethanbissbort/memory-line/tree/main/docs/reviews" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>docs/reviews/</code></a> for its code-review history and <a href="https://github.com/ethanbissbort/memory-line/blob/main/DEPLOYMENT-INSTALL.md" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>DEPLOYMENT-INSTALL.md</code></a> for packaging.</p>
+<h2 id="macos-app-in-progress" class="anchored">macOS app (in progress)<a class="heading-anchor" href="#macos-app-in-progress" aria-label="Link to this section">#</a></h2>
+<p>A native <strong>SwiftUI</strong> macOS app is being brought up under <a href="https://github.com/ethanbissbort/memory-line/tree/main/macos-native" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>macos-native/</code></a>,
+sharing its domain models, sync networking, persistence, and Keychain code with the
+existing iOS companion under <code>ios-companion/MemoryLineCompanion/Shared/</code>.</p>
+<p>Groundwork already in the tree: <code>MemoryTimeline.Core</code> and <code>MemoryTimeline.Sync</code> were
+decoupled from WinUI and now target plain <code>net10.0</code>, so the business layer builds off
+Windows and the two heads can converge on one set of rules rather than drifting.</p>
+<p>See <a href="macos-port-plan.html"><code>docs/design/MACOS-PORT-PLAN.md</code></a> for the phased
+plan and the inventory of what is still Windows-bound.</p>
 <hr>
 <h2 id="documentation" class="anchored">Documentation<a class="heading-anchor" href="#documentation" aria-label="Link to this section">#</a></h2>
 <p>Everything below is also published as a <strong>browsable documentation website</strong> — one place
-with a sidebar, cross-links, per-page tables of contents and full-text search. It covers the
-Windows Native app only; the legacy Electron docs stay as plain markdown in the repo. Open
+with a sidebar, cross-links, per-page tables of contents and full-text search. Open
 <a href="https://github.com/ethanbissbort/memory-line/blob/main/website/_site/index.html" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>website/_site/index.html</code></a> locally, or build it with
-<code>npm run docs:install &amp;&amp; npm run docs:build</code>. See <a href="https://github.com/ethanbissbort/memory-line/blob/main/website/README.md" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>website/README.md</code></a>.</p>
+<code>npm --prefix website install &amp;&amp; npm --prefix website run build</code>.
+See <a href="https://github.com/ethanbissbort/memory-line/blob/main/website/README.md" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>website/README.md</code></a>.</p>
 <div class="table-wrap"><table><thead><tr>
 <th>Document</th>
 <th>Description</th>
@@ -486,6 +497,18 @@ Windows Native app only; the legacy Electron docs stay as plain markdown in the 
 <td>Packaging &amp; deployment</td>
 </tr>
 <tr>
+<td><a href="macos-port-plan.html"><code>docs/design/MACOS-PORT-PLAN.md</code></a></td>
+<td>macOS port plan &amp; Windows-bound inventory</td>
+</tr>
+<tr>
+<td><a href="https://github.com/ethanbissbort/memory-line/blob/main/docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md</code></a></td>
+<td>iOS companion &amp; sync system design</td>
+</tr>
+<tr>
+<td><a href="https://github.com/ethanbissbort/memory-line/blob/main/services/README.md" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>services/README.md</code></a></td>
+<td>Sync service operator guide</td>
+</tr>
+<tr>
 <td><a href="developer-guide.html"><code>claude.md</code></a></td>
 <td>AI-assistant development guide</td>
 </tr>
@@ -515,7 +538,7 @@ Windows Native app only; the legacy Electron docs stay as plain markdown in the 
   <p class="toc-title">On this page</p>
   <ul class="toc-list">
 <li class="toc-item toc-h2"><a href="#what-it-is" data-toc-link>What it is</a></li>
-<li class="toc-item toc-h3"><a href="#-going-forward-the-windows-native-app-is-the-primary-and-actively-developed-product" data-toc-link>🧭 Going forward, the Windows Native app is the primary and actively developed product.</a></li>
+<li class="toc-item toc-h3"><a href="#-the-windows-native-app-is-the-primary-and-actively-developed-product" data-toc-link>🧭 The Windows Native app is the primary and actively developed product.</a></li>
 <li class="toc-item toc-h2"><a href="#the-memory-pipeline" data-toc-link>The memory pipeline</a></li>
 <li class="toc-item toc-h2"><a href="#features-windows-native" data-toc-link>Features (Windows Native)</a></li>
 <li class="toc-item toc-h3"><a href="#home--rediscovery" data-toc-link>Home &amp; rediscovery</a></li>
@@ -541,7 +564,7 @@ Windows Native app only; the legacy Electron docs stay as plain markdown in the 
 <li class="toc-item toc-h2"><a href="#project-structure" data-toc-link>Project structure</a></li>
 <li class="toc-item toc-h2"><a href="#testing" data-toc-link>Testing</a></li>
 <li class="toc-item toc-h2"><a href="#privacy--security" data-toc-link>Privacy &amp; security</a></li>
-<li class="toc-item toc-h2"><a href="#legacy-electron-app" data-toc-link>Legacy Electron app</a></li>
+<li class="toc-item toc-h2"><a href="#macos-app-in-progress" data-toc-link>macOS app (in progress)</a></li>
 <li class="toc-item toc-h2"><a href="#documentation" data-toc-link>Documentation</a></li>
 <li class="toc-item toc-h2"><a href="#contributing" data-toc-link>Contributing</a></li>
 <li class="toc-item toc-h2"><a href="#license" data-toc-link>License</a></li>

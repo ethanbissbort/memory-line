@@ -1,9 +1,8 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using MemoryTimeline.Core.Models;
 using MemoryTimeline.Data.Models;
-using Microsoft.UI;
-using Microsoft.UI.Xaml.Media;
 using System.ComponentModel;
+using System.Globalization;
 
 namespace MemoryTimeline.Core.DTOs;
 
@@ -220,52 +219,11 @@ public partial class TimelineEventDto : ObservableObject
     public bool ClipsViewportRight => SpanRightOverhang > 0;
 
     /// <summary>
-    /// Soft horizontal gradient for the uncertainty underlay: the category/era
-    /// color at low opacity, fading out at both edges. Built lazily on first
-    /// binding evaluation (UI thread); never touched by unit tests.
+    /// Category/era color as a "#RRGGBB" token, for the uncertainty underlay.
+    /// The view turns this into the soft edge-faded gradient via
+    /// HexToUncertaintyBrushConverter; Core stays UI-framework-neutral.
     /// </summary>
-    public LinearGradientBrush UncertaintyBrush
-    {
-        get
-        {
-            var color = ParseHexColor(GetCategoryColor());
-            var mid = Windows.UI.Color.FromArgb(0x30, color.R, color.G, color.B);
-            var edge = Windows.UI.Color.FromArgb(0x00, color.R, color.G, color.B);
-
-            var brush = new LinearGradientBrush
-            {
-                StartPoint = new Windows.Foundation.Point(0, 0.5),
-                EndPoint = new Windows.Foundation.Point(1, 0.5)
-            };
-            brush.GradientStops.Add(new GradientStop { Color = edge, Offset = 0.0 });
-            brush.GradientStops.Add(new GradientStop { Color = mid, Offset = 0.12 });
-            brush.GradientStops.Add(new GradientStop { Color = mid, Offset = 0.88 });
-            brush.GradientStops.Add(new GradientStop { Color = edge, Offset = 1.0 });
-            return brush;
-        }
-    }
-
-    private static Windows.UI.Color ParseHexColor(string hex)
-    {
-        try
-        {
-            var value = hex.Replace("#", string.Empty);
-            if (value.Length == 6)
-            {
-                return Windows.UI.Color.FromArgb(
-                    255,
-                    Convert.ToByte(value.Substring(0, 2), 16),
-                    Convert.ToByte(value.Substring(2, 2), 16),
-                    Convert.ToByte(value.Substring(4, 2), 16));
-            }
-        }
-        catch
-        {
-            // Fall through to gray.
-        }
-
-        return Windows.UI.Color.FromArgb(255, 128, 128, 128);
-    }
+    public string CategoryColor => GetCategoryColor();
 
     /// <summary>
     /// Names of the persons linked to this event, ordered by name. Populated
@@ -395,46 +353,6 @@ public class TimelineEraDto
     public bool IsVisible { get; set; }
 
     /// <summary>
-    /// Gets the color as a Brush for XAML binding.
-    /// </summary>
-    public SolidColorBrush ColorBrush
-    {
-        get
-        {
-            try
-            {
-                // Remove # if present
-                var hex = ColorCode.Replace("#", string.Empty);
-
-                if (hex.Length == 6)
-                {
-                    // RGB format
-                    return new SolidColorBrush(Windows.UI.Color.FromArgb(
-                        255,
-                        Convert.ToByte(hex.Substring(0, 2), 16),
-                        Convert.ToByte(hex.Substring(2, 2), 16),
-                        Convert.ToByte(hex.Substring(4, 2), 16)));
-                }
-                else if (hex.Length == 8)
-                {
-                    // ARGB format
-                    return new SolidColorBrush(Windows.UI.Color.FromArgb(
-                        Convert.ToByte(hex.Substring(0, 2), 16),
-                        Convert.ToByte(hex.Substring(2, 2), 16),
-                        Convert.ToByte(hex.Substring(4, 2), 16),
-                        Convert.ToByte(hex.Substring(6, 2), 16)));
-                }
-            }
-            catch
-            {
-                // Fall back to gray if parsing fails
-            }
-
-            return new SolidColorBrush(Colors.Gray);
-        }
-    }
-
-    /// <summary>
     /// Creates a DTO from an Era entity.
     /// </summary>
     public static TimelineEraDto FromEra(Era era)
@@ -483,32 +401,6 @@ public class EraBarDto
     public bool IsVisible { get; set; } = true;
 
     /// <summary>
-    /// Gets the color as a Brush for XAML binding.
-    /// </summary>
-    public SolidColorBrush ColorBrush
-    {
-        get
-        {
-            try
-            {
-                var hex = ColorCode.Replace("#", string.Empty);
-
-                if (hex.Length == 6)
-                {
-                    return new SolidColorBrush(Windows.UI.Color.FromArgb(
-                        255,
-                        Convert.ToByte(hex.Substring(0, 2), 16),
-                        Convert.ToByte(hex.Substring(2, 2), 16),
-                        Convert.ToByte(hex.Substring(4, 2), 16)));
-                }
-            }
-            catch { }
-
-            return new SolidColorBrush(Colors.Gray);
-        }
-    }
-
-    /// <summary>
     /// Creates an EraBarDto from a TimelineEraDto.
     /// </summary>
     public static EraBarDto FromEraDto(TimelineEraDto era)
@@ -551,32 +443,6 @@ public class EraFilterDto : INotifyPropertyChanged
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
-
-    /// <summary>
-    /// Gets the color as a Brush for XAML binding.
-    /// </summary>
-    public SolidColorBrush ColorBrush
-    {
-        get
-        {
-            try
-            {
-                var hex = ColorCode.Replace("#", string.Empty);
-
-                if (hex.Length == 6)
-                {
-                    return new SolidColorBrush(Windows.UI.Color.FromArgb(
-                        255,
-                        Convert.ToByte(hex.Substring(0, 2), 16),
-                        Convert.ToByte(hex.Substring(2, 2), 16),
-                        Convert.ToByte(hex.Substring(4, 2), 16)));
-                }
-            }
-            catch { }
-
-            return new SolidColorBrush(Colors.Gray);
-        }
-    }
 }
 
 /// <summary>
@@ -663,49 +529,24 @@ public class GanttEraBarDto : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Gets the color as a Brush for XAML binding.
+    /// A darker shade of <see cref="ColorCode"/> ("#RRGGBB", each channel at
+    /// 70%) for progress fill. Falls back to dark gray for a malformed code.
     /// </summary>
-    public SolidColorBrush ColorBrush => ParseColorBrush(ColorCode);
-
-    /// <summary>
-    /// Gets a darker version of the color for progress fill.
-    /// </summary>
-    public SolidColorBrush DarkColorBrush
+    public string DarkColorCode
     {
         get
         {
-            try
+            var hex = ColorCode.TrimStart('#');
+            if (hex.Length == 6
+                && byte.TryParse(hex.AsSpan(0, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var r)
+                && byte.TryParse(hex.AsSpan(2, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var g)
+                && byte.TryParse(hex.AsSpan(4, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var b))
             {
-                var hex = ColorCode.Replace("#", string.Empty);
-                if (hex.Length == 6)
-                {
-                    var r = (byte)(Convert.ToByte(hex.Substring(0, 2), 16) * 0.7);
-                    var g = (byte)(Convert.ToByte(hex.Substring(2, 2), 16) * 0.7);
-                    var b = (byte)(Convert.ToByte(hex.Substring(4, 2), 16) * 0.7);
-                    return new SolidColorBrush(Windows.UI.Color.FromArgb(255, r, g, b));
-                }
+                return $"#{(byte)(r * 0.7):X2}{(byte)(g * 0.7):X2}{(byte)(b * 0.7):X2}";
             }
-            catch { }
-            return new SolidColorBrush(Colors.DarkGray);
-        }
-    }
 
-    private static SolidColorBrush ParseColorBrush(string colorCode)
-    {
-        try
-        {
-            var hex = colorCode.Replace("#", string.Empty);
-            if (hex.Length == 6)
-            {
-                return new SolidColorBrush(Windows.UI.Color.FromArgb(
-                    255,
-                    Convert.ToByte(hex.Substring(0, 2), 16),
-                    Convert.ToByte(hex.Substring(2, 2), 16),
-                    Convert.ToByte(hex.Substring(4, 2), 16)));
-            }
+            return "#A9A9A9"; // DarkGray
         }
-        catch { }
-        return new SolidColorBrush(Colors.Gray);
     }
 
     /// <summary>
@@ -791,30 +632,6 @@ public class MilestoneMarkerDto : INotifyPropertyChanged
     };
 
     /// <summary>
-    /// Gets the color as a Brush for XAML binding.
-    /// </summary>
-    public SolidColorBrush ColorBrush
-    {
-        get
-        {
-            try
-            {
-                var hex = ColorCode.Replace("#", string.Empty);
-                if (hex.Length == 6)
-                {
-                    return new SolidColorBrush(Windows.UI.Color.FromArgb(
-                        255,
-                        Convert.ToByte(hex.Substring(0, 2), 16),
-                        Convert.ToByte(hex.Substring(2, 2), 16),
-                        Convert.ToByte(hex.Substring(4, 2), 16)));
-                }
-            }
-            catch { }
-            return new SolidColorBrush(Colors.DodgerBlue);
-        }
-    }
-
-    /// <summary>
     /// Creates a MilestoneMarkerDto from a Milestone entity.
     /// </summary>
     public static MilestoneMarkerDto FromMilestone(Milestone milestone)
@@ -877,30 +694,6 @@ public class EraCategoryDto : INotifyPropertyChanged
     public string ChevronGlyph => IsExpanded ? "\uE70D" : "\uE70E"; // ChevronDown : ChevronRight
 
     public event PropertyChangedEventHandler? PropertyChanged;
-
-    /// <summary>
-    /// Gets the color as a Brush for XAML binding.
-    /// </summary>
-    public SolidColorBrush ColorBrush
-    {
-        get
-        {
-            try
-            {
-                var hex = DefaultColor.Replace("#", string.Empty);
-                if (hex.Length == 6)
-                {
-                    return new SolidColorBrush(Windows.UI.Color.FromArgb(
-                        255,
-                        Convert.ToByte(hex.Substring(0, 2), 16),
-                        Convert.ToByte(hex.Substring(2, 2), 16),
-                        Convert.ToByte(hex.Substring(4, 2), 16)));
-                }
-            }
-            catch { }
-            return new SolidColorBrush(Colors.Gray);
-        }
-    }
 
     /// <summary>
     /// Creates an EraCategoryDto from an EraCategory entity.

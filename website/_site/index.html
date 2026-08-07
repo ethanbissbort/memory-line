@@ -86,8 +86,6 @@
             </li>
             <li><a class="nav-link" href="development-history.html">Development history</a>
             </li>
-            <li><a class="nav-link" href="migration-to-native-windows.html">Migration to native Windows</a>
-            </li>
           </ul>
         </li>
         <li class="nav-section">
@@ -104,6 +102,8 @@
         <li class="nav-section">
           <p class="nav-section-title">Design notes</p>
           <ul class="nav-list">
+            <li><a class="nav-link" href="macos-port-plan.html">macOS port plan</a>
+            </li>
             <li><a class="nav-link" href="people-feature-contracts.html">People feature contracts</a>
             </li>
           </ul>
@@ -121,7 +121,7 @@
       <p class="eyebrow">Project documentation</p>
       <h1>Memory Timeline</h1>
       <p class="hero-tagline">Capture memories by voice or text, let AI structure them, and explore your life as an interactive timeline.</p>
-      <div class="pills"><span class="pill pill-primary">Windows Native</span><span class="pill">.NET 8 · WinUI 3</span><span class="pill">Local-first</span><span class="pill">Active development</span></div>
+      <div class="pills"><span class="pill pill-primary">Windows Native</span><span class="pill">.NET 10 · WinUI 3</span><span class="pill">Local-first</span><span class="pill">Active development</span></div>
       <div class="hero-actions">
         <a class="btn btn-primary" href="overview.html">Read the overview</a>
         <a class="btn" href="windows-native.html">Windows Native app</a>
@@ -167,7 +167,7 @@
       <div class="stat-label">documents</div>
       <div class="stat-hint">READMEs, guides, audits and design notes</div>
     </div><div class="stat">
-      <div class="stat-value">44k</div>
+      <div class="stat-value">39k</div>
       <div class="stat-label">words</div>
       <div class="stat-hint">all rendered and searchable here</div>
     </div><div class="stat">
@@ -350,7 +350,7 @@
   <section class="section" id="find-your-way">
     <div class="section-head">
       <h2>Find your way</h2>
-      <p class="section-lead">5 routes through 13 documents and roughly 43,773 words on the Windows Native app.</p>
+      <p class="section-lead">5 routes through 13 documents and roughly 39,009 words on the Windows Native app.</p>
     </div>
     <div class="path-grid">
       <article class="path-card">
@@ -386,7 +386,7 @@
       <h3>Design &amp; history</h3>
       <p>The plan that produced the native app, and the contracts written before the code.</p>
       <ul class="path-links">
-        <li><a href="migration-to-native-windows.html">Migration to native Windows</a></li><li><a href="people-feature-contracts.html">People feature contracts</a></li><li><a href="development-history.html">Development history</a></li>
+        <li><a href="people-feature-contracts.html">People feature contracts</a></li><li><a href="development-history.html">Development history</a></li>
       </ul>
     </article>
     </div>
@@ -456,11 +456,11 @@
         <a class="doc-card" href="overview.html">
             <h4>Project overview</h4>
             <p>The repository README: what Memory Timeline is, the memory pipeline, the full feature list, tech stack, architecture, setup, configuration, and privacy model.</p>
-            <span class="doc-card-meta">13 min read →</span>
+            <span class="doc-card-meta">14 min read →</span>
           </a><a class="doc-card" href="developer-guide.html">
             <h4>Developer orientation guide</h4>
             <p>The condensed contributor briefing: solution layout, the per-operation DbContext rule, MVVM conventions, settings keys, build reality, and how to add a feature.</p>
-            <span class="doc-card-meta">8 min read →</span>
+            <span class="doc-card-meta">9 min read →</span>
           </a>
       </div>
     </div><div class="doc-section">
@@ -470,7 +470,7 @@
         <a class="doc-card" href="windows-native.html">
             <h4>Windows Native app</h4>
             <p>The main reference for the WinUI 3 app: pipeline, features, quick start, project structure, clean-architecture layers, DI composition, database schema, configuration, and troubleshooting.</p>
-            <span class="doc-card-meta">14 min read →</span>
+            <span class="doc-card-meta">15 min read →</span>
           </a><a class="doc-card" href="setup-scripts-windows.html">
             <h4>PowerShell setup scripts</h4>
             <p>Setup-Dependencies.ps1 and Verify-Installation.ps1 — automated toolchain install and environment verification, plus the build reality (msbuild, not dotnet build).</p>
@@ -492,15 +492,11 @@
         <a class="doc-card" href="development-status.html">
             <h4>Development status</h4>
             <p>Phase-by-phase status, the 2026-08 F1–F12 feature wave with per-feature detail and deferred items, known limitations, and success criteria.</p>
-            <span class="doc-card-meta">17 min read →</span>
+            <span class="doc-card-meta">26 min read →</span>
           </a><a class="doc-card" href="development-history.html">
             <h4>Development history</h4>
             <p>Consolidated phase completion reports (Phase 0 through Phase 6) with deliverables, statistics, and architecture achievements.</p>
             <span class="doc-card-meta">10 min read →</span>
-          </a><a class="doc-card" href="migration-to-native-windows.html">
-            <h4>Migration to native Windows</h4>
-            <p>The full migration plan from Electron to .NET 8 + WinUI 3: rationale, stack decision, branch strategy, architecture comparison, all seven phases, feature-parity matrix, and checklists.</p>
-            <span class="doc-card-meta">23 min read →</span>
           </a>
       </div>
     </div><div class="doc-section">
@@ -517,26 +513,25 @@
             <span class="doc-card-meta">3 min read →</span>
           </a><a class="doc-card" href="repo-audit-2026-07.html">
             <h4>Exhaustive repo audit</h4>
-            <p>A bug hunt and feature crawl across the whole repository: 27 adversarially verified findings, 61 unverified medium/low findings, and ranked improvement opportunities.</p>
-            <span class="doc-card-meta">66 min read →</span>
+            <p>A bug hunt and feature crawl across the repository: 18 adversarially verified findings, 45 unverified medium/low findings, and ranked improvement opportunities.</p>
+            <span class="doc-card-meta">47 min read →</span>
           </a>
       </div>
     </div><div class="doc-section">
       <h3>Design notes</h3>
       <p class="doc-section-blurb">Cross-cutting contracts written before implementation.</p>
       <div class="doc-card-grid">
-        <a class="doc-card" href="people-feature-contracts.html">
+        <a class="doc-card" href="macos-port-plan.html">
+            <h4>macOS port plan</h4>
+            <p>Bringing Memory Line to macOS as a native SwiftUI app: what the iOS companion already shares, the Keychain and device-platform traps, the phased order of work, and the undecided question of how the C# service layer reaches the Mac.</p>
+            <span class="doc-card-meta">8 min read →</span>
+          </a><a class="doc-card" href="people-feature-contracts.html">
             <h4>People feature contracts</h4>
             <p>The cross-agent interface contract for the People hub: file ownership map, entity columns, DTOs, service signatures, extraction changes, UI conventions, and DI registrations.</p>
             <span class="doc-card-meta">12 min read →</span>
           </a>
       </div>
     </div>
-    <section class="legacy-note">
-  <h3 class="legacy-title">Legacy Electron build</h3>
-  <p class="legacy-blurb">The earlier cross-platform Electron app (React + Electron + SQLite) is feature-complete for its own scope but is no longer developed. Its documentation stays as plain markdown in the repository and is intentionally left out of this site.</p>
-  <ul class="legacy-list"><li><a href="https://github.com/ethanbissbort/memory-line/blob/main/DEPLOYMENT-INSTALL.md" target="_blank" rel="noopener noreferrer">Deployment &amp; installation guide</a> <code>DEPLOYMENT-INSTALL.md</code></li><li><a href="https://github.com/ethanbissbort/memory-line/blob/main/scripts/README.md" target="_blank" rel="noopener noreferrer">Setup scripts (Windows / Ubuntu)</a> <code>scripts/README.md</code></li><li><a href="https://github.com/ethanbissbort/memory-line/blob/main/scripts/logs/README.md" target="_blank" rel="noopener noreferrer">Setup script logs</a> <code>scripts/logs/README.md</code></li><li><a href="https://github.com/ethanbissbort/memory-line/blob/main/tests/README.md" target="_blank" rel="noopener noreferrer">Jest test suite</a> <code>tests/README.md</code></li><li><a href="https://github.com/ethanbissbort/memory-line/blob/main/tests/fixtures/databases/README.md" target="_blank" rel="noopener noreferrer">Test database fixtures</a> <code>tests/fixtures/databases/README.md</code></li><li><a href="https://github.com/ethanbissbort/memory-line/blob/main/docs/reviews/multi-agent-code-review.md" target="_blank" rel="noopener noreferrer">Multi-agent code review (Electron layers)</a> <code>docs/reviews/multi-agent-code-review.md</code></li></ul>
-</section>
   </section>
 </div>
     <footer class="site-footer">

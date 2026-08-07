@@ -273,26 +273,7 @@ const HERO_SVG = `<svg class="hero-svg" viewBox="0 0 520 220" role="img" aria-la
   <path d="M62 118 128 94 202 110 268 77 336 112 404 88 468 120" class="hero-thread"/>
 </svg>`;
 
-/**
- * A muted pointer to documentation that lives in the repo but is deliberately not
- * part of this site. Keeps it discoverable without giving it page treatment.
- */
-export function renderLegacyNote(legacy, repoUrl, branch, { heading = 'h2' } = {}) {
-  if (!legacy || !legacy.docs || !legacy.docs.length) return '';
-  const items = legacy.docs
-    .map(
-      (d) =>
-        `<li><a href="${escapeHtml(repoUrl)}/blob/${escapeHtml(branch)}/${escapeHtml(d.source)}" target="_blank" rel="noopener noreferrer">${escapeHtml(d.title)}</a> <code>${escapeHtml(d.source)}</code></li>`
-    )
-    .join('');
-  return `<section class="legacy-note">
-  <${heading} class="legacy-title">${escapeHtml(legacy.title)}</${heading}>
-  <p class="legacy-blurb">${inline(legacy.blurb)}</p>
-  <ul class="legacy-list">${items}</ul>
-</section>`;
-}
-
-export function renderLanding({ landing, site, sections, pageIndex, totals, legacy }) {
+export function renderLanding({ landing, site, sections, pageIndex, totals }) {
   const pill = (p) =>
     `<span class="pill${p.tone === 'primary' ? ' pill-primary' : ''}">${escapeHtml(p.label)}</span>`;
 
@@ -491,7 +472,6 @@ export function renderLanding({ landing, site, sections, pageIndex, totals, lega
     </div>`
       )
       .join('')}
-    ${renderLegacyNote(legacy, site.repoUrl, site.branch, { heading: 'h3' })}
   </section>
 </div>`;
 }
@@ -500,7 +480,7 @@ export function renderLanding({ landing, site, sections, pageIndex, totals, lega
 /* Documentation map                                                   */
 /* ------------------------------------------------------------------ */
 
-export function renderDocMap({ sections, totals, repoUrl, branch, legacy }) {
+export function renderDocMap({ sections, totals, repoUrl, branch }) {
   const row = (page) => `<article class="map-entry">
     <div class="map-entry-head">
       <h3><a href="${page.slug}.html">${escapeHtml(page.title)}</a></h3>
@@ -548,6 +528,5 @@ ${sections
 </section>`
   )
   .join('')}
-${renderLegacyNote(legacy, repoUrl, branch)}
 </div>`;
 }

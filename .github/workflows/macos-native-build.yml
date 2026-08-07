@@ -1,0 +1,118 @@
+name: macOS Native Build
+
+# Two independent jobs on a macOS runner:
+#
+#   xcode    - builds and tests the SwiftUI Mac app (macos-native/), which
+#              compiles the shared sources from ios-companion/.../Shared/.
+#   dotnet   - builds the .NET projects that are supposed to be platform-neutral.
+#              This is the guard on the net10.0 retarget described in
+#              docs/design/MACOS-PORT-PLAN.md §3.3: reintroduce a Windows-only
+#              type into Core/Data/Sync and this job fails even though the
+#              Windows build stays green.
+
+on:
+  push:
+    branches:
+      - main
+      - claude/remove-electron-macos-prep-j9gl75
+    paths:
+      - 'macos-native/**'
+      - 'ios-companion/MemoryLineCompanion/Shared/**'
+      - 'services/**'
+      - 'shared-contracts/**'
+      - 'windows-native/src/MemoryTimeline.Data/**'
+      - '.github/workflows/macos-native-build.yml'
+  pull_request:
+    paths:
+      - 'macos-native/**'
+      - 'ios-companion/MemoryLineCompanion/Shared/**'
+      - 'services/**'
+      - 'shared-contracts/**'
+      - 'windows-native/src/MemoryTimeline.Data/**'
+  workflow_dispatch:
+
+jobs:
+  xcode:
+    name: Mac app (xcodebuild)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      # CODE_SIGNING_ALLOWED=NO: the runner has no signing identity and the app
+      # only needs to compile here. Entitlements are still parsed, so a malformed
+      # entitlements file is caught; the signature itself is not produced.
+      - name: Build (Debug)
+        working-directory: macos-native
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project MemoryLineMac.xcodeproj \
+            -scheme MemoryLineMac \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            | tee xcodebuild.log
+
+      - name: Test
+        working-directory: macos-native
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project MemoryLineMac.xcodeproj \
+            -scheme MemoryLineMac \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            | tee -a xcodebuild.log
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-xcodebuild-log
+          path: macos-native/xcodebuild.log
+          if-no-files-found: ignore
+
+  dotnet:
+    name: Portable .NET projects
+    runs-on: macos-latest
+
+    # These four projects are declared platform-neutral (plain net10.0). Building
+    # them on a Mac is the only automated check that the claim is true - the
+    # Windows workflow would stay green even if a Windows-only type crept back
+    # in. Gating on purpose: a non-gating check here would repeat the exact
+    # failure the 2026-07 audit called out (finding #10).
+    #
+    # The sync service itself is not rebuilt here; sync-api-build.yml already
+    # compiles and tests it on Linux, which proves the same portability point.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.1xx'
+
+      - name: Build MemoryTimeline.Data
+        run: dotnet build windows-native/src/MemoryTimeline.Data/MemoryTimeline.Data.csproj -c Release
+
+      - name: Build MemoryTimeline.Core
+        run: dotnet build windows-native/src/MemoryTimeline.Core/MemoryTimeline.Core.csproj -c Release
+
+      - name: Build MemoryTimeline.Sync
+        run: dotnet build windows-native/src/MemoryTimeline.Sync/MemoryTimeline.Sync.csproj -c Release
+
+      - name: Build MemoryTimeline.SyncContracts
+        run: dotnet build shared-contracts/dotnet/MemoryTimeline.SyncContracts/MemoryTimeline.SyncContracts.csproj -c Release

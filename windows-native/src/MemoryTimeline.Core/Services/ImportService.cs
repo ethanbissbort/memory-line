@@ -142,17 +142,6 @@ public class ImportService : IImportService
     }
 
     /// <summary>
-    /// Imports data from Electron database export.
-    /// </summary>
-    public async Task<ImportResult> ImportFromElectronAsync(string filePath, ImportOptions? options = null, IProgress<(int, string)>? progress = null)
-    {
-        // The legacy Electron export emits snake_case keys (event_id, start_date,
-        // tag_name, color_code, ...). ImportFromJsonAsync normalizes those to
-        // PascalCase before binding, so both formats go through the same path.
-        return await ImportFromJsonAsync(filePath, options, progress);
-    }
-
-    /// <summary>
     /// Validates an import file without importing.
     /// </summary>
     public async Task<ValidationResult> ValidateImportFileAsync(string filePath)
@@ -500,7 +489,7 @@ public class ImportService : IImportService
 
     /// <summary>
     /// Keys whose snake_case name does not mechanically translate to the DTO
-    /// property name. The legacy Electron export writes raw SQL column names:
+    /// property name. Legacy exports write raw SQL column names:
     /// tags.tag_name maps to JsonTag.Name and eras.color_code to JsonEra.Color.
     /// </summary>
     private static readonly Dictionary<string, string> SnakeCaseKeyOverrides = new(StringComparer.OrdinalIgnoreCase)
@@ -512,7 +501,7 @@ public class ImportService : IImportService
     /// <summary>
     /// Parses import JSON accepting both supported shapes:
     /// - the native export (camelCase keys, handled by case-insensitive binding), and
-    /// - the legacy Electron export (snake_case SQL column names: event_id,
+    /// - legacy exports that emit snake_case SQL column names (event_id,
     ///   start_date, end_date, created_at, updated_at, tag_name, color_code, ...).
     /// The parsed tree is normalized by renaming snake_case keys to PascalCase
     /// before binding, so both shapes deserialize into the same DTOs. Keys
@@ -591,7 +580,7 @@ public class ImportService : IImportService
     }
 
     /// <summary>
-    /// Reads a date token leniently. The Electron export stores SQLite TEXT
+    /// Reads a date token leniently. Legacy exports store SQLite TEXT
     /// dates ("2015-03-01", "2024-01-01 12:00:00") that System.Text.Json's
     /// strict ISO 8601 converter rejects, which would fail the whole file.
     /// Unparseable values return null so a bad date surfaces as a per-record
