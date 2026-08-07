@@ -34,20 +34,15 @@ public class HexToBrushConverter : IValueConverter
     }
 
     /// <summary>
-    /// Parses "#RRGGBB" or "#AARRGGBB" into a <see cref="Color"/>. Returns
-    /// false (never throws) for any other shape.
+    /// Parses "RRGGBB" or "AARRGGBB" into a <see cref="Color"/>, with the
+    /// leading '#' optional (stored color codes are not consistent about it).
+    /// Returns false (never throws) for any other shape.
     /// </summary>
     private static bool TryParseHexColor(string hex, out Color color)
     {
         color = FallbackColor;
 
-        var trimmed = hex.Trim();
-        if (trimmed.Length == 0 || trimmed[0] != '#')
-        {
-            return false;
-        }
-
-        var digits = trimmed.Substring(1);
+        var digits = hex.Trim().TrimStart('#');
         if (digits.Length != 6 && digits.Length != 8)
         {
             return false;

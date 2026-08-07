@@ -21,6 +21,9 @@
             <converters:ZeroToVisibilityConverter x:Key="ZeroToVisibilityConverter"/>
             <converters:PercentageToWidthConverter x:Key="PercentageToWidthConverter"/>
             <converters:NormalizedToHeightConverter x:Key="NormalizedToHeightConverter"/>
+            <!-- Color tokens live in Core as hex strings; these turn them into brushes. -->
+            <converters:HexToBrushConverter x:Key="HexToBrushConverter"/>
+            <converters:HexToUncertaintyBrushConverter x:Key="HexToUncertaintyBrushConverter"/>
 
             <!-- Button Styles -->
             <Style x:Key="AccentButtonStyle" TargetType="Button">

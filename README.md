@@ -2,9 +2,9 @@
 
 Capture your memories by voice or text, let AI turn them into structured events, and explore your life as an interactive timeline that surfaces the connections between moments — then ask it questions, read it back as stories, and see it on a map.
 
-**Primary implementation:** Windows Native (.NET 8 · WinUI 3)
+**Primary implementation:** Windows Native (.NET 10 · WinUI 3)
 **Status:** Active development — core pipeline recently rebuilt and hardened; builds green in CI, runtime validation ongoing.
-**Also in the repo:** an earlier cross-platform Electron build, now in maintenance (see [Legacy Electron app](#legacy-electron-app)).
+**Also in the repo:** an iOS roadtrip companion (SwiftUI) with its self-hosted sync service, and an in-progress [macOS app](#macos-app-in-progress).
 
 ---
 
@@ -19,8 +19,8 @@ Memory Timeline is a **local-first** desktop app for recording, organizing, and 
 
 Your data lives in a local SQLite database. Embeddings run **locally by default** (a bundled ONNX model), so nothing leaves your machine except the specific text you choose to send to the LLM/embedding providers you configure — and geocoding is off unless you opt in.
 
-> ### 🧭 Going forward, the **Windows Native** app is the primary and actively developed product.
-> The rest of this README focuses on it. The Electron version remains in the tree for reference and is documented briefly at the end.
+> ### 🧭 The **Windows Native** app is the primary and actively developed product.
+> The rest of this README focuses on it. A native macOS app is being brought up alongside it — see [macOS app](#macos-app-in-progress).
 
 ---
 

@@ -247,7 +247,7 @@
                                                     <StackPanel Grid.Column="2" Spacing="4">
                                                         <TextBlock Text="{x:Bind ConfidenceDisplay, Mode=OneWay}"
                                                                   FontWeight="SemiBold"
-                                                                  Foreground="{x:Bind ConfidenceColor, Mode=OneWay}"
+                                                                  Foreground="{x:Bind ConfidenceColorHex, Mode=OneWay, Converter={StaticResource HexToBrushConverter}}"
                                                                   HorizontalAlignment="Right"/>
                                                         <TextBlock Text="Confidence"
                                                                   Style="{StaticResource CaptionTextBlockStyle}"
