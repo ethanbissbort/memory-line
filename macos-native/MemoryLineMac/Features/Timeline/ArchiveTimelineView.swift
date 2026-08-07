@@ -17,7 +17,15 @@ import SwiftUI
 ///    `startDate` locally would invent a precise day for it.
 ///  - **Grouping uses a UTC calendar** (`TimelineCalendar`), because these dates
 ///    are calendar dates pinned to UTC midnight, not instants.
-struct TimelineView: View {
+///
+/// **Not named `TimelineView`**, which every other screen here would suggest
+/// (`LibraryView`, `PeopleView`, `ReviewView`). SwiftUI already ships a
+/// `TimelineView` — the one that redraws on a schedule — and a same-named type
+/// in this module shadows it everywhere, including in `CaptureView`, whose live
+/// recording readout is built on it. The resulting error points at the innocent
+/// file and says nothing about the collision, so the app's central noun gives
+/// way to the framework's here rather than leaving that trap in place.
+struct ArchiveTimelineView: View {
     @Environment(MacAppEnvironment.self) private var environment
 
     @State private var years: [YearGroup] = []

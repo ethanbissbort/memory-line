@@ -65,7 +65,7 @@ struct RootView: View {
             case .library:
                 LibraryView()
             case .timeline:
-                TimelineView()
+                ArchiveTimelineView()
             case .review:
                 ReviewView()
             case .people:
