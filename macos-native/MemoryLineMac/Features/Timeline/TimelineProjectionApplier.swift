@@ -29,6 +29,11 @@ import os
 ///    means the write did not happen, so the caller must hold the cursor and let
 ///    the page replay.
 ///
+/// One rule is specific to these entities rather than inherited: rows are keyed
+/// on the change's `entityId`, not on the id inside the payload. The service
+/// pins the former to a single spelling for exactly this reason and leaves the
+/// latter free to differ — see `rowKey(for:payloadId:)`.
+///
 /// Privacy (design §14.5): nothing here logs payload content. Change ids, entity
 /// types and counts only — never a title, a name, a location or a transcript
 /// preview, all of which pass through this type.
@@ -90,33 +95,37 @@ struct TimelineProjectionApplier {
 
         switch change.entityType {
         case TimelineProjectionEntityType.event:
-            guard let payload = decode(EventProjectionPayload.self, from: data, change: change) else {
+            guard var payload = decode(EventProjectionPayload.self, from: data, change: change) else {
                 return false
             }
+            payload.eventId = rowKey(for: change, payloadId: payload.eventId)
             let existing = try store.event(eventId: payload.eventId)?.updatedAtUtc
             guard isNotStale(payload.updatedAtUtc, existing: existing) else { return false }
             try store.upsertEvent(payload)
 
         case TimelineProjectionEntityType.era:
-            guard let payload = decode(EraProjectionPayload.self, from: data, change: change) else {
+            guard var payload = decode(EraProjectionPayload.self, from: data, change: change) else {
                 return false
             }
+            payload.eraId = rowKey(for: change, payloadId: payload.eraId)
             let existing = try store.era(eraId: payload.eraId)?.updatedAtUtc
             guard isNotStale(payload.updatedAtUtc, existing: existing) else { return false }
             try store.upsertEra(payload)
 
         case TimelineProjectionEntityType.person:
-            guard let payload = decode(PersonProjectionPayload.self, from: data, change: change) else {
+            guard var payload = decode(PersonProjectionPayload.self, from: data, change: change) else {
                 return false
             }
+            payload.personId = rowKey(for: change, payloadId: payload.personId)
             let existing = try store.person(personId: payload.personId)?.updatedAtUtc
             guard isNotStale(payload.updatedAtUtc, existing: existing) else { return false }
             try store.upsertPerson(payload)
 
         case TimelineProjectionEntityType.pendingEvent:
-            guard let payload = decode(PendingEventProjectionPayload.self, from: data, change: change) else {
+            guard var payload = decode(PendingEventProjectionPayload.self, from: data, change: change) else {
                 return false
             }
+            payload.pendingEventId = rowKey(for: change, payloadId: payload.pendingEventId)
             let existing = try store.pendingEvent(pendingEventId: payload.pendingEventId)?.updatedAtUtc
             guard isNotStale(payload.updatedAtUtc, existing: existing) else { return false }
             try store.upsertPendingEvent(payload)
@@ -162,6 +171,27 @@ struct TimelineProjectionApplier {
     }
 
     // MARK: - Helpers
+
+    /// The key a row is stored under: the feed's `entityId`, not the payload's
+    /// own copy of that id.
+    ///
+    /// The service pins `entityId` to one spelling — a UUID in canonical
+    /// lowercase form — and rejects any other, precisely so that an upsert and a
+    /// later tombstone address the same row. It does *not* pin the payload's
+    /// copy: an event whose `eventId` reads `{A1B2…}` is accepted as long as it
+    /// denotes the same UUID (`SyncChangeService.TryRelayProjection`, "Entity
+    /// IDs"). SQLite compares TEXT byte for byte, so keying rows on the payload
+    /// id would let a delete match nothing and leave a memory the user removed
+    /// on Windows sitting on this Mac forever — the exact failure the contract
+    /// note describes. Normalising here also means the id this app hands back to
+    /// the UI is the one every other device uses.
+    ///
+    /// The payload id is the fallback only for a change carrying no `entityId`
+    /// at all, which this server does not produce; storing such a row under the
+    /// id it names itself is a better answer than dropping the memory.
+    private func rowKey(for change: SyncChangeDto, payloadId: String) -> String {
+        change.entityId.isEmpty ? payloadId : change.entityId
+    }
 
     /// Last-write-wins: the incoming payload is applied unless the stored row is
     /// strictly newer. Equal timestamps re-apply, which is both harmless (the

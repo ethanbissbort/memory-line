@@ -2,14 +2,23 @@ import Foundation
 import Observation
 import os
 
-/// Pulls the sync change feed and applies Windows-authored capture status to
-/// the local projection (design §19 Phase 3).
+/// Pulls the sync change feed and applies everything Windows authors on it:
+/// capture status (design §19 Phase 3) and the read-only timeline projection —
+/// events, eras, people and the pending-event review queue.
 ///
 /// This is the macOS counterpart of the iOS `StatusSyncCoordinator`, and it is
 /// deliberately a reimplementation rather than a shared type: that coordinator
-/// is built on `BGTaskScheduler`, which does not exist on macOS, and it also
-/// reconciles remote status against capture records the *phone* created. The
-/// Mac has no recorder yet (port plan §4.1), so it applies status only.
+/// is built on `BGTaskScheduler`, which does not exist on macOS, and it consumes
+/// only the capture-status half of the feed. The Mac is the browsing surface, so
+/// it also consumes the projection the phone has no screen for.
+///
+/// **Two appliers, one page.** Capture status is applied inline here; timeline
+/// entities go through `TimelineProjectionApplier`. That split is the reason this
+/// type does not grow a switch over the contract as entity types accumulate —
+/// see the argument in that file. The two write different tables in separate
+/// transactions, so a page is not applied atomically; it does not need to be,
+/// because every write on both paths is an idempotent last-write-wins upsert or
+/// a delete, and a page that fails part-way is replayed in full.
 ///
 /// The pull/ack semantics below mirror the iOS loop exactly, because they are
 /// a contract with the server rather than a local choice:
@@ -36,19 +45,31 @@ final class MacSyncCoordinator {
     private let settings: any SettingsStore
     private let api: any SyncAPI
     private let statusStore: any CaptureStatusStore
+    private let projections: TimelineProjectionApplier
     private let logger = AppLog.logger(category: "sync")
 
     private(set) var state: State = .idle
     private(set) var lastPulledAt: Date?
-    /// Number of status rows written by the most recent pass, for the UI.
+    /// Number of changes applied by the most recent pass — status rows and
+    /// timeline entities together — for the UI.
     private(set) var lastAppliedCount = 0
 
     @ObservationIgnored private var ticker: Task<Void, Never>?
 
-    init(settings: any SettingsStore, api: any SyncAPI, statusStore: any CaptureStatusStore) {
+    /// `projectionStore` has no default. A coordinator constructed without one
+    /// would pull the timeline feed, drop every event on the floor and report a
+    /// perfectly healthy sync — which is precisely the state the Mac was in
+    /// before this existed, and not one worth being able to reach by omission.
+    init(
+        settings: any SettingsStore,
+        api: any SyncAPI,
+        statusStore: any CaptureStatusStore,
+        projectionStore: any TimelineProjectionStore
+    ) {
         self.settings = settings
         self.api = api
         self.statusStore = statusStore
+        self.projections = TimelineProjectionApplier(store: projectionStore)
     }
 
     // No deinit cancelling the ticker: the loop captures self weakly, so it
@@ -118,8 +139,10 @@ final class MacSyncCoordinator {
                 applied += try apply(page.changes)
             } catch {
                 // Local persistence failed: hold the cursor so this page is
-                // replayed rather than silently skipped.
-                state = .failed("Could not save the latest capture status.")
+                // replayed rather than silently skipped. The message does not
+                // name which applier failed — the user can act on neither
+                // answer, and the log line carries the detail.
+                state = .failed("Could not save the latest changes from Windows.")
                 logger.error("apply failed: \(String(describing: error), privacy: .public)")
                 return
             }
@@ -150,14 +173,24 @@ final class MacSyncCoordinator {
 
     // MARK: - Applying changes
 
-    /// Applies every `capture_status` change in the page, returning how many
-    /// were written. Other entity types are ignored: `capture` and
-    /// `capture_artifact` describe recordings this Mac does not own yet.
+    /// Applies the page and returns how many changes were consumed.
+    ///
+    /// Two passes over the same array rather than one switch: capture status is
+    /// this type's own business, and the timeline entities belong to an applier
+    /// that can also be driven by a backfill or a test with a hand-built page.
+    /// The two filters are disjoint — `capture_status` is not in
+    /// `TimelineProjectionEntityType.projected` — so nothing is applied twice.
+    ///
+    /// Entity types neither pass claims are ignored on purpose. `capture` and
+    /// `capture_artifact` describe recordings whose authoritative copy is the
+    /// local `captures` row this Mac already wrote, and `pending_event_decision`
+    /// is a verdict some companion authored, not a projection to consume.
     private func apply(_ changes: [SyncChangeDto]) throws -> Int {
         var applied = 0
         for change in changes where change.entityType == SyncChangeEntityType.captureStatus {
             if try apply(change) { applied += 1 }
         }
+        applied += try projections.apply(changes)
         return applied
     }
 
@@ -212,6 +245,22 @@ final class MacSyncCoordinator {
 
     private func persistCursor(_ cursor: Int64) {
         settings.set(String(cursor), for: MacSyncSettingsKey.pullCursor)
+    }
+
+    /// Forgets the pull position so the next pass starts from the beginning of
+    /// the feed.
+    ///
+    /// Called on unpair, and it is not optional there. Change ids are the
+    /// server's, not this device's: a Mac that unpairs and pairs again — to the
+    /// same server or a different one — is a new device with an empty local
+    /// projection, and resuming from the old cursor would skip the entire
+    /// backlog and leave a timeline that never fills in. Whoever clears the
+    /// cursor must also clear the projection it describes, which is why
+    /// `MacAppEnvironment.unpair()` does both together.
+    func resetCursor() {
+        settings.set(nil, for: MacSyncSettingsKey.pullCursor)
+        lastAppliedCount = 0
+        lastPulledAt = nil
     }
 }
 

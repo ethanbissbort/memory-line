@@ -32,6 +32,9 @@ final class MacAppEnvironment {
     let api: SyncAPIClient
     /// Windows-authored processing status per capture (design §19 Phase 3).
     let statuses: SQLiteCaptureStatusStore
+    /// Read-only copy of the Windows archive — events, eras, people, review
+    /// queue. Windows is the only writer; this Mac renders what it is sent.
+    let projections: SQLiteTimelineProjectionStore
     let sync: MacSyncCoordinator
     let uploads: MacUploadCoordinator
     let recorder: MacAudioRecorderService
@@ -39,7 +42,11 @@ final class MacAppEnvironment {
 
     private let logger = AppLog.logger(category: "environment")
 
-    init(database: SQLiteDatabase, statuses: SQLiteCaptureStatusStore) {
+    init(
+        database: SQLiteDatabase,
+        statuses: SQLiteCaptureStatusStore,
+        projections: SQLiteTimelineProjectionStore
+    ) {
         let captures = SQLiteCaptureStore(database: database)
         let settings = SQLiteSettingsStore(database: database)
         let tokens = KeychainTokenStore()
@@ -52,7 +59,9 @@ final class MacAppEnvironment {
         self.tokens = tokens
         self.api = api
         self.statuses = statuses
-        self.sync = MacSyncCoordinator(settings: settings, api: api, statusStore: statuses)
+        self.projections = projections
+        self.sync = MacSyncCoordinator(
+            settings: settings, api: api, statusStore: statuses, projectionStore: projections)
         self.uploads = uploads
         self.inputs = MacAudioDeviceEnumerator()
         // Capture the local `uploads` rather than self: the closure has to be
@@ -151,6 +160,24 @@ final class MacAppEnvironment {
         tokens.clear()
         settings.set(nil, for: AppSettingsKey.deviceId)
         settings.set(false, for: AppSettingsKey.syncEnabled)
+
+        // The timeline projection is a copy of someone's archive that arrived
+        // over the wire; an unpaired Mac has no business keeping it on disk
+        // (design §14). Dropping it and forgetting the cursor are one act: the
+        // cursor names a position in the *server's* change log, so keeping it
+        // after a re-pair would resume mid-feed and leave the freshly emptied
+        // projection with no backlog to refill from. Doing either alone is a
+        // bug — either a timeline that never fills in, or one that outlives the
+        // pairing that justified it.
+        sync.resetCursor()
+        do {
+            try projections.deleteAll()
+        } catch {
+            // Credentials are already gone, so the device is unpaired whatever
+            // happens here. Say so rather than failing the unpair over stale
+            // read-only rows the next pull would overwrite anyway.
+            logger.error("could not clear the timeline projection on unpair: \(String(describing: error), privacy: .public)")
+        }
     }
 
     /// Name this Mac presents to the sync service when pairing. The local host
@@ -210,6 +237,15 @@ final class MacAppEnvironment {
                 + "database: \(error)")
         }
 
-        return MacAppEnvironment(database: database, statuses: statuses)
+        let projections: SQLiteTimelineProjectionStore
+        do {
+            projections = try SQLiteTimelineProjectionStore(database: database)
+        } catch {
+            fatalError(
+                "Memory Line could not prepare its timeline tables on an otherwise healthy "
+                + "database: \(error)")
+        }
+
+        return MacAppEnvironment(database: database, statuses: statuses, projections: projections)
     }
 }

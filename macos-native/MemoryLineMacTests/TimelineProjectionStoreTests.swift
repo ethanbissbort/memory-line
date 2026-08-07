@@ -263,6 +263,40 @@ final class TimelineProjectionStoreTests: XCTestCase {
         XCTAssertEqual(try f.store.allPeople(), [])
     }
 
+    /// The feed pins `entityId` to one spelling of the UUID and only requires the
+    /// payload's own copy to *denote* the same id (`SyncChangeService`, "Entity
+    /// IDs"). SQLite compares TEXT byte for byte, so the row has to be keyed on
+    /// `entityId`: key it on the payload's spelling and the tombstone below
+    /// deletes nothing, leaving a memory the user removed on Windows on screen
+    /// here forever.
+    @MainActor
+    func testRowsAreKeyedOnEntityIdRatherThanThePayloadsSpelling() throws {
+        let f = try makeFixture()
+        let canonical = "a1b2c3d4-0000-4000-8000-000000000001"
+        let event = Self.event(id: canonical.uppercased(), startDate: Self.day(0), updatedAt: Self.day(0))
+
+        XCTAssertEqual(
+            try f.applier.apply([
+                upsertChange(
+                    event,
+                    entityType: TimelineProjectionEntityType.event,
+                    entityId: canonical,
+                    changeId: 1)
+            ]),
+            1)
+
+        XCTAssertEqual(try f.store.event(eventId: canonical)?.eventId, canonical)
+        XCTAssertNil(try f.store.event(eventId: canonical.uppercased()),
+                     "the payload's own spelling must not become a second row")
+
+        let applied = try f.applier.apply([
+            deleteChange(entityType: TimelineProjectionEntityType.event, entityId: canonical, changeId: 2)
+        ])
+
+        XCTAssertEqual(applied, 1)
+        XCTAssertEqual(try f.store.events(from: .distantPast, to: .distantFuture), [])
+    }
+
     /// The feed is shared. A page routinely carries entities that belong to other
     /// features, and they must pass through untouched.
     @MainActor
