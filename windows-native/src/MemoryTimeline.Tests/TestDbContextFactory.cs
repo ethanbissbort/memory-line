@@ -48,10 +48,31 @@ public sealed class TestDbContextFactory : IDbContextFactory<AppDbContext>
     /// Creates a factory over a SQLite FILE database at the given path.
     /// Each context opens its own connection to the same file.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>Pooling=False</c> is REQUIRED here, not a preference.
+    /// <see cref="Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools"/> is
+    /// process-global: it disposes the underlying <c>SQLitePCL.sqlite3</c>
+    /// handle of every pooled connection, for every connection string. Three
+    /// places call it — <c>BackupService.CreateBackupAsync</c>,
+    /// <c>BackupServiceTests</c>, and <c>SchemaUpgraderSyncSchemaTests</c> —
+    /// and xUnit runs test classes in parallel, so with pooling ON a clear in
+    /// one class can dispose a handle another class is actively using. The
+    /// victim then throws <see cref="ObjectDisposedException"/> from wherever
+    /// it happened to be, typically the pragma interceptor's command in
+    /// <c>ConnectionOpened</c> during <c>EnsureDeleted</c> teardown — which
+    /// that interceptor does not catch (it only expects SqliteException).
+    /// </para>
+    /// <para>
+    /// Unpooled connections are not in any pool, so a global clear cannot
+    /// touch them. This also makes teardown deletion of the temp .db/-wal/-shm
+    /// files reliable, since no pooled handle lingers on the file.
+    /// </para>
+    /// </remarks>
     public static TestDbContextFactory CreateSqliteFile(string databaseFilePath)
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlite($"Data Source={databaseFilePath}")
+            .UseSqlite($"Data Source={databaseFilePath};Pooling=False")
             .Options;
         return new TestDbContextFactory(options);
     }
