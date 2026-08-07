@@ -1,13 +1,14 @@
 # Memory Line — macOS
 
-A native **SwiftUI** macOS app. Currently a walking skeleton: it pairs with the sync
-service and browses the local capture library. Everything else is in flight — see
-[`docs/design/MACOS-PORT-PLAN.md`](../docs/design/MACOS-PORT-PLAN.md) for the plan, the
-decisions behind it, and the open questions.
+A native **SwiftUI** macOS app. It pairs with the sync service, pulls the change feed on a
+timer, applies Windows-authored capture status, and browses the local library. Everything
+else is in flight — see [`docs/design/MACOS-PORT-PLAN.md`](../docs/design/MACOS-PORT-PLAN.md)
+for the plan, the decisions behind it, and the open questions.
 
 **Platform:** macOS 14 (Sonoma) or later
 **Toolchain:** Xcode 16+ (the project uses `objectVersion = 77` synchronized folder groups)
-**Status:** Phase 0 of 6. Not runtime-validated.
+**Status:** Phases 0–1 of 6. Builds and tests green in CI; not runtime-validated against a
+live sync server.
 
 ---
 
@@ -77,14 +78,21 @@ macos-native/
 │   │   ├── MacAppEnvironment.swift    composition root (mirrors the iOS AppEnvironment)
 │   │   └── RootView.swift             sidebar navigation
 │   └── Features/
-│       ├── Library/LibraryView.swift  capture list + Windows-authored status
-│       └── Sync/SettingsScene.swift   pairing / unpairing
+│       ├── Library/LibraryView.swift       capture list + Windows-authored status
+│       └── Sync/
+│           ├── MacSyncCoordinator.swift    pull → apply → ack, on a foreground timer
+│           └── SettingsScene.swift         pairing / unpairing / sync status
 └── MemoryLineMacTests/
 ```
 
-`MacAppEnvironment` deliberately omits the iOS app's recorder, upload coordinator, and
-status-sync coordinator: those are built on `AVAudioSession` and `BGTaskScheduler`, neither
-of which exists on macOS. Their replacements are Phases 1–2 of the plan.
+`MacAppEnvironment` deliberately omits the iOS app's recorder and upload coordinator:
+those are built on `AVAudioSession` and `BGTaskScheduler`, neither of which exists on
+macOS. Recording is Phase 2; there is nothing to upload until it lands.
+
+`MacSyncCoordinator` replaces the iOS `StatusSyncCoordinator`. It is a reimplementation
+rather than shared code — that one needs `BackgroundTasks` and reconciles against capture
+records the phone created — but the pull/ack semantics are a server contract, so they are
+mirrored exactly and pinned by tests.
 
 ---
 

@@ -86,22 +86,24 @@ unusual. If Xcode does not resolve it on first open, the group appears empty or 
 by deleting the group and dragging `ios-companion/MemoryLineCompanion/Shared` back in with
 "create folder reference". Nothing else in the repository depends on this working.
 
-### 3.2 Keychain: the Mac needs its own item and a modern keychain
+### 3.2 Keychain: the Mac needs its own item and a modern keychain — **done**
 
-`KeychainTokenStore` hardcodes the service name **`ca.fluxology.memoryline.ios.tokens`**
-and passes no `kSecUseDataProtectionKeychain`. Two consequences on macOS:
+`KeychainTokenStore` hardcoded the service name `ca.fluxology.memoryline.ios.tokens` and
+passed no `kSecUseDataProtectionKeychain`. Both are fixed:
 
-1. **The service name is wrong for the Mac.** It is also arguably *right* to keep the two
-   separate: each device pairs independently and holds its own device-bound tokens, so a
-   Mac writing to the iOS service name would be confusing at best. Make the service name
-   derive from the bundle identifier rather than being a literal.
-2. **Without `kSecUseDataProtectionKeychain: true`, macOS uses the legacy file-based
-   keychain**, where `kSecAttrAccessibleAfterFirstUnlock` is not honoured the way it is on
-   iOS. The Mac app should opt into the data-protection keychain, which requires the
-   `keychain-access-groups` entitlement already declared in
+1. **Service name now derives from `Bundle.main.bundleIdentifier`.** On iOS that evaluates
+   to `ca.fluxology.memoryline.ios.tokens` — byte for byte the literal it replaced — so
+   existing installs keep reading their stored tokens and **no migration is needed**. The
+   Mac gets `ca.fluxology.memoryline.mac.tokens` and therefore its own credentials, which
+   is correct: each device pairs independently and holds its own device-bound token pair.
+2. **`kSecUseDataProtectionKeychain` is set on macOS only.** Without it, `SecItem*` calls
+   land in the legacy file-based keychain where `kSecAttrAccessible` is not honoured the
+   way it is on iOS. It is `#if os(macOS)`-guarded rather than unconditional: the key is
+   documented as ignored on iOS, but this store holds the credentials a paired phone needs
+   and a lookup that silently stopped matching would unpair every existing install — not
+   worth the risk for a flag that does nothing there. It requires the
+   `keychain-access-groups` entitlement, already declared in
    `macos-native/Config/MemoryLineMac.entitlements`.
-
-Both are small changes to a shared file and are the first thing to do in Phase 1.
 
 ### 3.3 The C# business layer does not come to macOS — but it stayed portable anyway
 
@@ -140,12 +142,24 @@ on macOS**. The Mac needs its own recorder on `AVAudioEngine` / `AVAudioRecorder
   UI with no iOS counterpart.
 - No background-audio equivalent: on macOS the app is simply running or not.
 
-### 4.2 Upload and status sync
+### 4.2 Upload and status sync — pull side **done**
 
-iOS `UploadCoordinator` and `StatusSyncCoordinator` are built on `BGTaskScheduler`. macOS
-has no such API. The Mac equivalent is far simpler — a foreground task loop plus a
-`Timer`, since the app is either running or not — but it is a rewrite, not a port. The
-`SyncAPIClient` calls underneath are shared unchanged.
+iOS `UploadCoordinator` and `StatusSyncCoordinator` are built on `BGTaskScheduler`, which
+macOS does not have. `MacSyncCoordinator` is the Mac equivalent for the **pull** side: a
+foreground `Task` loop on a 120s interval plus an explicit *Sync Now*, since the app is
+either running or not. The `SyncAPIClient` calls underneath are shared unchanged.
+
+It is a reimplementation, not a shared type, for two reasons: the iOS coordinator depends
+on `BackgroundTasks`, and it reconciles remote status against capture records the *phone*
+created, which the Mac does not have yet. The parts that are a contract with the server
+rather than a local choice are mirrored exactly and covered by tests — page until
+`hasMore`, persist the cursor *before* acking, hold the cursor when applying fails so the
+page replays, never ack a cursor that did not advance, and last-write-wins on the
+Windows-authored `updatedAtUtc` when a page is redelivered.
+
+**Known gap:** the Mac applies `capture_status` changes but ignores `capture` and
+`capture_artifact` ones, so the Library shows status for captures it does not yet hold.
+Materialising capture rows from the feed (or recording its own) is Phase 2.
 
 ### 4.3 Storage locations
 
@@ -171,8 +185,9 @@ Each phase is shippable and leaves the app in a usable state.
 
 | Phase | Scope | Notes |
 |---|---|---|
-| **0 — Skeleton** ✅ | Xcode project, composition root, pairing, capture library | in the tree now |
-| **1 — Keychain + sync loop** | Fix §3.2; port upload/status coordinators to a foreground loop | makes the Mac a real sync peer |
+| **0 — Skeleton** ✅ | Xcode project, composition root, pairing, capture library | in the tree |
+| **1 — Keychain + sync pull** ✅ | §3.2 fixed; `MacSyncCoordinator` pulls/applies/acks the change feed on a foreground timer | in the tree |
+| **1b — Upload** | Drain pending uploads | nothing to upload until Phase 2 gives the Mac a recorder; deferred deliberately |
 | **2 — Capture** | macOS recorder, input device selection, menu-bar quick capture | §4.1 |
 | **3 — Timeline** | The big one: timeline math, zoom levels, spans, swimlanes, uncertainty bands | see §6 |
 | **4 — Review & people** | Pending-event review, approve/reject, contact book | needs extraction (§6) |

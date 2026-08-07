@@ -108,6 +108,24 @@ public static class SyncChangeEntityType
     /// artifact to download.
     /// </summary>
     public const string CaptureStatus = "capture_status";
+
+    /// <summary>
+    /// An assistant turn (Phase 4). Payload is
+    /// <see cref="AssistantTurnChangePayload"/>. Unlike every other entity
+    /// type, this one flows in BOTH directions over the same feed: the service
+    /// publishes a pending turn toward Windows, and Windows publishes the
+    /// answered turn back. Consumers therefore apply by revision rather than
+    /// assuming a direction.
+    /// </summary>
+    public const string AssistantTurn = "assistant_turn";
+
+    /// <summary>
+    /// One incremental chunk of a streaming assistant answer (Phase 4). Payload
+    /// is <see cref="AssistantTurnChunkPayload"/>. Chunks are advisory: a
+    /// responder that cannot stream never publishes any, and the client renders
+    /// the completed <see cref="AssistantTurn"/> instead.
+    /// </summary>
+    public const string AssistantTurnChunk = "assistant_turn_chunk";
 }
 
 /// <summary>

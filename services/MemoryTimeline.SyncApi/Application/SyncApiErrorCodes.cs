@@ -25,5 +25,8 @@ public static class SyncApiErrorCodes
     public const string ArtifactLengthMismatch = "artifact_length_mismatch";
     public const string ArtifactHashMismatch = "artifact_hash_mismatch";
     public const string ArtifactNotComplete = "artifact_not_complete";
+    public const string AssistantSessionNotFound = "assistant_session_not_found";
+    public const string AssistantTurnNotFound = "assistant_turn_not_found";
+    public const string AssistantTurnConflict = "assistant_turn_conflict";
     public const string InternalError = "internal_error";
 }

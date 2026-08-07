@@ -12,6 +12,7 @@ companion, and the sync service. Source of truth:
 | [`openapi/memory-line-sync-v1.yaml`](./openapi/memory-line-sync-v1.yaml) | Memory Line Sync API v1 (OpenAPI 3.0.3): devices, captures, artifacts, sync push/pull/ack, assistant, trips, detours. |
 | [`json-schema/capture-envelope.v1.json`](./json-schema/capture-envelope.v1.json) | JSON Schema (draft 2020-12) for the remote capture ingestion envelope — the payload handed to Windows ingestion (`RemoteCaptureEnvelope` in `MemoryTimeline.Core`). |
 | [`json-schema/capture-status-payload.v1.json`](./json-schema/capture-status-payload.v1.json) | JSON Schema (draft 2020-12) for the `capture_status` change payload — the Windows-authored processing status the phone reads (`CaptureStatusChangePayload`). |
+| [`json-schema/assistant-turn-payload.v1.json`](./json-schema/assistant-turn-payload.v1.json) | JSON Schema (draft 2020-12) for the `assistant_turn` change payload — one voice-assistant turn as it rides the feed between the asking device and its responder (`AssistantTurnChangePayload`). |
 
 ## Versioning rules
 
@@ -42,6 +43,51 @@ together in the same commit. Hand-written types elsewhere (e.g.
 `RemoteCaptureEnvelope`) must likewise mirror these files exactly.
 
 ## Changelog
+
+### v1.3 (2026-08-07) — assistant sessions and turns
+
+Added the Phase 4 voice assistant (design doc §19 Phase 4). Additive to
+everything outside the assistant, but NOT additive within it — see the note at
+the end.
+
+- **Five endpoints** under `/assistant`: create and read a session, post a turn,
+  poll a turn, cancel a turn. Cancellation is explicit rather than implied,
+  because "interruption and cancellation" is a stated Phase 4 requirement.
+- **Two change types**, `assistant_turn` and `assistant_turn_chunk`, added to
+  the `entityType` enum on both `SyncChange` and `SyncPushEntry`. Unlike every
+  other entity type these flow in BOTH directions over one feed: the service
+  publishes a pending turn toward Windows, and Windows publishes the answered
+  turn back. Consumers therefore apply by revision rather than assuming a
+  direction.
+- **Nine schemas**, mirrored by
+  [`dotnet/MemoryTimeline.SyncContracts/AssistantContracts.cs`](./dotnet/MemoryTimeline.SyncContracts/AssistantContracts.cs)
+  and, for the change payload, by
+  [`json-schema/assistant-turn-payload.v1.json`](./json-schema/assistant-turn-payload.v1.json).
+
+**The architecture this encodes.** Windows is the brain by default: the
+archive, the retrieval index and the extraction prompts live in
+`MemoryTimeline.Core`, and Phase 3 already made Windows the only writer. The
+service therefore stores and routes but never retrieves or generates. Two
+alternatives are first-class, because a companion whose answers stop when the
+PC sleeps is not much of a companion: `provider` (the service calls an LLM
+directly) and `on_device` (the phone pre-processes and supplies context). Every
+result carries a `grounding` value so a client can never pass general knowledge
+off as the user's own history. Responder is chosen per turn, not per session,
+so a client can fall back mid-conversation.
+
+**Streaming rides the feed as ordered chunks**, not a long-lived connection:
+the phone's transport is already a pull loop that survives suspension and
+network changes. A responder that cannot stream publishes no chunks and the
+client renders the final result.
+
+**Not additive within the assistant block.** v1.2 carried a speculative
+assistant design sketched from design doc §6.6 that had never been implemented.
+It could not coexist with the shipped DTOs — YAML cannot hold two
+`AssistantTurnResponse` keys — so it was reconciled, following the v1.1
+precedent that the shared DTOs are the implemented truth. `mode`, `tripId` and
+the audio artifact ids from that sketch are retained; the SSE streaming
+endpoint is not, having been replaced by feed-carried chunks. No client existed
+against the removed shapes.
 
 ### v1.2 (2026-08-07) — `capture_status`
 

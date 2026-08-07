@@ -10,7 +10,7 @@ openapi: 3.0.3
 
 info:
   title: Memory Line Sync API
-  version: 1.2.0
+  version: 1.3.0
   description: >-
     Device-neutral sync, capture, assistant, and roadtrip API for Memory Line.
     Conventions (design doc section 11.1): base path /api/v1, JSON metadata,
@@ -512,11 +512,24 @@ paths:
 
   # --------------------------------------------------------------- assistant
 
+  # Windows is the brain by default (design doc section 19 Phase 4). The archive,
+  # the retrieval index, and the extraction prompts all live in Windows, and
+  # Phase 3 already made Windows the only writer, so these endpoints STORE AND
+  # ROUTE turns — they never retrieve or generate. A turn asked from a phone is
+  # dispatched over the existing sync change feed to Windows, which answers and
+  # pushes the result back exactly as capture status already flows. This section
+  # mirrors ../dotnet/MemoryTimeline.SyncContracts/AssistantContracts.cs.
+
   /assistant/sessions:
     post:
       tags: [assistant]
       operationId: createAssistantSession
-      summary: Start an assistant session.
+      summary: Open an assistant session.
+      description: >-
+        A session scopes turn ordering and shared context, and only the device
+        that opened it may add turns. Its preferredResponder is a default, not a
+        binding: every turn may override it, so a client whose PC goes to sleep
+        mid-conversation falls back on the next turn instead of starting over.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -531,16 +544,76 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AssistantSession'
+                $ref: '#/components/schemas/AssistantSessionResponse'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /assistant/sessions/{sessionId}:
+    get:
+      tags: [assistant]
+      operationId: getAssistantSession
+      summary: Fetch a session.
+      description: >-
+        Returns turnCount and lastTurnAtUtc as well as the session's identity,
+        so a client resuming a conversation — or an idle-session reaper — can
+        tell how far it got without replaying every turn.
+
+
+        A session belonging to another device, even another device of the same
+        owner, answers 404 assistant_session_not_found rather than a distinct
+        forbidden — the same anti-enumeration stance as device refresh, since a
+        403 would confirm the identifier is real.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: The session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssistantSessionResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
 
   /assistant/sessions/{sessionId}/turns:
     post:
       tags: [assistant]
       operationId: createAssistantTurn
-      summary: Post a user turn (text and/or a completed audio artifact).
+      summary: Ask a question. Accepted immediately, answered asynchronously.
+      description: >-
+        The service does not answer — it makes the turn durable and routes it.
+        For the default windows responder that means publishing an
+        assistant_turn change toward Windows, which answers and pushes the
+        answered turn back over the same feed. The response therefore carries
+        status pending and no result; the asking device learns the outcome from
+        its ordinary sync pull, or by polling GET /assistant/turns/{turnId}.
+
+
+        Submission is idempotent on the client-generated turnId, so a retry
+        after a lost response never asks the same question twice. A known
+        turnId is never re-dispatched: the turn as it stands is returned with
+        200, and by then it may be pending, dispatched, answering, completed,
+        failed, or cancelled. The first submission wins outright — the stored
+        turn is returned even if the replayed body now says something different,
+        because a lost response is far likelier than a client deliberately
+        reusing an ID. Reuse across conversations is the one case that is
+        refused: a turnId already belonging to another session, or to another
+        device, answers 409 assistant_turn_conflict rather than replaying the
+        earlier question. An unknown or foreign sessionId answers 404
+        assistant_session_not_found.
+
+
+        The request carries text, never audio. Speech-to-text happens on the
+        device, so no audio and no full transcript ever crosses this API
+        (design doc section 14.5); a turn's question is the user's words, and
+        the archive itself stays where it lives. Question length and
+        device-supplied clientContext are both bounded by the service, and an
+        oversized value is refused whole with 400 validation_error rather than
+        truncated — a client is never silently answered on a fraction of what
+        it sent, and only the device knows which of its retrieval hits it can
+        afford to drop.
       parameters:
         - $ref: '#/components/parameters/SessionId'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -549,10 +622,22 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AssistantTurnRequest'
+              $ref: '#/components/schemas/AssistantTurnCreateRequest'
       responses:
+        '200':
+          description: >-
+            Idempotent replay — a turn with this ID already exists and its
+            current state is returned as-is, without asking again.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssistantTurnResponse'
         '201':
-          description: Turn accepted; the response streams on the session stream.
+          description: >-
+            Turn accepted and durable, status pending, addressable immediately
+            at /assistant/turns/{turnId}. Acceptance means the turn will be
+            routed, not that it will be answered: with the windows responder it
+            waits in the change feed until Windows next pulls.
           content:
             application/json:
               schema:
@@ -560,22 +645,69 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
 
-  /assistant/sessions/{sessionId}/stream:
+  /assistant/turns/{turnId}:
     get:
       tags: [assistant]
-      operationId: streamAssistantSession
-      summary: Server-sent event stream of incremental assistant output for a session.
+      operationId: getAssistantTurn
+      summary: Poll one turn's current state.
+      description: >-
+        The authoritative state of a turn, including its result once a responder
+        has answered. A device running the sync pull loop already learns the same
+        thing from assistant_turn changes and need not poll; this endpoint exists
+        for surfaces that hold no local cursor (a fresh launch, a watch, a
+        diagnostic tool) and for recovering when a client dropped a change.
+
+
+        A turn belonging to another device answers 404
+        assistant_turn_not_found, not a distinct forbidden, for the same
+        anti-enumeration reason as elsewhere.
       parameters:
-        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/TurnId'
       responses:
         '200':
-          description: text/event-stream of incremental turn deltas and status events.
+          description: The turn.
           content:
-            text/event-stream:
+            application/json:
               schema:
-                type: string
+                $ref: '#/components/schemas/AssistantTurnResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /assistant/turns/{turnId}/cancel:
+    post:
+      tags: [assistant]
+      operationId: cancelAssistantTurn
+      summary: Interrupt a turn.
+      description: >-
+        Interruption and cancellation are explicit Phase 4 requirements (design
+        doc section 19): an answer the user has stopped caring about must be
+        stoppable mid-sentence, hands-free, while driving.
+
+
+        Cancellation is best-effort and idempotent. A non-terminal turn moves to
+        cancelled and the new state is published on the change feed, so a
+        responder already mid-answer learns to stop. A turn already in a
+        terminal state (completed, failed, or cancelled) is returned unchanged
+        with 200 and publishes nothing: an interruption inherently races the
+        answer, and neither erasing an answer the user may already have heard
+        nor turning that race into an error would help them. Unknown or foreign
+        turn IDs answer 404 assistant_turn_not_found.
+      parameters:
+        - $ref: '#/components/parameters/TurnId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: >-
+            The turn's state after the cancellation attempt — cancelled, or the
+            terminal state it had already reached.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssistantTurnResponse'
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -827,6 +959,16 @@ components:
       name: sessionId
       in: path
       required: true
+      schema:
+        type: string
+        format: uuid
+    TurnId:
+      name: turnId
+      in: path
+      required: true
+      description: >-
+        Client-generated turn ID, which is why a turn is addressable before the
+        service has ever seen it.
       schema:
         type: string
         format: uuid
@@ -1252,7 +1394,8 @@ components:
           description: Monotonically increasing server change ID — the pull cursor.
         entityType:
           type: string
-          enum: [capture, capture_artifact, capture_status, recording_queue, pending_event, event]
+          enum: [capture, capture_artifact, capture_status, recording_queue,
+                 pending_event, event, assistant_turn, assistant_turn_chunk]
         entityId:
           type: string
           description: >-
@@ -1476,7 +1619,8 @@ components:
           format: int64
         entityType:
           type: string
-          enum: [capture, capture_artifact, capture_status, recording_queue, pending_event, event]
+          enum: [capture, capture_artifact, capture_status, recording_queue,
+                 pending_event, event, assistant_turn, assistant_turn_chunk]
         entityId:
           type: string
           description: >-
@@ -1866,10 +2010,64 @@ components:
 
     # ------------------------------------------------------------- assistant
 
-    AssistantSession:
+    AssistantSessionCreateRequest:
       type: object
-      description: Voice assistant session (design doc section 6.6).
-      required: [sessionId, mode, startedAtUtc]
+      description: >-
+        Opens a conversation. Sessions scope turn ordering and shared context;
+        only the device that opened one may add turns to it.
+      properties:
+        preferredResponder:
+          type: string
+          enum: [windows, provider, on_device]
+          default: windows
+          description: >-
+            Default responder for turns in this session. windows is the default
+            because the archive, the retrieval index, and the extraction prompts
+            all live there, so it is the only responder that can ground an
+            answer in the user's full history — at the cost of needing Windows
+            online, since a turn otherwise simply waits. provider has the service
+            call a configured LLM directly, which answers while Windows sleeps
+            but is grounded only in what the client supplied. on_device means the
+            phone pre-processed and brings its own context, which is cheapest and
+            works nearly offline but knows only what the device holds. Each turn
+            may override this, so the session's choice is a default, not a
+            binding.
+        surface:
+          type: string
+          nullable: true
+          description: >-
+            Free-text label for the surface that opened the session ("carplay",
+            "watch", "mac"), for diagnostics only. Never used for routing — a
+            surface cannot earn different behavior by naming itself.
+        mode:
+          type: string
+          enum: [memory_query, trip_assistant, capture_followup]
+          default: memory_query
+          description: >-
+            What this conversation is for (design doc section 6.6). Advisory
+            routing context for the responder rather than access control: it
+            tells Windows whether to weight the archive, the current trip, or
+            the capture the user just made, so the same question can mean
+            different things on different surfaces.
+        tripId:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Trip this session belongs to, when mode is trip_assistant. Trips
+            arrive in Phase 5; the field exists now so a Phase 4 client does not
+            have to be revised to carry one.
+
+    AssistantSessionResponse:
+      type: object
+      description: A conversation.
+      required:
+        - sessionId
+        - deviceId
+        - preferredResponder
+        - createdAtUtc
+        - lastTurnAtUtc
+        - turnCount
       properties:
         sessionId:
           type: string
@@ -1877,51 +2075,145 @@ components:
         deviceId:
           type: string
           format: uuid
+          description: Device that opened the session; only that device may add turns.
+        preferredResponder:
+          type: string
+          enum: [windows, provider, on_device]
+          description: >-
+            The session's default responder; every turn may override it.
+        createdAtUtc:
+          type: string
+          format: date-time
+        lastTurnAtUtc:
+          type: string
+          format: date-time
+          description: Last activity, so idle sessions can be reaped.
+        turnCount:
+          type: integer
+          minimum: 0
+        mode:
+          type: string
+          enum: [memory_query, trip_assistant, capture_followup]
+          description: What this conversation is for (design doc section 6.6).
         tripId:
           type: string
           format: uuid
           nullable: true
-        startedAtUtc:
-          type: string
-          format: date-time
-        endedAtUtc:
-          type: string
-          format: date-time
-          nullable: true
-        mode:
-          type: string
-          enum: [memory_query, trip_assistant, capture_followup]
+          description: Trip this session belongs to, when it has one.
 
-    AssistantSessionCreateRequest:
-      type: object
-      required: [mode]
-      properties:
-        deviceId:
-          type: string
-          format: uuid
-        tripId:
-          type: string
-          format: uuid
-        mode:
-          type: string
-          enum: [memory_query, trip_assistant, capture_followup]
-
-    AssistantTurnRequest:
+    AssistantTurnCreateRequest:
       type: object
       description: >-
-        A user turn. At least one of userText or userAudioArtifactId must be
-        provided; audio must reference a completed artifact.
+        Asks a question. The turn is accepted and routed, never answered inline.
+      required: [turnId, question]
       properties:
-        userText:
+        turnId:
           type: string
+          format: uuid
+          description: >-
+            Client-generated turn ID (lowercased UUID). This is what makes
+            submission idempotent: a retry after a lost response returns the
+            existing turn rather than asking the same question twice.
+        question:
+          type: string
+          description: >-
+            The question as text. Speech-to-text happens on the device, so the
+            service never receives audio for a turn — which keeps this endpoint
+            cheap and keeps voice data on the phone (design doc section 14.5).
+        responder:
+          type: string
+          enum: [windows, provider, on_device]
+          nullable: true
+          description: >-
+            Overrides the session's preferredResponder for this turn only; null
+            uses the session's. Chosen per turn so a client can fall back the
+            moment Windows goes offline without abandoning the conversation.
+        clientContext:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/AssistantContextItem'
+          description: >-
+            Context the device retrieved itself (on_device pre-processing).
+            Bounded by the service in item count, per-item length, and total
+            length; an oversized list is refused whole with 400
+            validation_error rather than truncated, so a client is never
+            silently answered on a fraction of what it sent.
+        stream:
+          type: boolean
+          default: false
+          description: >-
+            Whether the client wants incremental chunks, delivered as
+            assistant_turn_chunk changes on the sync feed. Advisory: a responder
+            may ignore it and deliver one final answer, so clients must handle
+            both.
         userAudioArtifactId:
           type: string
           format: uuid
+          nullable: true
+          description: >-
+            A completed audio artifact holding the spoken question, for clients
+            that do NOT transcribe locally (design doc section 6.6). On-device
+            speech-to-text is an option, not the only path — a watch or a car
+            surface may have no usable local recogniser — so the audio route
+            stays expressible. The artifact is uploaded through the existing
+            artifact endpoints and referenced here, so audio never travels
+            inline through this API. Null on the on-device path, where question
+            already carries the transcript.
+
+    AssistantContextItem:
+      type: object
+      description: >-
+        One piece of device-supplied grounding: an event the phone believes is
+        relevant, with a bounded excerpt. Deliberately shaped like a Windows
+        retrieval hit so a responder can treat device-supplied and archive
+        context alike.
+      required: [eventId, title]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+          description: >-
+            The archive's identifier for the event, as Windows minted it. The
+            service validates this one as a UUID because it is client input
+            that will be handed to a responder; a citation's eventId, which the
+            service only forwards, is not constrained.
+        title:
+          type: string
+        eventDateUtc:
+          type: string
+          format: date-time
+          nullable: true
+          description: Event date as the device knows it; may be imprecise.
+        excerpt:
+          type: string
+          nullable: true
+          description: >-
+            Bounded excerpt — never the full event text (design doc section
+            14.5). This payload crosses devices, so it carries what a responder
+            needs to read, not the archive itself.
+        score:
+          type: number
+          format: double
+          nullable: true
+          description: Device-side similarity score, if it computed one. Advisory.
 
     AssistantTurnResponse:
       type: object
-      description: Completed assistant turn (design doc section 6.6).
-      required: [turnId, sessionId, sequence, createdAtUtc]
+      description: >-
+        State of a turn, as any participant sees it. A turn is pending from the
+        moment it is accepted and stays there while it sits on the feed; only a
+        responder that has actually claimed it moves it onward. completed,
+        failed and cancelled are terminal and absolute — a late answer for a
+        cancelled turn is discarded, never resurrected.
+      required:
+        - turnId
+        - sessionId
+        - sequence
+        - question
+        - status
+        - requestedResponder
+        - createdAtUtc
       properties:
         turnId:
           type: string
@@ -1931,29 +2223,274 @@ components:
           format: uuid
         sequence:
           type: integer
-        userAudioArtifactId:
+          description: Monotonic within the session, assigned by the service.
+        question:
           type: string
-          format: uuid
+        status:
+          type: string
+          enum: [pending, dispatched, answering, completed, failed, cancelled]
+          description: >-
+            pending — accepted, durable and published to the feed, but not
+            yet picked up. Publishing is not delivery: Windows may be asleep for
+            hours, so the service deliberately does not advance the turn on
+            publish rather than reporting a dispatch nothing has read.
+            dispatched — a responder has claimed it; only a responder sets this.
+            answering — a responder is producing an answer. completed — result
+            is present. failed — ended without an answer; see the failure
+            fields. cancelled — interrupted by the user.
+        requestedResponder:
+          type: string
+          enum: [windows, provider, on_device]
+          description: Responder the client asked for.
+        actualResponder:
+          type: string
+          enum: [windows, provider, on_device]
           nullable: true
-        userText:
+          description: >-
+            Responder that actually answered. Both are recorded because they
+            differ whenever a fallback happened, and a client that shows an
+            answer should be able to say where it came from. Null until
+            something claims the turn.
+        createdAtUtc:
+          type: string
+          format: date-time
+        completedAtUtc:
+          type: string
+          format: date-time
+          nullable: true
+          description: Set when the turn reached a terminal state; null before that.
+        result:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/AssistantTurnResult'
+          description: Present once status is completed; null otherwise.
+        failureReason:
           type: string
           nullable: true
-        assistantText:
+          description: >-
+            Display-safe failure text; by contract never a file path, a
+            credential, or archive content (design doc section 14.5).
+        failureRetryable:
+          type: boolean
+          nullable: true
+          description: >-
+            Whether retrying could plausibly succeed (design doc section 16.2).
+            Null when the responder cannot classify the failure — which is not
+            evidence either way.
+
+    AssistantTurnResult:
+      type: object
+      description: An answer.
+      required: [answer, grounding, citations]
+      properties:
+        answer:
+          type: string
+          description: The answer text. Clients speak it via on-device TTS.
+        grounding:
+          type: string
+          enum: [archive, client_context, none]
+          description: >-
+            How well the answer is anchored to the user's actual archive.
+            archive — retrieved from the full archive, and the citations refer to
+            real events. client_context — grounded only in the context the client
+            supplied with the turn. none — no retrieval at all, general
+            knowledge. Clients must surface anything other than archive rather
+            than presenting a general-knowledge answer as if it came from the
+            user's own history.
+        citations:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssistantCitation'
+          description: >-
+            Events the answer rests on. Empty is legitimate and meaningful: the
+            Windows Ask feature refuses honestly when the archive holds nothing
+            relevant, and that refusal arrives as a completed turn with no
+            citations.
+        model:
           type: string
           nullable: true
+          description: Model that produced the answer, for display and diagnostics.
+        elapsedMs:
+          type: integer
+          nullable: true
+          minimum: 0
+          description: Wall-clock milliseconds the responder took.
         assistantAudioArtifactId:
           type: string
           format: uuid
           nullable: true
-        toolCallsJson:
-          type: object
-          additionalProperties: true
+          description: >-
+            A completed audio artifact holding the spoken answer, when the
+            responder synthesised one (design doc section 6.6). Null when the
+            client is expected to speak answer with on-device text-to-speech,
+            which is the cheaper default; a responder may provide both and let
+            the client choose.
+
+    AssistantCitation:
+      type: object
+      description: An event an answer cites.
+      required: [eventId, title]
+      properties:
+        eventId:
+          type: string
+          description: >-
+            The cited event's identifier. Deliberately unconstrained, unlike
+            AssistantContextItem.eventId: the service forwards what a responder
+            cited without validating it, and an imported event can carry an ID
+            Windows did not mint, so clients keep it as an opaque string.
+        title:
+          type: string
+        displayDate:
+          type: string
           nullable: true
-        citationsJson:
-          type: object
-          additionalProperties: true
+          description: >-
+            Precision-honest display date ("Summer 2003"), already formatted by
+            the responder. The wire carries the formatted string rather than a
+            date plus a precision enum so that every client renders exactly what
+            Windows would, instead of each reinventing the rounding.
+        excerpt:
+          type: string
           nullable: true
-          description: Internal source references (event IDs, transcript spans, section 13.3).
-        createdAtUtc:
+          description: >-
+            Bounded excerpt supporting the claim — never the full event (design
+            doc section 14.5).
+
+    AssistantTurnChangePayload:
+      type: object
+      description: >-
+        Shape of the JSON string carried in payloadJson for assistant_turn
+        changes. Documented here for reference — on the wire it travels as a
+        string inside payloadJson, not as an inline object.
+
+
+        Delivery reuses the existing change feed deliberately rather than adding
+        a second transport: Windows already runs a pull/ack loop and an outbox,
+        so an assistant turn is just another entity type riding proven plumbing
+        that already survives suspension, network changes, and replay.
+
+
+        Unlike every other entity type, this one flows in BOTH directions over
+        that feed: the service publishes a pending turn toward Windows, and
+        Windows publishes the answered turn back. Both directions carry the same
+        shape, so a consumer applies the newest revision without caring which way
+        it came. entityId is the turnId, and only upsert is used — a turn has
+        nothing to tombstone, since cancellation is a status rather than a
+        delete.
+
+
+        Payloads use the same camelCase web defaults as the rest of the API and
+        do not strip nulls, so a nullable field with no value is present as null
+        rather than absent.
+      required:
+        - turnId
+        - sessionId
+        - sequence
+        - question
+        - status
+        - requestedResponder
+        - originDeviceId
+        - updatedAtUtc
+      properties:
+        turnId:
+          type: string
+          format: uuid
+          description: >-
+            The turn this revision describes. Equals the change's entityId.
+        sessionId:
+          type: string
+          format: uuid
+        sequence:
+          type: integer
+          description: Monotonic within the session, assigned by the service.
+        question:
+          type: string
+          description: >-
+            The question as text; never audio, and never a transcript of the
+            surrounding conversation (design doc section 14.5).
+        status:
+          type: string
+          enum: [pending, dispatched, answering, completed, failed, cancelled]
+          description: Turn lifecycle state, the same vocabulary as AssistantTurnResponse.status.
+        requestedResponder:
+          type: string
+          enum: [windows, provider, on_device]
+        actualResponder:
+          type: string
+          enum: [windows, provider, on_device]
+          nullable: true
+          description: Null until a responder claims the turn.
+        originDeviceId:
+          type: string
+          format: uuid
+          description: >-
+            Device that asked, so Windows can scope retrieval and address the
+            reply. Distinct from the change's sourceDeviceId, which names
+            whichever device published this particular revision.
+        clientContext:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/AssistantContextItem'
+          description: Device-supplied grounding, when the turn carried any; null otherwise.
+        result:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/AssistantTurnResult'
+          description: Present once the turn is answered; null before that.
+        failureReason:
+          type: string
+          nullable: true
+          description: >-
+            Display-safe failure text; never a file path, a credential, or
+            archive content (design doc section 14.5).
+        failureRetryable:
+          type: boolean
+          nullable: true
+          description: >-
+            Whether retrying could plausibly succeed (design doc section 16.2);
+            null when the publisher cannot classify the failure.
+        updatedAtUtc:
           type: string
           format: date-time
+          description: >-
+            When the publisher produced this revision. Display and
+            last-write-wins tie-breaking only — consumers apply changes in
+            changeId order, never by this clock, exactly as with
+            CaptureStatusChangePayload.updatedAtUtc.
+
+    AssistantTurnChunkPayload:
+      type: object
+      description: >-
+        Shape of the JSON string carried in payloadJson for
+        assistant_turn_chunk changes: one incremental piece of a streaming
+        answer. Documented here for reference — on the wire it travels as a
+        string inside payloadJson, not as an inline object.
+
+
+        Streaming is expressed as ordered chunks over the same feed rather than
+        as a long-lived connection, because the phone's transport is already a
+        pull loop that survives suspension and network changes. Chunks are
+        advisory: a responder that cannot stream never publishes any, and the
+        client renders the completed assistant_turn instead — so a client must
+        treat chunks as an optional accelerant, never as the source of truth for
+        an answer.
+      required: [turnId, chunkIndex, delta, isFinal]
+      properties:
+        turnId:
+          type: string
+          format: uuid
+          description: The turn being answered.
+        chunkIndex:
+          type: integer
+          minimum: 0
+          description: >-
+            Zero-based and contiguous per turn, so a client can detect a gap
+            rather than render a sentence with a hole in it.
+        delta:
+          type: string
+          description: Text to append. Never a rewrite of what came before.
+        isFinal:
+          type: boolean
+          description: >-
+            True on the last chunk. The completed turn follows on the feed with
+            the citations and grounding, which chunks deliberately do not carry.

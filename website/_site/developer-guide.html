@@ -72,6 +72,7 @@
                 <li><a class="nav-sublink" href="#security--privacy-notes">Security &amp; privacy notes</a></li>
                 <li><a class="nav-sublink" href="#key-docs-read-these-for-detail">Key docs (read these for detail)</a></li>
                 <li><a class="nav-sublink" href="#keeping-core-portable">Keeping Core portable</a></li>
+                <li><a class="nav-sublink" href="#the-swift-apps-ios-companion--macos">The Swift apps (iOS companion + macOS)</a></li>
               </ul>
             </li>
           </ul>
@@ -135,8 +136,8 @@
   <p class="doc-lede">The condensed contributor briefing: solution layout, the per-operation DbContext rule, MVVM conventions, settings keys, build reality, and how to add a feature.</p>
   <div class="doc-meta">
     <span class="doc-meta-item"><b>For</b> Contributors</span>
-    <span class="doc-meta-item"><b>2,074</b> words</span>
-    <span class="doc-meta-item"><b>9</b> min read</span>
+    <span class="doc-meta-item"><b>2,717</b> words</span>
+    <span class="doc-meta-item"><b>12</b> min read</span>
     <a class="doc-meta-item doc-source" href="https://github.com/ethanbissbort/memory-line/blob/main/claude.md" target="_blank" rel="noopener noreferrer">
       claude.md ↗
     </a>
@@ -338,6 +339,40 @@ can &quot;just run it&quot;.</li>
 </ul>
 <p>For local dev on a real Windows machine: open the solution in VS 2022 and press F5, or
 <code>msbuild MemoryTimeline.sln /t:Restore,Build /p:Configuration=Debug /p:Platform=x64</code>.</p>
+<h3 id="troubleshooting-a-local-build" class="anchored">Troubleshooting a local build<a class="heading-anchor" href="#troubleshooting-a-local-build" aria-label="Link to this section">#</a></h3>
+<p><strong><code>MSB4064: The &quot;DisabledXamlOptionalChanges&quot; parameter is not supported by the &quot;CompileXaml&quot; task</code> (followed by <code>MSB4063</code>).</strong> Read the two paths in the error: the
+<code>.targets</code> file comes from one <code>microsoft.windowsappsdk.winui</code> version and the task DLL
+from another. That is a <strong>stale <code>obj/</code></strong>, not a code problem — a machine that built the
+repo before the Windows App SDK 1.8 → 2.3.1 bump keeps generated <code>obj\*.nuget.g.props</code>
+pointing the compiler path at the old package. The repo references only 2.3.1; nothing
+references 1.8.</p>
+<div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell">cd windows-native\src
+<span class="tok-cmdlet">Get-ChildItem</span> <span class="tok-flag">-Path</span> . <span class="tok-flag">-Include</span> bin,obj <span class="tok-flag">-Recurse</span> <span class="tok-flag">-Directory</span> <span class="tok-operator">|</span> <span class="tok-cmdlet">Remove-Item</span> <span class="tok-flag">-Recurse</span> <span class="tok-flag">-Force</span>
+<span class="tok-builtin">msbuild</span> MemoryTimeline.sln /t:Restore,Build /p:Configuration=Debug /p:Platform=x64</code></pre></div>
+<p>If it survives that, delete the stale package from the global cache
+(<code>$env:USERPROFILE\.nuget\packages\microsoft.windowsappsdk.winui\1.8.*</code>) and restore again.
+A clean CI checkout builds this commit green, so a local-only failure of this shape is
+almost always leftover state.</p>
+<p><strong><code>global.json</code> SDK resolution fails.</strong> The pin is <code>10.0.100</code> with
+<code>rollForward: latestPatch</code>, which accepts <code>10.0.1xx</code> patches <strong>only</strong> — it will not roll
+forward to <code>10.0.2xx</code>. A machine with only a newer band installed (Visual Studio 2026
+ships one) cannot resolve it. Install a 10.0.1xx SDK, or raise the pin deliberately; the
+band is chosen so Visual Studio 2022 can still build (see the note inside <code>global.json</code>).</p>
+<h3 id="tests-the-sqlite-parallelism-hazard" class="anchored">Tests: the SQLite parallelism hazard<a class="heading-anchor" href="#tests-the-sqlite-parallelism-hazard" aria-label="Link to this section">#</a></h3>
+<p><code>SqliteConnection.ClearAllPools()</code> is <strong>process-global</strong> — it disposes the underlying
+<code>SQLitePCL.sqlite3</code> handle of every pooled connection, for every connection string.
+<code>BackupService.CreateBackupAsync</code> calls it (legitimately, to release file handles), and so
+do two test classes. xUnit runs test classes <strong>in parallel</strong>, so with pooling on, a clear
+in one class can dispose a handle another class is mid-operation on. The victim then
+throws <code>ObjectDisposedException</code> from wherever it happened to be — typically the pragma
+interceptor&#39;s command in <code>ConnectionOpened</code> during <code>EnsureDeleted</code> teardown, which that
+interceptor does not catch because it only expects <code>SqliteException</code>.</p>
+<p><code>TestDbContextFactory.CreateSqliteFile</code> therefore defaults to <code>Pooling=False</code>. Do not
+&quot;fix&quot; a flake of this shape by catching <code>ObjectDisposedException</code> in the interceptor —
+that hides the race and silently skips the <code>busy_timeout</code>/<code>foreign_keys</code> pragmas it exists
+to set. Pass <code>pooled: true</code> only when pooling is what is being measured (<code>PerformanceTests</code>
+does, because the app pools in production and an unpooled throughput number would be
+timing a path that never ships).</p>
 <hr>
 <h2 id="adding-a-feature-in-windows-native" class="anchored">Adding a feature in Windows Native<a class="heading-anchor" href="#adding-a-feature-in-windows-native" aria-label="Link to this section">#</a></h2>
 <ol>
@@ -449,6 +484,36 @@ resolves to <code>~/.local/share</code> on macOS, not <code>~/Library/Applicatio
 head needs a path abstraction; the port plan tracks this.</li>
 </ul>
 <hr>
+<h2 id="the-swift-apps-ios-companion--macos" class="anchored">The Swift apps (iOS companion + macOS)<a class="heading-anchor" href="#the-swift-apps-ios-companion--macos" aria-label="Link to this section">#</a></h2>
+<p>Two SwiftUI apps share one folder of code: <code>ios-companion/MemoryLineCompanion/Shared/</code>
+(domain models, sync client, SQLite stores, Keychain). The macOS project compiles that
+folder directly via an Xcode <strong>synchronized folder group</strong>, so a file added there lands in
+both apps with no project edit. Full detail: <a href="https://github.com/ethanbissbort/memory-line/blob/main/macos-native/README.md" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>macos-native/README.md</code></a>
+and <a href="macos-port-plan.html"><code>docs/design/MACOS-PORT-PLAN.md</code></a>.</p>
+<p><strong>Rules for anything under <code>Shared/</code>:</strong></p>
+<ul>
+<li><strong>It must compile on both platforms.</strong> No <code>UIKit</code>, no <code>WidgetKit</code>, no
+<code>BackgroundTasks</code>. The two files that do (<code>ConfirmationFeedback</code>,
+<code>WidgetStatusPublisher</code>) are excluded from the macOS target by name in its
+<code>PBXFileSystemSynchronizedBuildFileExceptionSet</code> — adding a third means editing that
+list, which is a signal you are putting platform code in the wrong folder.</li>
+<li><strong>Everything is <code>internal</code>.</strong> That is deliberate and is why the code is shared as a
+folder rather than a Swift package: a package would need <code>public</code> on ~50 declarations
+across a shipping app. Do not start adding <code>public</code> piecemeal.</li>
+<li><strong>Platform differences go behind <code>#if os(macOS)</code>, sparingly.</strong> <code>KeychainTokenStore</code> is
+the model: the service name derives from <code>Bundle.main.bundleIdentifier</code> (so iOS keeps
+its existing item byte for byte and the Mac gets its own), and only the
+data-protection-keychain flag is <code>#if</code>-guarded.</li>
+</ul>
+<p><strong>Sync client semantics are a server contract, not a local choice.</strong> <code>MacSyncCoordinator</code>
+and the iOS <code>StatusSyncCoordinator</code> are separate implementations — the iOS one needs
+<code>BackgroundTasks</code> — but both must: page until <code>hasMore</code>; persist the cursor <strong>before</strong>
+acking; hold the cursor when <em>applying</em> fails so the page replays; never ack a cursor that
+did not advance; and last-write-wins on the Windows-authored <code>updatedAtUtc</code>. Change one
+and check the other.</p>
+<p>Windows remains the only writer and the only editing/approval surface. Everything the
+phone and the Mac show about processing is a <strong>read-only projection</strong> (design §19).</p>
+<hr>
 <p><strong>Last Updated:</strong> 2026-08-07<br><strong>Primary target:</strong> Windows Native (.NET 10 / WinUI 3) — <code>windows-native/</code><br><strong>In progress:</strong> macOS (SwiftUI) — <code>macos-native/</code>  </p>
 
 <nav class="pager" aria-label="Document navigation">
@@ -475,11 +540,14 @@ head needs a path abstraction; the port plan tracks this.</li>
 <li class="toc-item toc-h3"><a href="#sync-service-ios-companion" data-toc-link>Sync service (iOS companion)</a></li>
 <li class="toc-item toc-h3"><a href="#the-memory-pipeline" data-toc-link>The memory pipeline</a></li>
 <li class="toc-item toc-h2"><a href="#build--run-reality" data-toc-link>Build &amp; run reality</a></li>
+<li class="toc-item toc-h3"><a href="#troubleshooting-a-local-build" data-toc-link>Troubleshooting a local build</a></li>
+<li class="toc-item toc-h3"><a href="#tests-the-sqlite-parallelism-hazard" data-toc-link>Tests: the SQLite parallelism hazard</a></li>
 <li class="toc-item toc-h2"><a href="#adding-a-feature-in-windows-native" data-toc-link>Adding a feature in Windows Native</a></li>
 <li class="toc-item toc-h2"><a href="#data-model-shared-conceptual-schema" data-toc-link>Data model (shared conceptual schema)</a></li>
 <li class="toc-item toc-h2"><a href="#security--privacy-notes" data-toc-link>Security &amp; privacy notes</a></li>
 <li class="toc-item toc-h2"><a href="#key-docs-read-these-for-detail" data-toc-link>Key docs (read these for detail)</a></li>
 <li class="toc-item toc-h2"><a href="#keeping-core-portable" data-toc-link>Keeping Core portable</a></li>
+<li class="toc-item toc-h2"><a href="#the-swift-apps-ios-companion--macos" data-toc-link>The Swift apps (iOS companion + macOS)</a></li>
   </ul>
   <a class="toc-top" href="#main">↑ Back to top</a>
 </aside>

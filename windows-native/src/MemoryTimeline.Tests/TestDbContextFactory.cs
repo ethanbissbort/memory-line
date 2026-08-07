@@ -68,11 +68,27 @@ public sealed class TestDbContextFactory : IDbContextFactory<AppDbContext>
     /// touch them. This also makes teardown deletion of the temp .db/-wal/-shm
     /// files reliable, since no pooled handle lingers on the file.
     /// </para>
+    /// <para>
+    /// Pass <paramref name="pooled"/>: true only for throughput measurement —
+    /// see the parameter docs.
+    /// </para>
     /// </remarks>
-    public static TestDbContextFactory CreateSqliteFile(string databaseFilePath)
+    /// <param name="databaseFilePath">Path to the SQLite file to open.</param>
+    /// <param name="pooled">
+    /// Opt back into connection pooling. Costs the caller immunity to the
+    /// <c>ClearAllPools</c> race described above, so use it only where pooling
+    /// is what is being measured: the app pools in production, so a throughput
+    /// test that runs unpooled would be timing a code path that never ships
+    /// (a fresh file open plus three PRAGMA round-trips per operation, which
+    /// on a write-heavy loop dominates the number being asserted on).
+    /// </param>
+    public static TestDbContextFactory CreateSqliteFile(string databaseFilePath, bool pooled = false)
     {
+        var connectionString = pooled
+            ? $"Data Source={databaseFilePath}"
+            : $"Data Source={databaseFilePath};Pooling=False";
         var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlite($"Data Source={databaseFilePath};Pooling=False")
+            .UseSqlite(connectionString)
             .Options;
         return new TestDbContextFactory(options);
     }

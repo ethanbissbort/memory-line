@@ -73,6 +73,7 @@ public static class SyncApiBootstrapper
         await using var db = await factory.CreateDbContextAsync();
         await db.Database.EnsureCreatedAsync();
         await EnsureCaptureStatusTableAsync(db);
+        await EnsureAssistantTablesAsync(db);
 
         var retentionCutoffUtc = DateTime.UtcNow.AddHours(-IdempotencyRetentionHours);
         await db.IdempotencyRecords
@@ -125,6 +126,73 @@ public static class SyncApiBootstrapper
             """);
         await db.Database.ExecuteSqlRawAsync(
             "CREATE INDEX IF NOT EXISTS IX_capture_status_owner_id ON capture_status (owner_id)");
+    }
+
+    /// <summary>
+    /// Creates the assistant session and turn tables (design §19 Phase 4) on
+    /// databases created before they existed, for the same reason
+    /// <see cref="EnsureCaptureStatusTableAsync"/> exists: EnsureCreated builds
+    /// the whole schema on first run but leaves an existing database untouched.
+    /// Every statement is idempotent, so the fresh-database path is a no-op.
+    /// Column names and types mirror the assistant mappings in
+    /// <see cref="SyncDbContext"/>.
+    ///
+    /// The unique index on (session_id, sequence) is not merely an
+    /// optimization: it is what turns two submissions racing for the same
+    /// position in a conversation into a retry rather than two turns sharing a
+    /// sequence number.
+    /// </summary>
+    private static async Task EnsureAssistantTablesAsync(SyncDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            CREATE TABLE IF NOT EXISTS assistant_sessions (
+                session_id TEXT NOT NULL CONSTRAINT PK_assistant_sessions PRIMARY KEY,
+                owner_id TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                preferred_responder TEXT NOT NULL,
+                surface TEXT NULL,
+                created_at_utc TEXT NOT NULL,
+                last_turn_at_utc TEXT NOT NULL,
+                turn_count INTEGER NOT NULL
+            )
+            """);
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE INDEX IF NOT EXISTS IX_assistant_sessions_owner_id_device_id " +
+            "ON assistant_sessions (owner_id, device_id)");
+
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            CREATE TABLE IF NOT EXISTS assistant_turns (
+                turn_id TEXT NOT NULL CONSTRAINT PK_assistant_turns PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                origin_device_id TEXT NOT NULL,
+                sequence INTEGER NOT NULL,
+                question TEXT NOT NULL,
+                status TEXT NOT NULL,
+                requested_responder TEXT NOT NULL,
+                actual_responder TEXT NULL,
+                client_context_json TEXT NULL,
+                stream INTEGER NOT NULL,
+                answer TEXT NULL,
+                grounding TEXT NULL,
+                citations_json TEXT NULL,
+                model TEXT NULL,
+                elapsed_ms INTEGER NULL,
+                failure_reason TEXT NULL,
+                failure_retryable INTEGER NULL,
+                created_at_utc TEXT NOT NULL,
+                updated_at_utc TEXT NOT NULL,
+                completed_at_utc TEXT NULL,
+                revision INTEGER NOT NULL
+            )
+            """);
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE INDEX IF NOT EXISTS IX_assistant_turns_session_id ON assistant_turns (session_id)");
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE UNIQUE INDEX IF NOT EXISTS IX_assistant_turns_session_id_sequence " +
+            "ON assistant_turns (session_id, sequence)");
     }
 
     private static byte[] ResolveSigningKey(SyncApiOptions options, string dataDir)
