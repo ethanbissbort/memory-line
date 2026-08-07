@@ -5,7 +5,7 @@ A native Windows 11 implementation of Memory Timeline, featuring local Whisper t
 **This is the primary, actively developed product.** The cross-platform Electron build under the repo's `src/` directory is now in maintenance only.
 
 **Platform:** Windows 11 (22H2+)
-**Framework:** .NET 8 + WinUI 3
+**Framework:** .NET 10 (LTS) + WinUI 3 / Windows App SDK 2.3.1
 **Status:** Active development — Phases 0-6 complete; core pipeline rebuilt and hardened via a multi-agent feature audit (2026-07), followed by a twelve-feature spec implementation (F1–F12, 2026-08). Builds are green in CI; end-to-end runtime validation is ongoing. Phase 7 (testing, MSIX, Microsoft Store) is in progress.
 
 > This is not "production ready" or runtime-verified yet. See [Recent hardening](#recent-hardening) and [Development Status](#development-status).
@@ -97,17 +97,23 @@ Every stage persists its state, so a failure is recoverable and visible in the U
 1. **Windows 11** (Version 22H2 or later)
    - Check version: `winver` in the Run dialog.
 
-2. **Visual Studio 2022** (Version 17.8+)
+2. **Visual Studio** — 2026 (18.0+) is the supported option, 2022 (17.14) works with a caveat.
    - Download: https://visualstudio.microsoft.com/
    - Required workloads:
      - `.NET Desktop Development`
      - `Windows App SDK` (Windows App SDK C# templates)
+   - The projects target `net10.0`, and Microsoft supports targeting .NET 10 only in Visual
+     Studio 18.0+. VS 2022 17.14 emits an "unsupported target" **warning** rather than an error
+     and does build, but it is off the supported path — prefer VS 2026 if you have the choice.
 
-3. **A .NET SDK** — the build is pinned to the **.NET 8** SDK by `windows-native/src/global.json`
-   (`"version": "8.0.100"`, `"rollForward": "major"`). If you only have a newer major installed
-   (e.g. .NET 9), `rollForward: "major"` lets the build use it — it just won't select the .NET 10
-   SDK, which is incompatible with the Windows App SDK PRI resource build task. So developers with
-   only .NET 9 are not blocked.
+3. **The .NET 10 SDK, `10.0.1xx` feature band** — pinned by `windows-native/src/global.json`
+   (`"version": "10.0.100"`, `"rollForward": "latestPatch"`).
+   - The band is not arbitrary: `10.0.1xx` declares MSBuild 17.14 as its minimum, which is what
+     keeps VS 2022 able to build. SDK bands `10.0.2xx` and later require MSBuild 18, i.e. VS 2026.
+     Once the toolchain is fully on VS 2026, this pin can be raised.
+   - .NET 10 is required, not optional: .NET 8 and .NET 9 both reach end of support on
+     2026-11-10, and the Windows SDK projection ref pack the build now uses is compiled against
+     a newer runtime than net8.0 can consume (it fails with `CS1705` assembly-version conflicts).
 
 ### Automated Setup
 
@@ -583,9 +589,10 @@ See [`DEVELOPMENT-STATUS.md`](./DEVELOPMENT-STATUS.md) for detailed status and
 - Install the **Windows App SDK** workload, or update Visual Studio to 17.8+.
 
 **"SDK version not found" / wrong SDK selected**
-- The build is pinned to **.NET 8** (`global.json`, `8.0.100`, `rollForward: major`). Install the
-  .NET 8 SDK (https://dotnet.microsoft.com/download/dotnet/8.0). .NET 9 works via roll-forward;
-  .NET 10 is incompatible with the PRI build task.
+- The build is pinned to the **.NET 10 SDK, `10.0.1xx` band** (`global.json`, `10.0.100`,
+  `rollForward: latestPatch`). Install it from https://dotnet.microsoft.com/download/dotnet/10.0
+  — a `10.0.2xx` or newer SDK will *not* satisfy this pin, which is intentional: those bands
+  require MSBuild 18 (Visual Studio 2026), while `10.0.1xx` still works in Visual Studio 2022.
 
 ### Runtime Errors
 

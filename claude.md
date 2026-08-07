@@ -7,12 +7,12 @@ this repo. Read it before editing. For the product-level overview, see the root
 ## TL;DR
 
 - **Primary product = the Windows Native app** under [`windows-native/`](./windows-native)
-  (.NET 8 / WinUI 3, clean architecture). **Do all new work here.**
+  (.NET 10 / WinUI 3, clean architecture). **Do all new work here.**
 - The **Electron app** under [`src/`](./src) is **legacy / maintenance only** — it still
   exists and builds, but new features and fixes should target Windows Native unless the
   task is explicitly about Electron. See [Legacy Electron](#legacy-electron).
 - The repo also contains the **sync service** under [`services/`](./services) (ASP.NET
-  Core, plain net8.0 — **CAN be built/tested with the `dotnet` CLI**, no VS msbuild
+  Core, plain net10.0 — **CAN be built/tested with the `dotnet` CLI**, no VS msbuild
   needed; own Linux CI workflow `sync-api-build.yml`) and the **Windows sync client
   library** `windows-native/src/MemoryTimeline.Sync` — the iOS roadtrip companion sync
   layer. See [Sync service (iOS companion)](#sync-service-ios-companion).
@@ -33,7 +33,7 @@ The solution is `windows-native/src/MemoryTimeline.sln`, six projects:
 |---------|------|
 | **MemoryTimeline** | WinUI 3 app — Views (XAML), ViewModels, Controls, Converters, and platform services (audio, STT, notifications, jump list, navigation, theme). DI is wired in `App.xaml.cs`. |
 | **MemoryTimeline.Core** | Business logic — services (events, timeline, queue, extraction, RAG, ask/query, narrative, resurfacing, recall prompts, media, backup/revisions, export/import, settings, search, analytics), DTOs, timeline math, `SettingKeys`. No UI, no EF Core internals leaking out. |
-| **MemoryTimeline.Data** | Data access — `AppDbContext` (EF Core 8 + SQLite), entity models, repositories, and `SchemaUpgrader`. |
+| **MemoryTimeline.Data** | Data access — `AppDbContext` (EF Core 10 + SQLite), entity models, repositories, and `SchemaUpgrader`. |
 | **MemoryTimeline.Tests** | xUnit unit, integration, and performance tests. |
 | **MemoryTimeline.Sync** | Sync client library (no UI) — `SyncApiClient` (pairing, push/pull/ack), artifact download, `SyncBackgroundWorker` loop, `LocalOutboxPublisher`, `RemoteChangeApplier`, settings/cursor stores. |
 | **MemoryTimeline.SyncContracts** | Shared wire DTOs; lives at `shared-contracts/dotnet/` and is referenced into both this solution and `services/MemoryTimeline.Services.sln`. CamelCase JSON per the OpenAPI contract. |
@@ -153,10 +153,12 @@ Critical for an assistant — get this wrong and you'll suggest broken commands:
   Framework MSBuild task that loads under VS's `msbuild.exe` but **fails under the
   `dotnet` CLI build engine** (error **MSB4062**). So `dotnet build` / `dotnet run`
   cannot build or launch the app.
-- **SDK pin.** `windows-native/src/global.json` pins the **.NET 8** SDK
-  (`8.0.100`, `rollForward: "major"`). The `major` roll-forward lets a newer major (e.g.
-  .NET 9) drive the C# compile if that's all that's installed; .NET 10 is incompatible
-  with the WindowsAppSDK PRI task.
+- **SDK pin.** `windows-native/src/global.json` pins the **.NET 10** SDK to its
+  `10.0.1xx` feature band (`10.0.100`, `rollForward: "latestPatch"`). The band is
+  deliberate: `10.0.1xx` declares MSBuild 17.14 as its minimum, so Visual Studio 2022
+  can still build; bands `10.0.2xx`+ require MSBuild 18 / Visual Studio 2026. (An
+  earlier note here claimed .NET 10 was incompatible with the WindowsAppSDK PRI task —
+  that is not the case; CI builds it green via VS msbuild.)
 - **CI is the validation gate.** `.github/workflows/windows-native-build.yml` builds
   **Release | x64** on **windows-latest** via VS `msbuild` (`/t:Restore,Build`) and runs
   tests best-effort. Compile success is the gate.
@@ -268,5 +270,5 @@ focus** — treat it as maintenance. Only touch it for an explicitly Electron-sc
 ---
 
 **Last Updated:** 2026-08-07
-**Primary target:** Windows Native (.NET 8 / WinUI 3) — `windows-native/`
+**Primary target:** Windows Native (.NET 10 / WinUI 3) — `windows-native/`
 **Legacy:** Electron — `src/`

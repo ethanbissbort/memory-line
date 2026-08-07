@@ -2,8 +2,68 @@
 
 **Last Updated:** 2026-08-07
 **Current Phase:** Phase 7 - Testing & Deployment (plus the 2026-08 feature-spec wave, landed)
-**Overall Progress:** Phases 0-6 complete; F1–F12 feature spec implemented; iOS companion Phases 0-1 landed; Phase 7 in progress
+**Overall Progress:** Phases 0-6 complete; F1–F12 feature spec implemented; iOS companion Phases 0-2 landed; toolchain rolled to .NET 10 + Windows App SDK 2.3.1; Phase 7 in progress
 **Status:** 🔄 IN PROGRESS — builds green in CI, end-to-end runtime validation ongoing
+
+---
+
+## Toolchain roll-up: Windows 11 24H2 SDK + .NET 10 LTS + Windows App SDK 2.3.1 (2026-08-07)
+
+| | Before | After |
+|---|---|---|
+| Windows SDK (`TargetFramework` platform) | 22621 (Win11 22H2) | **26100 (Win11 24H2)** |
+| .NET | 8 (support ends 2026-11-10) | **10 LTS (support ends 2028-11-14)** |
+| Windows App SDK | 1.5.240802000 | **2.3.1** (1.8 support ended 2026-09-09) |
+| SDK BuildTools | 10.0.22621.3233 | 10.0.28000.2526 |
+| EF Core / Extensions / ASP.NET packages | 8.0.0 | 10.0.10 |
+
+`TargetPlatformMinVersion` is unchanged at 10.0.22621.0 — the app still *runs* on
+Windows 11 22H2; only the compile-time SDK moved.
+
+**Landed as three separately bisectable commits** (.NET 10, then WinAppSDK 2.3.1,
+then the perf-bound fix) because the two framework moves fail in confusingly
+similar ways — both surface as assembly-load and type-resolution errors.
+
+**Developer prerequisites changed** — see `README.md` → Prerequisites:
+
+- The **.NET 10 SDK, `10.0.1xx` band**, pinned by `src/global.json`. That band
+  declares MSBuild 17.14 as its minimum, which is what keeps Visual Studio 2022
+  able to build; bands `10.0.2xx`+ require MSBuild 18 / Visual Studio 2026.
+- **Visual Studio 2026 is the supported IDE.** Microsoft supports targeting
+  .NET 10 only in VS 18.0+; VS 2022 17.14 builds with an "unsupported target"
+  warning rather than an error. The CI runner (`windows-latest`) is already
+  VS 2026 / MSBuild 18.8.2.
+
+**Notes for whoever picks this up next:**
+
+- The original `CS1705` build break was caused by pinning
+  `WindowsSdkPackageVersion` to `10.0.26100.87`, whose `WinRT.Runtime` ships in
+  `lib/net9.0`, against a `net8.0` project — *not* by the Windows App SDK, whose
+  managed assemblies all target `net6.0` and impose no .NET floor. Revision
+  `.86` is the `lib/net8.0` build. The pin is now removed entirely; the .NET 10
+  SDK selects a matching projection.
+- `Microsoft.Data.Sqlite.Pre10TimeZoneHandling` is set at both entry points.
+  .NET 10 changed offset-less stored timestamps to read as UTC instead of local,
+  which would silently shift every historical event by the local UTC offset.
+  **Auditing and migrating the stored values is an open follow-up** — do not
+  remove the switch without doing that work.
+- `CommunityToolkit.WinUI.UI.Controls` / `.Animations` 7.1.2 were removed as
+  verified-unused (the `<controls:*>` tags resolve to `MemoryTimeline.Controls`).
+  If toolkit controls are wanted later, the modern packages are the split
+  `CommunityToolkit.WinUI.Controls.*` 8.x line, not the 7.x UWP-era one.
+- FluentAssertions is deliberately held at 6.x: **8.x is commercially licensed**.
+- `SQLitePCLRaw.lib.e_sqlite3` 2.1.11 (transitive via EF Core 10) still carries
+  GHSA-2m69-gcr7-jv3q, with no patched 2.x release; the fix is in its 3.x major,
+  which EF Core 10 does not expect. Left deliberately.
+- `LoadTest_UpdateOperationsOnLargeDataset_PerformReasonably` measured 5546 /
+  8109 / 10179 ms across three identical CI runs (it commits 100 separate SQLite
+  transactions, so it is fsync-bound). Its bound was raised 5000 → 20000 ms as a
+  gross-regression gate. It passed under .NET 8 at the old bound, so **a modest
+  EF Core 10 write-path slowdown is unconfirmed but not excluded** — worth
+  measuring on real hardware.
+- Untested from CI: the runtime interaction between
+  `Microsoft.ML.OnnxRuntime.DirectML` 1.16.3 and the ONNX runtime bundled in
+  WinAppSDK 2.3.1 (two ONNX runtimes in one process is a known hazard).
 
 ---
 
