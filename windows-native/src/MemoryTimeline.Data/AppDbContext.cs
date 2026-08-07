@@ -33,6 +33,9 @@ public class AppDbContext : DbContext
     public DbSet<Draft> Drafts { get; set; } = null!;
     public DbSet<RecallPrompt> RecallPrompts { get; set; } = null!;
     public DbSet<EventRevision> EventRevisions { get; set; } = null!;
+    public DbSet<Capture> Captures { get; set; } = null!;
+    public DbSet<CaptureArtifact> CaptureArtifacts { get; set; } = null!;
+    public DbSet<SyncOutbox> SyncOutboxEntries { get; set; } = null!;
 
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
     {
@@ -99,35 +102,6 @@ public class AppDbContext : DbContext
             }
         }
 
-        /// <summary>
-        /// journal_mode=WAL writes the database header when the database is not
-        /// already in WAL mode, so it must be skipped on read-only connections.
-        /// EF's SQLite provider probes database existence (EnsureCreated) over a
-        /// Mode=ReadOnly clone of the connection; running the full pragma set
-        /// there crashes with SQLITE_READONLY against a legacy delete-journal
-        /// database file.
-        /// </summary>
-        private const string ReadOnlyPragmaSql =
-            "PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;";
-
-        private static string GetPragmaSql(DbConnection connection)
-        {
-            try
-            {
-                if (new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder(connection.ConnectionString).Mode ==
-                    Microsoft.Data.Sqlite.SqliteOpenMode.ReadOnly)
-                {
-                    return ReadOnlyPragmaSql;
-                }
-            }
-            catch (Exception)
-            {
-                // Unparseable connection string: fall through to the full set.
-            }
-
-            return PragmaSql;
-        }
-
         public override void ConnectionOpened(DbConnection connection, ConnectionEndEventData eventData)
         {
             if (ShouldAttemptWal(connection))
@@ -146,7 +120,7 @@ public class AppDbContext : DbContext
             }
 
             using var command = connection.CreateCommand();
-            command.CommandText = GetPragmaSql(connection);
+            command.CommandText = ConnectionPragmaSql;
             command.ExecuteNonQuery();
         }
 
@@ -171,7 +145,7 @@ public class AppDbContext : DbContext
             }
 
             using var command = connection.CreateCommand();
-            command.CommandText = GetPragmaSql(connection);
+            command.CommandText = ConnectionPragmaSql;
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
     }
