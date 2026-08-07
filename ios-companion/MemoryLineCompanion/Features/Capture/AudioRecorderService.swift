@@ -58,7 +58,11 @@ final class AudioRecorderService {
     @ObservationIgnored private var recorder: AVAudioRecorder?
     @ObservationIgnored private var activeRecord: CaptureRecord?
     @ObservationIgnored private var meterTask: Task<Void, Never>?
-    @ObservationIgnored private var notificationObservers: [NSObjectProtocol] = []
+    // nonisolated(unsafe) because deinit is nonisolated on a @MainActor class and
+    // may only touch Sendable storage; [NSObjectProtocol] is not Sendable. Safe
+    // here: the array is written once from the initializer's observer install and
+    // read only in deinit, when no other reference to self survives.
+    @ObservationIgnored nonisolated(unsafe) private var notificationObservers: [NSObjectProtocol] = []
     /// True only when the current pause was forced by an audio-session
     /// interruption (phone call, Siri, ...). Gates the `.shouldResume`
     /// auto-resume so a user-initiated pause — or a route-loss pause — is

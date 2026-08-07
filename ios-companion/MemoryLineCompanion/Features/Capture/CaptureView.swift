@@ -39,7 +39,7 @@ struct CaptureView: View {
             syncFooter(uploads)
         }
         .padding()
-        .task { refreshPermissionState() }
+        .onAppear { refreshPermissionState() }
         .onChange(of: scenePhase) { _, newPhase in
             // Re-check after a round trip to the Settings app.
             if newPhase == .active { refreshPermissionState() }

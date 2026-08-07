@@ -1,0 +1,14 @@
+# Xcode per-user state. Window positions, selected scheme, breakpoints, and the
+# binary UserInterfaceState blob — these change whenever the IDE is touched and
+# conflict on every merge, so they never belong in the repo.
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+
+# Xcode build products. The default DerivedData location is outside the repo,
+# but a custom build location can drop these here.
+DerivedData/
+build/
+*.xcarchive
+
+.DS_Store

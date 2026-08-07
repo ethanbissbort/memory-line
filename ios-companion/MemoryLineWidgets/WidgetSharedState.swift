@@ -7,7 +7,7 @@ import Foundation
 /// BOTH sides hard-code these values; any change must be mirrored in that file
 /// (and, for the group ID, in `Config/*.entitlements`).
 enum WidgetSharedState {
-    static let appGroupId = "group.com.memoryline.companion"
+    static let appGroupId = "group.ca.fluxology.memoryline.ios"
     /// String: "idle" | "recording" | "paused".
     static let recordingStateKey = "widget.recordingState"
     /// Int: captures waiting to reach the sync service.
