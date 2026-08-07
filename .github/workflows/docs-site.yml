@@ -1,0 +1,74 @@
+name: Documentation Site
+
+# Builds the static documentation website from the repository's markdown and
+# publishes it to GitHub Pages.
+#
+# The deploy job requires Settings -> Pages -> Source: "GitHub Actions" on the
+# repository. Until that is enabled the build job still runs and verifies that
+# the site generates cleanly; only the deploy step will fail.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'website/**'
+      - '**/*.md'
+      - '.github/workflows/docs-site.yml'
+  pull_request:
+    paths:
+      - 'website/**'
+      - '**/*.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-site
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install docs dependencies
+        working-directory: website
+        run: npm ci || npm install
+
+      - name: Build site
+        working-directory: website
+        run: npm run build
+
+      - name: Check for broken internal links
+        working-directory: website
+        run: node check-links.mjs
+
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: website/_site
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

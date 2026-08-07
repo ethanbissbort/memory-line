@@ -1,0 +1,728 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Deployment guide · Memory Timeline docs</title>
+<meta name="description" content="Building Release|x64, runtime data layout, MSIX packaging, code signing, Microsoft Store submission, and side-loading.">
+<meta property="og:title" content="Deployment guide · Memory Timeline docs">
+<meta property="og:description" content="Building Release|x64, runtime data layout, MSIX packaging, code signing, Microsoft Store submission, and side-loading.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%227%22%20fill%3D%22%231d1b18%22%2F%3E%3Cpath%20d%3D%22M4%2021h24%22%20stroke%3D%22%238b8175%22%20stroke-width%3D%221.5%22%20stroke-linecap%3D%22round%22%2F%3E%3Ccircle%20cx%3D%229%22%20cy%3D%2221%22%20r%3D%223.1%22%20fill%3D%22%23e0873f%22%2F%3E%3Ccircle%20cx%3D%2217%22%20cy%3D%2214%22%20r%3D%223.6%22%20fill%3D%22%23f0b46e%22%2F%3E%3Ccircle%20cx%3D%2225%22%20cy%3D%2218%22%20r%3D%222.6%22%20fill%3D%22%236ec2b8%22%2F%3E%3Cpath%20d%3D%22M9%2021%2017%2014%2025%2018%22%20stroke%3D%22%238b8175%22%20stroke-width%3D%221.2%22%20fill%3D%22none%22%20stroke-linejoin%3D%22round%22%20opacity%3D%22.8%22%2F%3E%3C%2Fsvg%3E">
+<link rel="stylesheet" href="assets/styles.css">
+<script>(function(){try{var t=localStorage.getItem('mt-theme');if(t==='light'||t==='dark'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();</script>
+</head>
+<body class="page-doc" data-page="deployment">
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="icon-btn nav-toggle" type="button" aria-label="Toggle navigation" aria-expanded="false" data-nav-toggle>
+      <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg>
+    </button>
+    <a class="brand" href="index.html">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="26" height="26"><path d="M3 22h26" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity=".45"/><circle cx="8" cy="22" r="3" fill="currentColor" opacity=".55"/><circle cx="16" cy="14" r="3.8" fill="currentColor"/><circle cx="25" cy="18.5" r="2.6" fill="currentColor" opacity=".7"/></svg>
+      </span>
+      <span class="brand-text">
+        <span class="brand-name">Memory Timeline</span>
+        <span class="brand-sub">Documentation</span>
+      </span>
+    </a>
+
+    <button class="searchbar" type="button" data-search-open aria-label="Search documentation">
+      <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><circle cx="9" cy="9" r="5.5" stroke="currentColor" stroke-width="1.7" fill="none"/><path d="M13.2 13.2 17 17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <span>Search the docs</span>
+      <kbd>/</kbd>
+    </button>
+
+    <div class="topbar-actions">
+      <button class="icon-btn" type="button" data-theme-toggle aria-label="Switch colour theme" title="Switch colour theme">
+        <svg class="icon-sun" viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><circle cx="10" cy="10" r="4" fill="currentColor"/><path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6 16 16M16 4l-1.4 1.4M5.4 14.6 4 16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <svg class="icon-moon" viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><path d="M16.5 12.4A7 7 0 0 1 7.6 3.5a7 7 0 1 0 8.9 8.9Z" fill="currentColor"/></svg>
+      </button>
+      <a class="icon-btn" href="https://github.com/ethanbissbort/memory-line" target="_blank" rel="noopener noreferrer" aria-label="View the repository on GitHub" title="Repository on GitHub">
+        <svg viewBox="0 0 16 16" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38l-.01-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.93-.89-1.18-.89-1.18-.73-.5.05-.49.05-.49.81.06 1.23.83 1.23.83.72 1.23 1.88.87 2.34.67.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48l-.01 2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+      </a>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" data-sidebar>
+    <nav aria-label="Documentation">
+      <ul class="nav">
+        <li class="nav-section">
+          <p class="nav-section-title">Start here</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="index.html">Home</a>
+            </li>
+            <li><a class="nav-link" href="documentation-map.html">All documentation</a>
+            </li>
+            <li><a class="nav-link" href="overview.html">Project overview</a>
+            </li>
+            <li><a class="nav-link" href="developer-guide.html">Developer guide</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Windows Native app</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="windows-native.html">Windows Native app</a>
+            </li>
+            <li><a class="nav-link" href="setup-scripts-windows.html">PowerShell setup scripts</a>
+            </li>
+            <li><a class="nav-link" href="testing.html">Testing guide</a>
+            </li>
+            <li><a class="nav-link is-active" href="deployment.html" aria-current="page">Deployment guide</a>
+              <ul class="nav-sub">
+                <li><a class="nav-sublink" href="#table-of-contents">Table of Contents</a></li>
+                <li><a class="nav-sublink" href="#prerequisites">Prerequisites</a></li>
+                <li><a class="nav-sublink" href="#building-the-application">Building the Application</a></li>
+                <li><a class="nav-sublink" href="#data--runtime-layout">Data &amp; Runtime Layout</a></li>
+                <li><a class="nav-sublink" href="#running-tests">Running Tests</a></li>
+                <li><a class="nav-sublink" href="#msix-packaging-phase-7--in-progress">MSIX Packaging (Phase 7 — in progress)</a></li>
+                <li><a class="nav-sublink" href="#code-signing">Code Signing</a></li>
+                <li><a class="nav-sublink" href="#microsoft-store-deployment-phase-7--in-progress">Microsoft Store Deployment (Phase 7 — in progress)</a></li>
+                <li><a class="nav-sublink" href="#side-loading">Side-loading</a></li>
+                <li><a class="nav-sublink" href="#cicd-pipeline">CI/CD Pipeline</a></li>
+                <li><a class="nav-sublink" href="#post-deployment">Post-Deployment</a></li>
+                <li><a class="nav-sublink" href="#troubleshooting">Troubleshooting</a></li>
+                <li><a class="nav-sublink" href="#resources">Resources</a></li>
+                <li><a class="nav-sublink" href="#support">Support</a></li>
+              </ul>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Status &amp; history</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="development-status.html">Development status</a>
+            </li>
+            <li><a class="nav-link" href="development-history.html">Development history</a>
+            </li>
+            <li><a class="nav-link" href="migration-to-native-windows.html">Migration to native Windows</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Audits &amp; reviews</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="feature-audit.html">Feature audit (2026-07)</a>
+            </li>
+            <li><a class="nav-link" href="hardening-followups.html">Hardening follow-ups</a>
+            </li>
+            <li><a class="nav-link" href="repo-audit-2026-07.html">Exhaustive repo audit</a>
+            </li>
+            <li><a class="nav-link" href="multi-agent-code-review.html">Multi-agent code review</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Design notes</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="people-feature-contracts.html">People feature contracts</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Legacy Electron build</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="electron-deployment.html">Electron deployment &amp; install</a>
+            </li>
+            <li><a class="nav-link" href="electron-setup-scripts.html">Electron setup scripts</a>
+            </li>
+            <li><a class="nav-link" href="electron-setup-logs.html">Setup script logs</a>
+            </li>
+            <li><a class="nav-link" href="electron-tests.html">Electron test suite</a>
+            </li>
+            <li><a class="nav-link" href="electron-test-databases.html">Test databases</a>
+            </li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+  </aside>
+  <div class="sidebar-scrim" data-nav-close hidden></div>
+
+  <main class="main" id="main">
+
+<header class="doc-header">
+  <nav class="breadcrumb" aria-label="Breadcrumb">
+    <a href="index.html">Docs</a>
+    <span aria-hidden="true">/</span>
+    <span>Windows Native app</span>
+  </nav>
+  <h1>Deployment guide</h1>
+  <p class="doc-lede">Building Release|x64, runtime data layout, MSIX packaging, code signing, Microsoft Store submission, and side-loading.</p>
+  <div class="doc-meta">
+    <span class="doc-meta-item"><b>For</b> Maintainers</span>
+    <span class="doc-meta-item"><b>2,053</b> words</span>
+    <span class="doc-meta-item"><b>9</b> min read</span>
+    <a class="doc-meta-item doc-source" href="https://github.com/ethanbissbort/memory-line/blob/main/windows-native/DEPLOYMENT.md" target="_blank" rel="noopener noreferrer">
+      windows-native/DEPLOYMENT.md ↗
+    </a>
+  </div>
+  <div class="tags"><span class="tag">MSIX</span><span class="tag">packaging</span><span class="tag">release</span></div>
+</header>
+<div class="doc-grid">
+  <article class="prose">
+<p>This guide covers building, testing, and deploying the Memory Timeline Windows native application (WinUI 3 / Windows App SDK, .NET 8).</p>
+<div class="callout callout-warning"><div class="callout-body"><p><strong>Important build note.</strong> The WinUI 3 app is currently an <strong>unpackaged</strong> desktop app (<code>WindowsPackageType=None</code>, self-contained Windows App SDK). It builds for a specific CPU platform (<strong>x64</strong>, x86, or ARM64 — there is <strong>no <code>AnyCPU</code></strong>) and, because of the WinUI PRI/XAML resource-generation tooling, must be built with <strong>Visual Studio or <code>msbuild.exe</code></strong>, not <code>dotnet build</code>. See <a href="#building-the-application">Building the Application</a> for details.</p>
+<p>MSIX packaging and Microsoft Store publishing (the later sections of this guide) are <strong>Phase 7 work in progress</strong> and are documented here as the intended path, not as a shipped, verified pipeline.</p>
+</div></div>
+<h2 id="table-of-contents" class="anchored">Table of Contents<a class="heading-anchor" href="#table-of-contents" aria-label="Link to this section">#</a></h2>
+<ol>
+<li><a href="#prerequisites">Prerequisites</a></li>
+<li><a href="#building-the-application">Building the Application</a></li>
+<li><a href="#data--runtime-layout">Data &amp; Runtime Layout</a></li>
+<li><a href="#running-tests">Running Tests</a></li>
+<li><a href="#msix-packaging-phase-7--in-progress">MSIX Packaging (Phase 7 — in progress)</a></li>
+<li><a href="#code-signing">Code Signing</a></li>
+<li><a href="#microsoft-store-deployment-phase-7--in-progress">Microsoft Store Deployment (Phase 7 — in progress)</a></li>
+<li><a href="#side-loading">Side-loading</a></li>
+<li><a href="#cicd-pipeline">CI/CD Pipeline</a></li>
+</ol>
+<hr>
+<h2 id="prerequisites" class="anchored">Prerequisites<a class="heading-anchor" href="#prerequisites" aria-label="Link to this section">#</a></h2>
+<h3 id="development-environment" class="anchored">Development Environment<a class="heading-anchor" href="#development-environment" aria-label="Link to this section">#</a></h3>
+<ul>
+<li><strong>Windows 11 22H2</strong> or later (required for Windows App SDK 1.5+). The WinUI target cannot be built on Linux/macOS.</li>
+<li><strong>Visual Studio 2022</strong> (17.8 or later) with workloads:<ul>
+<li>.NET Desktop Development</li>
+<li>Universal Windows Platform development</li>
+<li>Windows App SDK C# Templates</li>
+</ul>
+</li>
+<li><strong>.NET SDK</strong> — the repo pins the SDK via <code>windows-native/src/global.json</code>:<div class="codeblock" data-lang="json"><div class="codeblock-bar"><span class="codeblock-lang">JSON</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-json">{ <span class="tok-key">&quot;sdk&quot;</span>: { <span class="tok-key">&quot;version&quot;</span>: <span class="tok-string">&quot;8.0.100&quot;</span>, <span class="tok-key">&quot;rollForward&quot;</span>: <span class="tok-string">&quot;major&quot;</span> } }</code></pre></div>
+This means: use the <strong>.NET 8 SDK</strong> if it is installed, otherwise <strong>roll forward to the next available major</strong> (e.g. .NET 9). It will <strong>not</strong> select the .NET 10 SDK, whose newer WinUI XAML/PRI tooling breaks this project&#39;s resource generation. If you only have a newer SDK installed, install a <strong>.NET 8 or .NET 9 SDK</strong> rather than relying on whatever is latest.</li>
+<li><strong>Windows App SDK</strong> 1.5.x (restored as the <code>Microsoft.WindowsAppSDK</code> NuGet package)</li>
+</ul>
+<h3 id="for-packaging--store-deployment-phase-7--in-progress" class="anchored">For Packaging / Store Deployment (Phase 7 — in progress)<a class="heading-anchor" href="#for-packaging--store-deployment-phase-7--in-progress" aria-label="Link to this section">#</a></h3>
+<ul>
+<li><strong>Windows SDK</strong> (10.0.22621.0 or later)</li>
+<li><strong>MSIX Packaging Tool</strong> (from Microsoft Store)</li>
+<li><strong>Code Signing Certificate</strong> (EV certificate for Microsoft Store)</li>
+<li><strong>Microsoft Partner Center account</strong> (for Store deployment)</li>
+</ul>
+<hr>
+<h2 id="building-the-application" class="anchored">Building the Application<a class="heading-anchor" href="#building-the-application" aria-label="Link to this section">#</a></h2>
+<h3 id="why-dotnet-build-does-not-work-for-the-app" class="anchored">Why <code>dotnet build</code> does not work for the app<a class="heading-anchor" href="#why-dotnet-build-does-not-work-for-the-app" aria-label="Link to this section">#</a></h3>
+<p>The WinUI 3 app project (<code>MemoryTimeline</code>) runs WinUI&#39;s PRI/XAML resource generation as part of the build (the <code>MrtCore.PriGen</code> / XAML compiler tooling). That tooling is a <strong>.NET Framework</strong> MSBuild task and <strong>does not load under the <code>dotnet</code> CLI (.NET Core) MSBuild engine</strong> — a <code>dotnet build</code>/<code>dotnet run</code> of the app fails during resource/XAML generation (e.g. <code>MSB4062</code> / <code>MSB3073</code> XAML-compiler errors), even when the C# itself is fine. The build must therefore be driven by <strong>Visual Studio</strong> or the full <strong>Visual Studio <code>msbuild.exe</code></strong>.</p>
+<p>Two more consequences:</p>
+<ul>
+<li>The solution defines <strong><code>x86</code>, <code>x64</code>, and <code>ARM64</code></strong> platforms — there is <strong>no <code>AnyCPU</code></strong>. Every build must specify a platform (<code>x64</code> is the default target).</li>
+<li>The <code>MemoryTimeline.Tests</code> project references the WinUI app, so the whole solution is built for a concrete platform (x64) on a Windows machine.</li>
+</ul>
+<h3 id="build-release-x64--recommended" class="anchored">Build (Release, x64) — recommended<a class="heading-anchor" href="#build-release-x64--recommended" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell">cd windows-native/src
+
+<span class="tok-comment"># Restore + build the whole solution with Visual Studio MSBuild.</span>
+<span class="tok-comment"># 'msbuild' here is the VS msbuild.exe (e.g. from a Developer PowerShell for VS 2022),</span>
+<span class="tok-comment"># NOT 'dotnet build'.</span>
+<span class="tok-builtin">msbuild</span> MemoryTimeline.sln /t:Restore,Build /p:Configuration=Release /p:Platform=x64 /m</code></pre></div>
+<h3 id="debug-build" class="anchored">Debug build<a class="heading-anchor" href="#debug-build" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell"><span class="tok-builtin">msbuild</span> MemoryTimeline.sln /t:Restore,Build /p:Configuration=Debug /p:Platform=x64 /m</code></pre></div>
+<p>You can also simply open <code>windows-native/src/MemoryTimeline.sln</code> in Visual Studio 2022, select the <strong>Release / x64</strong> (or <strong>Debug / x64</strong>) configuration, and Build.</p>
+<h3 id="build-output" class="anchored">Build Output<a class="heading-anchor" href="#build-output" aria-label="Link to this section">#</a></h3>
+<p>The compiled application is placed under the platform-specific output folder, for example:</p>
+<div class="codeblock" data-lang="text"><div class="codeblock-bar"><span class="codeblock-lang">text</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-text">windows-native/src/MemoryTimeline/bin/x64/Release/net8.0-windows10.0.22621.0/</code></pre></div>
+<p>Because the app is unpackaged and self-contained, this folder contains <code>MemoryTimeline.exe</code> plus the Windows App SDK runtime and can be launched directly.</p>
+<hr>
+<h2 id="data--runtime-layout" class="anchored">Data &amp; Runtime Layout<a class="heading-anchor" href="#data--runtime-layout" aria-label="Link to this section">#</a></h2>
+<p>The app is <strong>unpackaged</strong>, so it does not use MSIX app-data virtualization. All runtime data lives under <code>%LOCALAPPDATA%\MemoryTimeline\</code>:</p>
+<div class="table-wrap"><table><thead><tr>
+<th>Path</th>
+<th>Contents</th>
+</tr>
+</thead><tbody><tr>
+<td><code>%LOCALAPPDATA%\MemoryTimeline\memory-timeline.db</code></td>
+<td>SQLite database (WAL mode; expect <code>-wal</code> / <code>-shm</code> sidecar files)</td>
+</tr>
+<tr>
+<td><code>%LOCALAPPDATA%\MemoryTimeline\AudioRecordings\</code></td>
+<td>Recorded / imported audio files</td>
+</tr>
+<tr>
+<td><code>%LOCALAPPDATA%\MemoryTimeline\Models\ggml-base.bin</code></td>
+<td>Local Whisper (Whisper.net) speech-to-text model, downloaded on first use</td>
+</tr>
+<tr>
+<td><code>%LOCALAPPDATA%\MemoryTimeline\error.log</code></td>
+<td>Startup / unhandled-exception log</td>
+</tr>
+</tbody></table></div>
+<p><strong>Schema / migrations:</strong> the EF Core migrations were removed in favour of a hand-rolled <code>SchemaUpgrader</code> that creates/updates the schema at startup. There is currently <strong>no migrations baseline</strong>, so <code>dotnet ef migrations add</code> / <code>dotnet ef database update</code> are <strong>not applicable</strong> to this project right now (regenerating a real migration baseline is a follow-up task).</p>
+<p><strong>External services:</strong> speech-to-text is <strong>local</strong> (Whisper.net, offline after the one-time model download). LLM event extraction uses the Anthropic API and embeddings use the OpenAI API, so those features require API keys and network access.</p>
+<hr>
+<h2 id="running-tests" class="anchored">Running Tests<a class="heading-anchor" href="#running-tests" aria-label="Link to this section">#</a></h2>
+<blockquote><p><strong>Do not use <code>dotnet test</code>.</strong> <code>dotnet test</code> rebuilds the solution — including the WinUI app — with the <code>dotnet</code> MSBuild engine, which hits the same WinUI PRI/XAML failure described above. Instead, build the solution once with <code>msbuild.exe</code> (see <a href="#building-the-application">Building the Application</a>) and run the <strong>already-built</strong> test assembly with <code>dotnet vstest</code>. This is exactly what CI does.</p>
+</blockquote>
+<h3 id="build-once-then-run-the-built-test-assembly" class="anchored">Build once, then run the built test assembly<a class="heading-anchor" href="#build-once-then-run-the-built-test-assembly" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell">cd windows-native/src
+
+<span class="tok-comment"># 1. Build the solution (Release | x64) with VS MSBuild</span>
+<span class="tok-builtin">msbuild</span> MemoryTimeline.sln /t:Restore,Build /p:Configuration=Release /p:Platform=x64 /m
+
+<span class="tok-comment"># 2. Run the compiled test DLL with vstest (no rebuild)</span>
+<span class="tok-builtin">dotnet</span> <span class="tok-builtin">vstest</span> MemoryTimeline.Tests/bin/x64/Release/net8.<span class="tok-number">0</span>-windows10.<span class="tok-number">0.22621.0</span>/MemoryTimeline.Tests.dll `
+  --logger:<span class="tok-string">&quot;trx;LogFileName=test.trx&quot;</span> --ResultsDirectory:TestResults</code></pre></div>
+<h3 id="filtering" class="anchored">Filtering<a class="heading-anchor" href="#filtering" aria-label="Link to this section">#</a></h3>
+<p><code>dotnet vstest</code> supports test filtering via <code>--TestCaseFilter</code>, e.g.:</p>
+<div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell"><span class="tok-builtin">dotnet</span> <span class="tok-builtin">vstest</span> &lt;path-to&gt;\MemoryTimeline.Tests.dll --TestCaseFilter:<span class="tok-string">&quot;FullyQualifiedName~UnitTests&quot;</span>
+<span class="tok-builtin">dotnet</span> <span class="tok-builtin">vstest</span> &lt;path-to&gt;\MemoryTimeline.Tests.dll --TestCaseFilter:<span class="tok-string">&quot;FullyQualifiedName~Integration&quot;</span></code></pre></div>
+<p>See <a href="testing.html"><code>TESTING.md</code></a> for the test-suite layout, the EF Core InMemory / SQLite provider caveats, and known follow-up work.</p>
+<h3 id="coverage-goals" class="anchored">Coverage goals<a class="heading-anchor" href="#coverage-goals" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>Aspirational target: <strong>&gt; 80%</strong> overall, <strong>&gt; 90%</strong> on critical paths (event CRUD, audio/queue processing, RAG). These are goals, not measured/verified figures.</li>
+</ul>
+<hr>
+<h2 id="msix-packaging-phase-7--in-progress" class="anchored">MSIX Packaging (Phase 7 — in progress)<a class="heading-anchor" href="#msix-packaging-phase-7--in-progress" aria-label="Link to this section">#</a></h2>
+<blockquote><p>The app currently ships <strong>unpackaged</strong> (<code>WindowsPackageType=None</code>). The MSIX packaging, code-signing, and Store steps below describe the <strong>intended</strong> path and are not yet a verified, shipped pipeline. Packaging the app will also require reconciling the unpackaged/self-contained settings with an MSIX packaging project.</p>
+</blockquote>
+<h3 id="manual-packaging-with-visual-studio" class="anchored">Manual Packaging with Visual Studio<a class="heading-anchor" href="#manual-packaging-with-visual-studio" aria-label="Link to this section">#</a></h3>
+<ol>
+<li><p><strong>Add Packaging Project</strong></p>
+<div class="codeblock" data-lang="text"><div class="codeblock-bar"><span class="codeblock-lang">text</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-text">File → Add → New Project → Windows Application Packaging Project</code></pre></div>
+</li>
+<li><p><strong>Configure Package Manifest</strong></p>
+<ul>
+<li>Use the provided <code>packaging/Package.appxmanifest</code></li>
+<li>Update Identity Publisher with your certificate CN</li>
+<li>Set appropriate version number</li>
+</ul>
+</li>
+<li><p><strong>Add Application Reference</strong></p>
+<ul>
+<li>Right-click packaging project → Add → Reference</li>
+<li>Select MemoryTimeline project</li>
+</ul>
+</li>
+<li><p><strong>Create Package</strong></p>
+<div class="codeblock" data-lang="text"><div class="codeblock-bar"><span class="codeblock-lang">text</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-text">Right-click packaging project → Publish → Create App Packages</code></pre></div>
+</li>
+</ol>
+<h3 id="command-line-packaging" class="anchored">Command-Line Packaging<a class="heading-anchor" href="#command-line-packaging" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell"><span class="tok-comment"># Set environment variables</span>
+<span class="tok-variable">$AppxManifestPath</span> = <span class="tok-string">&quot;.\packaging\Package.appxmanifest&quot;</span>
+<span class="tok-variable">$OutputPath</span> = <span class="tok-string">&quot;.\output\packages&quot;</span>
+<span class="tok-variable">$MappingFile</span> = <span class="tok-string">&quot;.\packaging\FileMapping.txt&quot;</span>
+
+<span class="tok-comment"># Create package using makeappx</span>
+<span class="tok-builtin">makeappx</span> pack /d <span class="tok-string">&quot;.\bin\Release\net8.0-windows\&quot;</span> /p <span class="tok-string">&quot;$OutputPath\MemoryTimeline.msix&quot;</span> /l
+
+<span class="tok-comment"># For app bundle (multiple architectures)</span>
+<span class="tok-builtin">makeappx</span> bundle /d <span class="tok-string">&quot;$OutputPath\bundles&quot;</span> /p <span class="tok-string">&quot;$OutputPath\MemoryTimeline.msixbundle&quot;</span></code></pre></div>
+<h3 id="package-contents-verification" class="anchored">Package Contents Verification<a class="heading-anchor" href="#package-contents-verification" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell"><span class="tok-comment"># List package contents</span>
+<span class="tok-builtin">makeappx</span> unpack /p MemoryTimeline.msix /d .\unpacked /l
+
+<span class="tok-comment"># Validate package</span>
+certutil <span class="tok-flag">-hashfile</span> MemoryTimeline.msix SHA256</code></pre></div>
+<hr>
+<h2 id="code-signing" class="anchored">Code Signing<a class="heading-anchor" href="#code-signing" aria-label="Link to this section">#</a></h2>
+<h3 id="requirements" class="anchored">Requirements<a class="heading-anchor" href="#requirements" aria-label="Link to this section">#</a></h3>
+<ul>
+<li><strong>EV Code Signing Certificate</strong> (required for Microsoft Store)</li>
+<li>Valid timestamp server URL</li>
+<li>SignTool.exe (included with Windows SDK)</li>
+</ul>
+<h3 id="signing-command" class="anchored">Signing Command<a class="heading-anchor" href="#signing-command" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell"><span class="tok-comment"># Set certificate thumbprint</span>
+<span class="tok-variable">$CertThumbprint</span> = <span class="tok-string">&quot;YOUR_CERT_THUMBPRINT&quot;</span>
+
+<span class="tok-comment"># Sign the package</span>
+<span class="tok-builtin">signtool</span> sign /fd SHA256 /sha1 <span class="tok-variable">$CertThumbprint</span> /t http://timestamp.digicert.com /v MemoryTimeline.msix
+
+<span class="tok-comment"># Verify signature</span>
+<span class="tok-builtin">signtool</span> verify /pa MemoryTimeline.msix</code></pre></div>
+<h3 id="certificate-requirements" class="anchored">Certificate Requirements<a class="heading-anchor" href="#certificate-requirements" aria-label="Link to this section">#</a></h3>
+<ul>
+<li><strong>Type</strong>: EV (Extended Validation) Code Signing Certificate</li>
+<li><strong>Algorithm</strong>: SHA256 or higher</li>
+<li><strong>Validity</strong>: Must be valid at time of signing</li>
+<li><strong>Trusted Root</strong>: Must chain to a trusted root authority</li>
+</ul>
+<h3 id="acquiring-a-certificate" class="anchored">Acquiring a Certificate<a class="heading-anchor" href="#acquiring-a-certificate" aria-label="Link to this section">#</a></h3>
+<ol>
+<li>Purchase from authorized CA (DigiCert, Sectigo, GlobalSign)</li>
+<li>Complete identity verification process</li>
+<li>Install on signing machine (hardware token or HSM)</li>
+<li>Export thumbprint for automation</li>
+</ol>
+<hr>
+<h2 id="microsoft-store-deployment-phase-7--in-progress" class="anchored">Microsoft Store Deployment (Phase 7 — in progress)<a class="heading-anchor" href="#microsoft-store-deployment-phase-7--in-progress" aria-label="Link to this section">#</a></h2>
+<blockquote><p>Store submission has not been performed yet. The steps below are the planned process once MSIX packaging and signing are in place.</p>
+</blockquote>
+<h3 id="1-partner-center-setup" class="anchored">1. Partner Center Setup<a class="heading-anchor" href="#1-partner-center-setup" aria-label="Link to this section">#</a></h3>
+<ol>
+<li><p><strong>Create Developer Account</strong></p>
+<ul>
+<li>Go to <a href="https://partner.microsoft.com" target="_blank" rel="noopener noreferrer" class="external-link">Microsoft Partner Center</a></li>
+<li>Register as individual or company</li>
+<li>Pay registration fee ($19 one-time for individual, $99 for company)</li>
+</ul>
+</li>
+<li><p><strong>Reserve App Name</strong></p>
+<ul>
+<li>Apps → Create a new app</li>
+<li>Reserve &quot;Memory Timeline&quot;</li>
+<li>Note the Identity details for manifest</li>
+</ul>
+</li>
+</ol>
+<h3 id="2-app-submission-preparation" class="anchored">2. App Submission Preparation<a class="heading-anchor" href="#2-app-submission-preparation" aria-label="Link to this section">#</a></h3>
+<h4 id="required-assets" class="anchored">Required Assets<a class="heading-anchor" href="#required-assets" aria-label="Link to this section">#</a></h4>
+<figure class="diagram"><pre aria-label="Diagram">Assets/
+├── StoreLogo.png (50x50)
+├── Square44x44Logo.png (44x44)
+├── Square150x150Logo.png (150x150)
+├── Square310x310Logo.png (310x310)
+├── Wide310x150Logo.png (310x150)
+├── SmallTile.png (71x71)
+├── SplashScreen.png (620x300)
+└── Screenshots/
+    ├── Desktop_1920x1080_1.png
+    ├── Desktop_1920x1080_2.png
+    ├── Desktop_1920x1080_3.png
+    └── Desktop_1920x1080_4.png</pre></figure>
+<h4 id="store-listing-information" class="anchored">Store Listing Information<a class="heading-anchor" href="#store-listing-information" aria-label="Link to this section">#</a></h4>
+<ul>
+<li><strong>Description</strong> (minimum 200 characters)</li>
+<li><strong>Features</strong> (5-10 bullet points)</li>
+<li><strong>Screenshots</strong> (minimum 1, recommended 4+)</li>
+<li><strong>Privacy Policy URL</strong> (required)</li>
+<li><strong>Support Contact</strong> (email or website)</li>
+<li><strong>Age Rating</strong> (ESRB, PEGI, etc.)</li>
+<li><strong>Category</strong> (Productivity)</li>
+</ul>
+<h3 id="3-package-upload" class="anchored">3. Package Upload<a class="heading-anchor" href="#3-package-upload" aria-label="Link to this section">#</a></h3>
+<ol>
+<li><p><strong>Create Submission</strong></p>
+<div class="codeblock" data-lang="text"><div class="codeblock-bar"><span class="codeblock-lang">text</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-text">Partner Center → Your App → Start submission</code></pre></div>
+</li>
+<li><p><strong>Upload Package</strong></p>
+<ul>
+<li>Upload signed <code>.msix</code> or <code>.msixbundle</code></li>
+<li>System will validate:<ul>
+<li>Digital signature</li>
+<li>Manifest validity</li>
+<li>API usage compliance</li>
+<li>Content policy compliance</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p><strong>Configure Properties</strong></p>
+<ul>
+<li>Display name: &quot;Memory Timeline&quot;</li>
+<li>Category: Productivity</li>
+<li>Pricing: Free (or set price)</li>
+<li>Markets: Select target countries</li>
+<li>Age rating: Complete questionnaire</li>
+</ul>
+</li>
+<li><p><strong>Submit for Certification</strong></p>
+<ul>
+<li>Review all sections</li>
+<li>Submit for review</li>
+<li>Typical review time: 1-3 business days</li>
+</ul>
+</li>
+</ol>
+<h3 id="4-certification-process" class="anchored">4. Certification Process<a class="heading-anchor" href="#4-certification-process" aria-label="Link to this section">#</a></h3>
+<p>Microsoft will test:</p>
+<ul>
+<li><strong>Security</strong>: Malware scan, signature validation</li>
+<li><strong>Performance</strong>: Launch time, memory usage, CPU usage</li>
+<li><strong>Compatibility</strong>: Windows version compatibility</li>
+<li><strong>Content</strong>: Policy compliance</li>
+<li><strong>Functionality</strong>: Basic app functionality</li>
+</ul>
+<h3 id="5-publishing" class="anchored">5. Publishing<a class="heading-anchor" href="#5-publishing" aria-label="Link to this section">#</a></h3>
+<p>Once approved:</p>
+<ul>
+<li>App goes live in Microsoft Store (usually within 24 hours)</li>
+<li>Users can download and install</li>
+<li>Auto-updates handled by Microsoft Store</li>
+</ul>
+<hr>
+<h2 id="side-loading" class="anchored">Side-loading<a class="heading-anchor" href="#side-loading" aria-label="Link to this section">#</a></h2>
+<p>For enterprise deployment or testing without Microsoft Store.</p>
+<h3 id="1-enable-side-loading-on-target-machine" class="anchored">1. Enable Side-loading on Target Machine<a class="heading-anchor" href="#1-enable-side-loading-on-target-machine" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell"><span class="tok-comment"># Check if side-loading is enabled</span>
+<span class="tok-cmdlet">Get-AppxPackage</span> <span class="tok-flag">-Name</span> <span class="tok-string">&quot;*YourPublisher*&quot;</span>
+
+<span class="tok-comment"># Enable Developer Mode (Settings → Update &amp; Security → For developers)</span>
+<span class="tok-comment"># Or use PowerShell (requires admin)</span>
+reg add <span class="tok-string">&quot;HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock&quot;</span> /t REG_DWORD /f /v <span class="tok-string">&quot;AllowDevelopmentWithoutDevLicense&quot;</span> /d <span class="tok-string">&quot;1&quot;</span></code></pre></div>
+<h3 id="2-install-certificate" class="anchored">2. Install Certificate<a class="heading-anchor" href="#2-install-certificate" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell"><span class="tok-comment"># Import signing certificate to trusted root (admin required)</span>
+<span class="tok-variable">$cert</span> = <span class="tok-cmdlet">Get-PfxCertificate</span> <span class="tok-flag">-FilePath</span> <span class="tok-string">&quot;.\SigningCert.pfx&quot;</span>
+<span class="tok-cmdlet">Import-Certificate</span> <span class="tok-flag">-CertStoreLocation</span> Cert:\LocalMachine\Root <span class="tok-flag">-Certificate</span> <span class="tok-variable">$cert</span></code></pre></div>
+<h3 id="3-install-package" class="anchored">3. Install Package<a class="heading-anchor" href="#3-install-package" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell"><span class="tok-comment"># Using Add-AppxPackage</span>
+<span class="tok-cmdlet">Add-AppxPackage</span> <span class="tok-flag">-Path</span> <span class="tok-string">&quot;.\MemoryTimeline.msix&quot;</span>
+
+<span class="tok-comment"># With dependencies</span>
+<span class="tok-cmdlet">Add-AppxPackage</span> <span class="tok-flag">-Path</span> <span class="tok-string">&quot;.\MemoryTimeline.msix&quot;</span> <span class="tok-flag">-DependencyPath</span> <span class="tok-string">&quot;.\Dependencies\*.appx&quot;</span>
+
+<span class="tok-comment"># Verify installation</span>
+<span class="tok-cmdlet">Get-AppxPackage</span> <span class="tok-flag">-Name</span> <span class="tok-string">&quot;MemoryTimeline&quot;</span></code></pre></div>
+<h3 id="4-powershell-install-script" class="anchored">4. PowerShell Install Script<a class="heading-anchor" href="#4-powershell-install-script" aria-label="Link to this section">#</a></h3>
+<p>Create <code>Install.ps1</code>:</p>
+<div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell"><span class="tok-comment">#Requires -RunAsAdministrator</span>
+
+<span class="tok-keyword">param</span>(
+    [string]<span class="tok-variable">$PackagePath</span> = <span class="tok-string">&quot;.\MemoryTimeline.msix&quot;</span>,
+    [string]<span class="tok-variable">$CertificatePath</span> = <span class="tok-string">&quot;.\SigningCert.cer&quot;</span>
+)
+
+<span class="tok-cmdlet">Write-Host</span> <span class="tok-string">&quot;Installing Memory Timeline...&quot;</span> <span class="tok-flag">-ForegroundColor</span> Green
+
+<span class="tok-comment"># Check if package exists</span>
+<span class="tok-keyword">if</span> (<span class="tok-flag">-not</span> (<span class="tok-cmdlet">Test-Path</span> <span class="tok-variable">$PackagePath</span>)) {
+    <span class="tok-cmdlet">Write-Error</span> <span class="tok-string">&quot;Package not found: $PackagePath&quot;</span>
+    exit <span class="tok-number">1</span>
+}
+
+<span class="tok-comment"># Install certificate</span>
+<span class="tok-keyword">if</span> (<span class="tok-cmdlet">Test-Path</span> <span class="tok-variable">$CertificatePath</span>) {
+    <span class="tok-cmdlet">Write-Host</span> <span class="tok-string">&quot;Installing certificate...&quot;</span>
+    <span class="tok-cmdlet">Import-Certificate</span> <span class="tok-flag">-CertStoreLocation</span> Cert:\LocalMachine\Root <span class="tok-flag">-FilePath</span> <span class="tok-variable">$CertificatePath</span>
+}
+
+<span class="tok-comment"># Install package</span>
+<span class="tok-cmdlet">Write-Host</span> <span class="tok-string">&quot;Installing package...&quot;</span>
+<span class="tok-keyword">try</span> {
+    <span class="tok-cmdlet">Add-AppxPackage</span> <span class="tok-flag">-Path</span> <span class="tok-variable">$PackagePath</span> <span class="tok-flag">-ErrorAction</span> Stop
+    <span class="tok-cmdlet">Write-Host</span> <span class="tok-string">&quot;Installation successful!&quot;</span> <span class="tok-flag">-ForegroundColor</span> Green
+    <span class="tok-cmdlet">Write-Host</span> <span class="tok-string">&quot;You can now launch Memory Timeline from the Start menu.&quot;</span>
+}
+<span class="tok-keyword">catch</span> {
+    <span class="tok-cmdlet">Write-Error</span> <span class="tok-string">&quot;Installation failed: $_&quot;</span>
+    exit <span class="tok-number">1</span>
+}</code></pre></div>
+<h3 id="5-uninstall-script" class="anchored">5. Uninstall Script<a class="heading-anchor" href="#5-uninstall-script" aria-label="Link to this section">#</a></h3>
+<p>Create <code>Uninstall.ps1</code>:</p>
+<div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell"><span class="tok-comment">#Requires -RunAsAdministrator</span>
+
+<span class="tok-variable">$AppName</span> = <span class="tok-string">&quot;MemoryTimeline&quot;</span>
+
+<span class="tok-cmdlet">Write-Host</span> <span class="tok-string">&quot;Uninstalling $AppName...&quot;</span> <span class="tok-flag">-ForegroundColor</span> Yellow
+
+<span class="tok-variable">$package</span> = <span class="tok-cmdlet">Get-AppxPackage</span> <span class="tok-flag">-Name</span> <span class="tok-string">&quot;*$AppName*&quot;</span>
+
+<span class="tok-keyword">if</span> (<span class="tok-variable">$package</span>) {
+    <span class="tok-cmdlet">Remove-AppxPackage</span> <span class="tok-flag">-Package</span> <span class="tok-variable">$package</span>.PackageFullName
+    <span class="tok-cmdlet">Write-Host</span> <span class="tok-string">&quot;Uninstallation successful!&quot;</span> <span class="tok-flag">-ForegroundColor</span> Green
+}
+<span class="tok-keyword">else</span> {
+    <span class="tok-cmdlet">Write-Host</span> <span class="tok-string">&quot;$AppName is not installed.&quot;</span> <span class="tok-flag">-ForegroundColor</span> Yellow
+}</code></pre></div>
+<hr>
+<h2 id="cicd-pipeline" class="anchored">CI/CD Pipeline<a class="heading-anchor" href="#cicd-pipeline" aria-label="Link to this section">#</a></h2>
+<h3 id="current-workflow-githubworkflowswindows-native-buildyml" class="anchored">Current workflow: <code>.github/workflows/windows-native-build.yml</code><a class="heading-anchor" href="#current-workflow-githubworkflowswindows-native-buildyml" aria-label="Link to this section">#</a></h3>
+<p>The repository has a <strong>real</strong> GitHub Actions workflow that compiles and tests the native Windows implementation. Its key design decisions mirror the constraints described above:</p>
+<ul>
+<li>Runs on <strong><code>windows-latest</code></strong> (the WinUI target cannot build on Linux).</li>
+<li>Installs the <strong>.NET 8 SDK</strong> (<code>actions/setup-dotnet</code>) and <strong>Visual Studio MSBuild</strong> (<code>microsoft/setup-msbuild</code>).</li>
+<li>Builds the <strong>whole solution for <code>Release | x64</code></strong> via <code>msbuild MemoryTimeline.sln /t:Restore,Build</code> — <strong>not</strong> <code>dotnet build</code>, to avoid the WinUI PRI/XAML task failure.</li>
+<li>Runs tests with <strong><code>dotnet vstest</code></strong> against the already-built <code>MemoryTimeline.Tests.dll</code> — <strong>not</strong> <code>dotnet test</code>, which would rebuild the WinUI app and hit the same failure.</li>
+<li>Compilation is the gate; the headless VSTest run of the self-contained WinUI test assembly is best-effort (<code>continue-on-error</code>) and its results/logs are uploaded as artifacts.</li>
+</ul>
+<p>Core of the build and test steps:</p>
+<div class="codeblock" data-lang="yaml"><div class="codeblock-bar"><span class="codeblock-lang">YAML</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-yaml"><span class="tok-key">- name</span>: Setup .NET <span class="tok-number">8</span>
+<span class="tok-key">  uses</span>: actions/setup-dotnet@v4
+<span class="tok-key">  with</span>:
+<span class="tok-key">    dotnet-version</span>: <span class="tok-string">'8.0.x'</span>
+<span class="tok-key">
+- name</span>: Setup MSBuild (Visual Studio)
+<span class="tok-key">  uses</span>: microsoft/setup-msbuild@v2
+<span class="tok-key">
+- name</span>: Build (Release | x64) via VS MSBuild
+<span class="tok-key">  shell</span>: pwsh
+<span class="tok-key">  run</span>: |
+    msbuild MemoryTimeline.sln /t:Restore,Build `
+      /p:Configuration=Release /p:Platform=x64 /m /v:minimal
+<span class="tok-key">
+- name</span>: Test (Release | x64)
+<span class="tok-key">  shell</span>: pwsh
+<span class="tok-key">  run</span>: |
+    $dll = Get-ChildItem -Recurse -Path MemoryTimeline.Tests/bin/x64/Release `
+             -Filter MemoryTimeline.Tests.dll | Select-Object -First <span class="tok-number">1</span>
+    dotnet vstest $dll.FullName --logger:<span class="tok-string">&quot;trx;LogFileName=test.trx&quot;</span> `
+<span class="tok-key">      --ResultsDirectory</span>:TestResults</code></pre></div>
+<p>(The working directory is <code>windows-native/src</code>.)</p>
+<h3 id="not-yet-automated" class="anchored">Not yet automated<a class="heading-anchor" href="#not-yet-automated" aria-label="Link to this section">#</a></h3>
+<p>Packaging, signing, and Store publishing are <strong>not</strong> part of the current workflow — they are Phase 7 work in progress (see the MSIX and Microsoft Store sections above).</p>
+<hr>
+<h2 id="post-deployment" class="anchored">Post-Deployment<a class="heading-anchor" href="#post-deployment" aria-label="Link to this section">#</a></h2>
+<h3 id="monitoring" class="anchored">Monitoring<a class="heading-anchor" href="#monitoring" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>Monitor Partner Center for crash reports</li>
+<li>Review user feedback and ratings</li>
+<li>Track download statistics</li>
+<li>Monitor API usage and costs for the cloud features (Anthropic LLM extraction, OpenAI embeddings). Note: speech-to-text runs locally via Whisper.net and incurs no per-use API cost.</li>
+</ul>
+<h3 id="updates" class="anchored">Updates<a class="heading-anchor" href="#updates" aria-label="Link to this section">#</a></h3>
+<ol>
+<li>Increment version in <code>Package.appxmanifest</code></li>
+<li>Build and test new version</li>
+<li>Create new submission in Partner Center</li>
+<li>Upload new package</li>
+<li>Microsoft Store handles auto-updates for users</li>
+</ol>
+<h3 id="rollback" class="anchored">Rollback<a class="heading-anchor" href="#rollback" aria-label="Link to this section">#</a></h3>
+<p>If critical issues found:</p>
+<ol>
+<li>Suspend availability in Partner Center</li>
+<li>Roll back to previous version</li>
+<li>Fix issues and resubmit</li>
+</ol>
+<hr>
+<h2 id="troubleshooting" class="anchored">Troubleshooting<a class="heading-anchor" href="#troubleshooting" aria-label="Link to this section">#</a></h2>
+<h3 id="common-issues" class="anchored">Common Issues<a class="heading-anchor" href="#common-issues" aria-label="Link to this section">#</a></h3>
+<p><strong>Certificate Not Trusted</strong></p>
+<div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell"><span class="tok-comment"># Solution: Install certificate to trusted root</span>
+<span class="tok-cmdlet">Import-Certificate</span> <span class="tok-flag">-CertStoreLocation</span> Cert:\LocalMachine\Root <span class="tok-flag">-FilePath</span> SigningCert.cer</code></pre></div>
+<p><strong>Package Installation Failed</strong></p>
+<div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell"><span class="tok-comment"># Check logs</span>
+<span class="tok-cmdlet">Get-AppxLog</span> <span class="tok-flag">-ActivityId</span> &lt;ID&gt;
+
+<span class="tok-comment"># Common fixes:</span>
+<span class="tok-comment"># 1. Ensure certificate is trusted</span>
+<span class="tok-comment"># 2. Check Windows version compatibility</span>
+<span class="tok-comment"># 3. Verify package integrity</span></code></pre></div>
+<p><strong>Store Submission Rejected</strong></p>
+<ul>
+<li>Review certification report in Partner Center</li>
+<li>Common reasons:<ul>
+<li>Invalid manifest</li>
+<li>Missing privacy policy</li>
+<li>Content policy violations</li>
+<li>Performance issues</li>
+<li>Incomplete metadata</li>
+</ul>
+</li>
+</ul>
+<hr>
+<h2 id="resources" class="anchored">Resources<a class="heading-anchor" href="#resources" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><a href="https://docs.microsoft.com/windows/apps/windows-app-sdk/" target="_blank" rel="noopener noreferrer" class="external-link">Windows App SDK Documentation</a></li>
+<li><a href="https://docs.microsoft.com/windows/msix/" target="_blank" rel="noopener noreferrer" class="external-link">MSIX Packaging Documentation</a></li>
+<li><a href="https://partner.microsoft.com/dashboard" target="_blank" rel="noopener noreferrer" class="external-link">Microsoft Partner Center</a></li>
+<li><a href="https://docs.microsoft.com/windows/win32/seccrypto/cryptography-tools" target="_blank" rel="noopener noreferrer" class="external-link">Code Signing Best Practices</a></li>
+</ul>
+<hr>
+<h2 id="support" class="anchored">Support<a class="heading-anchor" href="#support" aria-label="Link to this section">#</a></h2>
+<p>For deployment issues:</p>
+<ul>
+<li>Email: <a href="mailto:support@memorytimeline.com">support@memorytimeline.com</a></li>
+<li>GitHub Issues: <a href="https://github.com/yourusername/memory-timeline/issues" target="_blank" rel="noopener noreferrer" class="external-link">https://github.com/yourusername/memory-timeline/issues</a></li>
+<li>Documentation: <a href="https://docs.memorytimeline.com" target="_blank" rel="noopener noreferrer" class="external-link">https://docs.memorytimeline.com</a></li>
+</ul>
+<hr>
+<p><strong>Last Updated</strong>: 2026-07-10</p>
+
+<nav class="pager" aria-label="Document navigation">
+  <a class="pager-link pager-prev" href="testing.html">
+      <span class="pager-kind">← Previous</span>
+      <span class="pager-title">Testing guide</span>
+    </a>
+  <a class="pager-link pager-next" href="development-status.html">
+      <span class="pager-kind">Next →</span>
+      <span class="pager-title">Development status</span>
+    </a>
+</nav>
+  </article>
+<aside class="toc" aria-label="On this page">
+  <p class="toc-title">On this page</p>
+  <ul class="toc-list">
+<li class="toc-item toc-h2"><a href="#table-of-contents" data-toc-link>Table of Contents</a></li>
+<li class="toc-item toc-h2"><a href="#prerequisites" data-toc-link>Prerequisites</a></li>
+<li class="toc-item toc-h3"><a href="#development-environment" data-toc-link>Development Environment</a></li>
+<li class="toc-item toc-h3"><a href="#for-packaging--store-deployment-phase-7--in-progress" data-toc-link>For Packaging / Store Deployment (Phase 7 — in progress)</a></li>
+<li class="toc-item toc-h2"><a href="#building-the-application" data-toc-link>Building the Application</a></li>
+<li class="toc-item toc-h3"><a href="#why-dotnet-build-does-not-work-for-the-app" data-toc-link>Why dotnet build does not work for the app</a></li>
+<li class="toc-item toc-h3"><a href="#build-release-x64--recommended" data-toc-link>Build (Release, x64) — recommended</a></li>
+<li class="toc-item toc-h3"><a href="#debug-build" data-toc-link>Debug build</a></li>
+<li class="toc-item toc-h3"><a href="#build-output" data-toc-link>Build Output</a></li>
+<li class="toc-item toc-h2"><a href="#data--runtime-layout" data-toc-link>Data &amp; Runtime Layout</a></li>
+<li class="toc-item toc-h2"><a href="#running-tests" data-toc-link>Running Tests</a></li>
+<li class="toc-item toc-h3"><a href="#build-once-then-run-the-built-test-assembly" data-toc-link>Build once, then run the built test assembly</a></li>
+<li class="toc-item toc-h3"><a href="#filtering" data-toc-link>Filtering</a></li>
+<li class="toc-item toc-h3"><a href="#coverage-goals" data-toc-link>Coverage goals</a></li>
+<li class="toc-item toc-h2"><a href="#msix-packaging-phase-7--in-progress" data-toc-link>MSIX Packaging (Phase 7 — in progress)</a></li>
+<li class="toc-item toc-h3"><a href="#manual-packaging-with-visual-studio" data-toc-link>Manual Packaging with Visual Studio</a></li>
+<li class="toc-item toc-h3"><a href="#command-line-packaging" data-toc-link>Command-Line Packaging</a></li>
+<li class="toc-item toc-h3"><a href="#package-contents-verification" data-toc-link>Package Contents Verification</a></li>
+<li class="toc-item toc-h2"><a href="#code-signing" data-toc-link>Code Signing</a></li>
+<li class="toc-item toc-h3"><a href="#requirements" data-toc-link>Requirements</a></li>
+<li class="toc-item toc-h3"><a href="#signing-command" data-toc-link>Signing Command</a></li>
+<li class="toc-item toc-h3"><a href="#certificate-requirements" data-toc-link>Certificate Requirements</a></li>
+<li class="toc-item toc-h3"><a href="#acquiring-a-certificate" data-toc-link>Acquiring a Certificate</a></li>
+<li class="toc-item toc-h2"><a href="#microsoft-store-deployment-phase-7--in-progress" data-toc-link>Microsoft Store Deployment (Phase 7 — in progress)</a></li>
+<li class="toc-item toc-h3"><a href="#1-partner-center-setup" data-toc-link>1. Partner Center Setup</a></li>
+<li class="toc-item toc-h3"><a href="#2-app-submission-preparation" data-toc-link>2. App Submission Preparation</a></li>
+<li class="toc-item toc-h3"><a href="#3-package-upload" data-toc-link>3. Package Upload</a></li>
+<li class="toc-item toc-h3"><a href="#4-certification-process" data-toc-link>4. Certification Process</a></li>
+<li class="toc-item toc-h3"><a href="#5-publishing" data-toc-link>5. Publishing</a></li>
+<li class="toc-item toc-h2"><a href="#side-loading" data-toc-link>Side-loading</a></li>
+<li class="toc-item toc-h3"><a href="#1-enable-side-loading-on-target-machine" data-toc-link>1. Enable Side-loading on Target Machine</a></li>
+<li class="toc-item toc-h3"><a href="#2-install-certificate" data-toc-link>2. Install Certificate</a></li>
+<li class="toc-item toc-h3"><a href="#3-install-package" data-toc-link>3. Install Package</a></li>
+<li class="toc-item toc-h3"><a href="#4-powershell-install-script" data-toc-link>4. PowerShell Install Script</a></li>
+<li class="toc-item toc-h3"><a href="#5-uninstall-script" data-toc-link>5. Uninstall Script</a></li>
+<li class="toc-item toc-h2"><a href="#cicd-pipeline" data-toc-link>CI/CD Pipeline</a></li>
+<li class="toc-item toc-h3"><a href="#current-workflow-githubworkflowswindows-native-buildyml" data-toc-link>Current workflow: .github/workflows/windows-native-build.yml</a></li>
+<li class="toc-item toc-h3"><a href="#not-yet-automated" data-toc-link>Not yet automated</a></li>
+<li class="toc-item toc-h2"><a href="#post-deployment" data-toc-link>Post-Deployment</a></li>
+<li class="toc-item toc-h3"><a href="#monitoring" data-toc-link>Monitoring</a></li>
+<li class="toc-item toc-h3"><a href="#updates" data-toc-link>Updates</a></li>
+<li class="toc-item toc-h3"><a href="#rollback" data-toc-link>Rollback</a></li>
+<li class="toc-item toc-h2"><a href="#troubleshooting" data-toc-link>Troubleshooting</a></li>
+<li class="toc-item toc-h3"><a href="#common-issues" data-toc-link>Common Issues</a></li>
+<li class="toc-item toc-h2"><a href="#resources" data-toc-link>Resources</a></li>
+<li class="toc-item toc-h2"><a href="#support" data-toc-link>Support</a></li>
+  </ul>
+  <a class="toc-top" href="#main">↑ Back to top</a>
+</aside>
+</div>
+    <footer class="site-footer">
+      <div>
+        <strong>Memory Timeline</strong> documentation ·
+        19 documents ·
+        generated 2026-08-07
+      </div>
+      <div class="footer-links">
+        <a href="index.html">Home</a>
+        <a href="documentation-map.html">All documentation</a>
+        <a href="https://github.com/ethanbissbort/memory-line" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </div>
+      <div class="footer-note">
+        This site is generated from the markdown in the repository — edit the source files and rebuild.
+      </div>
+    </footer>
+  </main>
+</div>
+
+<div class="search-modal" data-search-modal hidden>
+  <div class="search-backdrop" data-search-close></div>
+  <div class="search-panel" role="dialog" aria-modal="true" aria-label="Search documentation">
+    <div class="search-input-row">
+      <svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><circle cx="9" cy="9" r="5.5" stroke="currentColor" stroke-width="1.7" fill="none"/><path d="M13.2 13.2 17 17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <input type="search" placeholder="Search headings and content…" data-search-input autocomplete="off" spellcheck="false" aria-label="Search query">
+      <button class="icon-btn" type="button" data-search-close aria-label="Close search"><kbd>Esc</kbd></button>
+    </div>
+    <div class="search-results" data-search-results>
+      <p class="search-hint">Start typing to search every document on this site.</p>
+    </div>
+  </div>
+</div>
+
+<script src="assets/search-index.js" defer></script>
+<script src="assets/app.js" defer></script>
+</body>
+</html>

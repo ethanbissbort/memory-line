@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Electron test suite · Memory Timeline docs</title>
+<meta name="description" content="Jest test layout, generating test databases and sample data, running suites, coverage, performance benchmarks, and templates.">
+<meta property="og:title" content="Electron test suite · Memory Timeline docs">
+<meta property="og:description" content="Jest test layout, generating test databases and sample data, running suites, coverage, performance benchmarks, and templates.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%227%22%20fill%3D%22%231d1b18%22%2F%3E%3Cpath%20d%3D%22M4%2021h24%22%20stroke%3D%22%238b8175%22%20stroke-width%3D%221.5%22%20stroke-linecap%3D%22round%22%2F%3E%3Ccircle%20cx%3D%229%22%20cy%3D%2221%22%20r%3D%223.1%22%20fill%3D%22%23e0873f%22%2F%3E%3Ccircle%20cx%3D%2217%22%20cy%3D%2214%22%20r%3D%223.6%22%20fill%3D%22%23f0b46e%22%2F%3E%3Ccircle%20cx%3D%2225%22%20cy%3D%2218%22%20r%3D%222.6%22%20fill%3D%22%236ec2b8%22%2F%3E%3Cpath%20d%3D%22M9%2021%2017%2014%2025%2018%22%20stroke%3D%22%238b8175%22%20stroke-width%3D%221.2%22%20fill%3D%22none%22%20stroke-linejoin%3D%22round%22%20opacity%3D%22.8%22%2F%3E%3C%2Fsvg%3E">
+<link rel="stylesheet" href="assets/styles.css">
+<script>(function(){try{var t=localStorage.getItem('mt-theme');if(t==='light'||t==='dark'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();</script>
+</head>
+<body class="page-doc" data-page="electron-tests">
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="icon-btn nav-toggle" type="button" aria-label="Toggle navigation" aria-expanded="false" data-nav-toggle>
+      <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg>
+    </button>
+    <a class="brand" href="index.html">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="26" height="26"><path d="M3 22h26" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity=".45"/><circle cx="8" cy="22" r="3" fill="currentColor" opacity=".55"/><circle cx="16" cy="14" r="3.8" fill="currentColor"/><circle cx="25" cy="18.5" r="2.6" fill="currentColor" opacity=".7"/></svg>
+      </span>
+      <span class="brand-text">
+        <span class="brand-name">Memory Timeline</span>
+        <span class="brand-sub">Documentation</span>
+      </span>
+    </a>
+
+    <button class="searchbar" type="button" data-search-open aria-label="Search documentation">
+      <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><circle cx="9" cy="9" r="5.5" stroke="currentColor" stroke-width="1.7" fill="none"/><path d="M13.2 13.2 17 17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <span>Search the docs</span>
+      <kbd>/</kbd>
+    </button>
+
+    <div class="topbar-actions">
+      <button class="icon-btn" type="button" data-theme-toggle aria-label="Switch colour theme" title="Switch colour theme">
+        <svg class="icon-sun" viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><circle cx="10" cy="10" r="4" fill="currentColor"/><path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6 16 16M16 4l-1.4 1.4M5.4 14.6 4 16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <svg class="icon-moon" viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><path d="M16.5 12.4A7 7 0 0 1 7.6 3.5a7 7 0 1 0 8.9 8.9Z" fill="currentColor"/></svg>
+      </button>
+      <a class="icon-btn" href="https://github.com/ethanbissbort/memory-line" target="_blank" rel="noopener noreferrer" aria-label="View the repository on GitHub" title="Repository on GitHub">
+        <svg viewBox="0 0 16 16" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38l-.01-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.93-.89-1.18-.89-1.18-.73-.5.05-.49.05-.49.81.06 1.23.83 1.23.83.72 1.23 1.88.87 2.34.67.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48l-.01 2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+      </a>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" data-sidebar>
+    <nav aria-label="Documentation">
+      <ul class="nav">
+        <li class="nav-section">
+          <p class="nav-section-title">Start here</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="index.html">Home</a>
+            </li>
+            <li><a class="nav-link" href="documentation-map.html">All documentation</a>
+            </li>
+            <li><a class="nav-link" href="overview.html">Project overview</a>
+            </li>
+            <li><a class="nav-link" href="developer-guide.html">Developer guide</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Windows Native app</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="windows-native.html">Windows Native app</a>
+            </li>
+            <li><a class="nav-link" href="setup-scripts-windows.html">PowerShell setup scripts</a>
+            </li>
+            <li><a class="nav-link" href="testing.html">Testing guide</a>
+            </li>
+            <li><a class="nav-link" href="deployment.html">Deployment guide</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Status &amp; history</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="development-status.html">Development status</a>
+            </li>
+            <li><a class="nav-link" href="development-history.html">Development history</a>
+            </li>
+            <li><a class="nav-link" href="migration-to-native-windows.html">Migration to native Windows</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Audits &amp; reviews</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="feature-audit.html">Feature audit (2026-07)</a>
+            </li>
+            <li><a class="nav-link" href="hardening-followups.html">Hardening follow-ups</a>
+            </li>
+            <li><a class="nav-link" href="repo-audit-2026-07.html">Exhaustive repo audit</a>
+            </li>
+            <li><a class="nav-link" href="multi-agent-code-review.html">Multi-agent code review</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Design notes</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="people-feature-contracts.html">People feature contracts</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Legacy Electron build</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="electron-deployment.html">Electron deployment &amp; install</a>
+            </li>
+            <li><a class="nav-link" href="electron-setup-scripts.html">Electron setup scripts</a>
+            </li>
+            <li><a class="nav-link" href="electron-setup-logs.html">Setup script logs</a>
+            </li>
+            <li><a class="nav-link is-active" href="electron-tests.html" aria-current="page">Electron test suite</a>
+              <ul class="nav-sub">
+                <li><a class="nav-sublink" href="#-legacy--electron-implementation-status-as-of-2026-07-10">⚠️ LEGACY — Electron implementation (status as of 2026-07-10)</a></li>
+                <li><a class="nav-sublink" href="#overview">Overview</a></li>
+                <li><a class="nav-sublink" href="#quick-start">Quick Start</a></li>
+                <li><a class="nav-sublink" href="#test-structure">Test Structure</a></li>
+                <li><a class="nav-sublink" href="#test-databases">Test Databases</a></li>
+                <li><a class="nav-sublink" href="#sample-data-generation">Sample Data Generation</a></li>
+                <li><a class="nav-sublink" href="#unit-tests">Unit Tests</a></li>
+                <li><a class="nav-sublink" href="#performance-tests">Performance Tests</a></li>
+                <li><a class="nav-sublink" href="#writing-tests">Writing Tests</a></li>
+                <li><a class="nav-sublink" href="#continuous-integration">Continuous Integration</a></li>
+                <li><a class="nav-sublink" href="#troubleshooting">Troubleshooting</a></li>
+                <li><a class="nav-sublink" href="#test-data">Test Data</a></li>
+                <li><a class="nav-sublink" href="#performance-optimization-tips">Performance Optimization Tips</a></li>
+                <li><a class="nav-sublink" href="#contributing-tests">Contributing Tests</a></li>
+                <li><a class="nav-sublink" href="#resources">Resources</a></li>
+                <li><a class="nav-sublink" href="#license">License</a></li>
+              </ul>
+            </li>
+            <li><a class="nav-link" href="electron-test-databases.html">Test databases</a>
+            </li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+  </aside>
+  <div class="sidebar-scrim" data-nav-close hidden></div>
+
+  <main class="main" id="main">
+
+<header class="doc-header">
+  <nav class="breadcrumb" aria-label="Breadcrumb">
+    <a href="index.html">Docs</a>
+    <span aria-hidden="true">/</span>
+    <span>Legacy Electron build</span>
+  </nav>
+  <h1>Electron test suite</h1>
+  <p class="doc-lede">Jest test layout, generating test databases and sample data, running suites, coverage, performance benchmarks, and templates.</p>
+  <div class="doc-meta">
+    <span class="doc-meta-item"><b>For</b> Developers</span>
+    <span class="doc-meta-item"><b>777</b> words</span>
+    <span class="doc-meta-item"><b>4</b> min read</span>
+    <a class="doc-meta-item doc-source" href="https://github.com/ethanbissbort/memory-line/blob/main/tests/README.md" target="_blank" rel="noopener noreferrer">
+      tests/README.md ↗
+    </a>
+  </div>
+  <div class="tags"><span class="tag">Electron</span><span class="tag">Jest</span><span class="tag">testing</span></div>
+</header>
+<div class="doc-grid">
+  <article class="prose">
+<div class="callout callout-feature"><div class="callout-body"><h2 id="-legacy--electron-implementation-status-as-of-2026-07-10" class="anchored">⚠️ LEGACY — Electron implementation (status as of 2026-07-10)<a class="heading-anchor" href="#-legacy--electron-implementation-status-as-of-2026-07-10" aria-label="Link to this section">#</a></h2>
+<p>This test suite covers the <strong>legacy Electron/Node.js</strong> version of Memory Timeline (Jest + better-sqlite3).
+The <strong>primary, actively developed product is now the Windows Native app (.NET 8 / WinUI 3)</strong> under <a href="https://github.com/ethanbissbort/memory-line/tree/main/windows-native" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>windows-native/</code></a>.
+For the primary test suite, see <a href="testing.html"><code>windows-native/TESTING.md</code></a>.</p>
+<p>The content below remains valid for the Electron app.</p>
+</div></div>
+<p>Comprehensive testing infrastructure for the Memory Timeline application.</p>
+<h2 id="overview" class="anchored">Overview<a class="heading-anchor" href="#overview" aria-label="Link to this section">#</a></h2>
+<p>This test suite includes:</p>
+<ul>
+<li><strong>Unit Tests</strong>: Service-level tests for all core functionality</li>
+<li><strong>Sample Data Generators</strong>: Realistic data for testing</li>
+<li><strong>Database Seeders</strong>: Pre-populated test databases</li>
+<li><strong>Performance Tests</strong>: Load and stress testing</li>
+</ul>
+<h2 id="quick-start" class="anchored">Quick Start<a class="heading-anchor" href="#quick-start" aria-label="Link to this section">#</a></h2>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-comment"># Install dependencies first</span>
+<span class="tok-builtin">npm</span> install
+
+<span class="tok-comment"># Run all tests</span>
+<span class="tok-builtin">npm</span> test
+
+<span class="tok-comment"># Run with coverage report</span>
+<span class="tok-builtin">npm</span> run test:coverage
+
+<span class="tok-comment"># Watch mode for development</span>
+<span class="tok-builtin">npm</span> run test:watch
+
+<span class="tok-comment"># Run only service tests</span>
+<span class="tok-builtin">npm</span> run test:services</code></pre></div>
+<h2 id="test-structure" class="anchored">Test Structure<a class="heading-anchor" href="#test-structure" aria-label="Link to this section">#</a></h2>
+<figure class="diagram"><pre aria-label="Diagram">tests/
+├── fixtures/
+│   ├── databases/           # Pre-generated test databases
+│   │   ├── test-tiny.db    # 10 events
+│   │   ├── test-small.db   # 100 events
+│   │   ├── test-medium.db  # 500 events
+│   │   ├── test-large.db   # 1,000 events
+│   │   └── test-stress.db  # 5,000+ events
+│   ├── sampleDataGenerator.js  # Generate realistic sample data
+│   ├── databaseSeeder.js       # Seed databases with data
+│   └── generateSampleData.js   # CLI tool for data generation
+├── services/
+│   ├── exportService.test.js      # Export/import tests
+│   ├── performanceService.test.js # Performance tests
+│   ├── embeddingService.test.js   # Embedding tests
+│   └── ragService.test.js         # RAG tests
+├── performance/
+│   └── performanceTest.js  # Load and performance benchmarks
+├── setup.js               # Jest test setup
+└── README.md             # This file</pre></figure>
+<h2 id="test-databases" class="anchored">Test Databases<a class="heading-anchor" href="#test-databases" aria-label="Link to this section">#</a></h2>
+<h3 id="generating-test-databases" class="anchored">Generating Test Databases<a class="heading-anchor" href="#generating-test-databases" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-comment"># Generate all test databases</span>
+<span class="tok-builtin">npm</span> run test:seed</code></pre></div>
+<p>This creates 5 databases with varying sizes:</p>
+<div class="table-wrap"><table><thead><tr>
+<th>Database</th>
+<th>Events</th>
+<th>Size</th>
+<th>Use Case</th>
+</tr>
+</thead><tbody><tr>
+<td><code>test-tiny.db</code></td>
+<td>10</td>
+<td>~100 KB</td>
+<td>Quick smoke tests</td>
+</tr>
+<tr>
+<td><code>test-small.db</code></td>
+<td>100</td>
+<td>~500 KB</td>
+<td>Unit tests</td>
+</tr>
+<tr>
+<td><code>test-medium.db</code></td>
+<td>500</td>
+<td>~2 MB</td>
+<td>Integration tests</td>
+</tr>
+<tr>
+<td><code>test-large.db</code></td>
+<td>1,000</td>
+<td>~5 MB</td>
+<td>Performance tests</td>
+</tr>
+<tr>
+<td><code>test-stress.db</code></td>
+<td>5,000+</td>
+<td>~20 MB</td>
+<td>Stress tests</td>
+</tr>
+</tbody></table></div>
+<h3 id="using-test-databases" class="anchored">Using Test Databases<a class="heading-anchor" href="#using-test-databases" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="javascript"><div class="codeblock-bar"><span class="codeblock-lang">JavaScript</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-javascript"><span class="tok-keyword">const</span> <span class="tok-type">Database</span> = require(<span class="tok-string">'better-sqlite3'</span>);
+<span class="tok-keyword">const</span> path = require(<span class="tok-string">'path'</span>);
+
+<span class="tok-keyword">const</span> db = <span class="tok-keyword">new</span> <span class="tok-type">Database</span>(path.join(__dirname, <span class="tok-string">'fixtures/databases/test-small.db'</span>));
+<span class="tok-keyword">const</span> events = db.prepare(<span class="tok-string">'SELECT * FROM events LIMIT 10'</span>).all();</code></pre></div>
+<h2 id="sample-data-generation" class="anchored">Sample Data Generation<a class="heading-anchor" href="#sample-data-generation" aria-label="Link to this section">#</a></h2>
+<h3 id="generate-json-sample-data" class="anchored">Generate JSON Sample Data<a class="heading-anchor" href="#generate-json-sample-data" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-comment"># Generate 100 events</span>
+<span class="tok-builtin">npm</span> run test:generate-data
+
+<span class="tok-comment"># Generate custom amount</span>
+<span class="tok-builtin">node</span> tests/fixtures/generateSampleData.js <span class="tok-number">500</span> output/sample-<span class="tok-number">500</span>.json</code></pre></div>
+<h3 id="programmatic-usage" class="anchored">Programmatic Usage<a class="heading-anchor" href="#programmatic-usage" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="javascript"><div class="codeblock-bar"><span class="codeblock-lang">JavaScript</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-javascript"><span class="tok-keyword">const</span> { generateSampleData } = require(<span class="tok-string">'./fixtures/sampleDataGenerator'</span>);
+
+<span class="tok-keyword">const</span> data = generateSampleData(<span class="tok-number">100</span>, <span class="tok-number">5</span>); <span class="tok-comment">// 100 events, 5 eras</span>
+
+console.log(data.statistics);
+<span class="tok-comment">// {</span>
+<span class="tok-comment">//   total_events: 100,</span>
+<span class="tok-comment">//   total_eras: 5,</span>
+<span class="tok-comment">//   total_tags: 20,</span>
+<span class="tok-comment">//   total_people: 45,</span>
+<span class="tok-comment">//   total_locations: 18</span>
+<span class="tok-comment">// }</span></code></pre></div>
+<h2 id="unit-tests" class="anchored">Unit Tests<a class="heading-anchor" href="#unit-tests" aria-label="Link to this section">#</a></h2>
+<h3 id="running-specific-test-suites" class="anchored">Running Specific Test Suites<a class="heading-anchor" href="#running-specific-test-suites" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-comment"># All service tests</span>
+<span class="tok-builtin">npm</span> run test:services
+
+<span class="tok-comment"># Specific service</span>
+<span class="tok-builtin">npx</span> <span class="tok-builtin">jest</span> tests/services/exportService.test.js
+
+<span class="tok-comment"># With verbose output</span>
+<span class="tok-builtin">npm</span> run test:verbose</code></pre></div>
+<h3 id="test-coverage" class="anchored">Test Coverage<a class="heading-anchor" href="#test-coverage" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-comment"># Generate coverage report</span>
+<span class="tok-builtin">npm</span> run test:coverage
+
+<span class="tok-comment"># View HTML report</span>
+open coverage/lcov-report/index.html</code></pre></div>
+<p><strong>Coverage Goals:</strong></p>
+<ul>
+<li>Overall: &gt; 80%</li>
+<li>Services: &gt; 90%</li>
+<li>Critical paths: 100%</li>
+</ul>
+<h2 id="performance-tests" class="anchored">Performance Tests<a class="heading-anchor" href="#performance-tests" aria-label="Link to this section">#</a></h2>
+<h3 id="running-performance-tests" class="anchored">Running Performance Tests<a class="heading-anchor" href="#running-performance-tests" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-builtin">npm</span> run test:performance</code></pre></div>
+<h3 id="performance-benchmarks" class="anchored">Performance Benchmarks<a class="heading-anchor" href="#performance-benchmarks" aria-label="Link to this section">#</a></h3>
+<p>Expected performance on different database sizes:</p>
+<div class="table-wrap"><table><thead><tr>
+<th>Test</th>
+<th>Small (100)</th>
+<th>Medium (500)</th>
+<th>Large (1K)</th>
+<th>Stress (5K)</th>
+</tr>
+</thead><tbody><tr>
+<td>Full Scan</td>
+<td>&lt; 5ms</td>
+<td>&lt; 20ms</td>
+<td>&lt; 50ms</td>
+<td>&lt; 200ms</td>
+</tr>
+<tr>
+<td>Indexed Query</td>
+<td>&lt; 2ms</td>
+<td>&lt; 5ms</td>
+<td>&lt; 10ms</td>
+<td>&lt; 30ms</td>
+</tr>
+<tr>
+<td>Paginated Query</td>
+<td>&lt; 10ms</td>
+<td>&lt; 20ms</td>
+<td>&lt; 30ms</td>
+<td>&lt; 100ms</td>
+</tr>
+<tr>
+<td>Cached Query</td>
+<td>&lt; 1ms</td>
+<td>&lt; 2ms</td>
+<td>&lt; 5ms</td>
+<td>&lt; 10ms</td>
+</tr>
+<tr>
+<td>FTS Search</td>
+<td>&lt; 5ms</td>
+<td>&lt; 10ms</td>
+<td>&lt; 20ms</td>
+<td>&lt; 50ms</td>
+</tr>
+</tbody></table></div>
+<h3 id="performance-test-output" class="anchored">Performance Test Output<a class="heading-anchor" href="#performance-test-output" aria-label="Link to this section">#</a></h3>
+<figure class="diagram"><pre aria-label="Diagram">📊 Testing: test-stress
+──────────────────────────────────────────────────
+Events: 5000
+Full Scan: 142.35ms (5000 rows)
+Indexed Query: 8.21ms (234 rows)
+Paginated Query: 24.67ms (100 rows)
+Cached Query: 0.87ms (100 rows)
+Cache speedup: 28.4x
+Full-text Search: 12.43ms (50 rows)
+Join Query: 31.22ms (100 rows)
+Batch Load Relationships: 6.54ms (100 events)</pre></figure>
+<h2 id="writing-tests" class="anchored">Writing Tests<a class="heading-anchor" href="#writing-tests" aria-label="Link to this section">#</a></h2>
+<h3 id="test-template" class="anchored">Test Template<a class="heading-anchor" href="#test-template" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="javascript"><div class="codeblock-bar"><span class="codeblock-lang">JavaScript</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-javascript"><span class="tok-keyword">const</span> <span class="tok-type">Database</span> = require(<span class="tok-string">'better-sqlite3'</span>);
+<span class="tok-keyword">const</span> <span class="tok-type">ServiceName</span> = require(<span class="tok-string">'../../src/main/services/serviceName'</span>);
+
+describe(<span class="tok-string">'ServiceName'</span>, () =&gt; {
+    <span class="tok-keyword">let</span> db;
+    <span class="tok-keyword">let</span> service;
+
+    beforeEach(() =&gt; {
+        db = <span class="tok-keyword">new</span> <span class="tok-type">Database</span>(<span class="tok-string">':memory:'</span>);
+        <span class="tok-comment">// Create schema</span>
+        db.exec(<span class="tok-string">`CREATE TABLE ...`</span>);
+        service = <span class="tok-keyword">new</span> <span class="tok-type">ServiceName</span>(db);
+    });
+
+    afterEach(() =&gt; {
+        db.close();
+    });
+
+    describe(<span class="tok-string">'methodName'</span>, () =&gt; {
+        test(<span class="tok-string">'should do something'</span>, () =&gt; {
+            <span class="tok-keyword">const</span> result = service.methodName();
+            expect(result).toBeDefined();
+        });
+    });
+});</code></pre></div>
+<h3 id="best-practices" class="anchored">Best Practices<a class="heading-anchor" href="#best-practices" aria-label="Link to this section">#</a></h3>
+<ol>
+<li><strong>Use In-Memory Databases</strong>: Faster and isolated</li>
+<li><strong>Clean Up</strong>: Always close databases in <code>afterEach</code></li>
+<li><strong>Test Errors</strong>: Include error path testing</li>
+<li><strong>Mock External APIs</strong>: Don&#39;t make real API calls</li>
+<li><strong>Descriptive Names</strong>: Test names should explain intent</li>
+</ol>
+<h2 id="continuous-integration" class="anchored">Continuous Integration<a class="heading-anchor" href="#continuous-integration" aria-label="Link to this section">#</a></h2>
+<h3 id="github-actions-example" class="anchored">GitHub Actions Example<a class="heading-anchor" href="#github-actions-example" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="yaml"><div class="codeblock-bar"><span class="codeblock-lang">YAML</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-yaml"><span class="tok-key">name</span>: Tests
+<span class="tok-key">on</span>: [push, pull_request]
+<span class="tok-key">
+jobs</span>:
+<span class="tok-key">  test</span>:
+<span class="tok-key">    runs-on</span>: ubuntu-latest
+<span class="tok-key">    steps</span>:
+<span class="tok-key">      - uses</span>: actions/checkout@v2
+<span class="tok-key">      - uses</span>: actions/setup-node@v2
+<span class="tok-key">        with</span>:
+<span class="tok-key">          node-version</span>: <span class="tok-string">'18'</span>
+<span class="tok-key">      - run</span>: npm install
+<span class="tok-key">      - run</span>: npm run test:all
+<span class="tok-key">      - uses</span>: codecov/codecov-action@v2</code></pre></div>
+<h2 id="troubleshooting" class="anchored">Troubleshooting<a class="heading-anchor" href="#troubleshooting" aria-label="Link to this section">#</a></h2>
+<h3 id="common-issues" class="anchored">Common Issues<a class="heading-anchor" href="#common-issues" aria-label="Link to this section">#</a></h3>
+<p><strong>1. Module not found errors</strong></p>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-builtin">npm</span> install</code></pre></div>
+<p><strong>2. Database locked errors</strong></p>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-comment"># Close all database connections</span>
+<span class="tok-comment"># Or use in-memory databases for tests</span></code></pre></div>
+<p><strong>3. Test timeouts</strong></p>
+<div class="codeblock" data-lang="javascript"><div class="codeblock-bar"><span class="codeblock-lang">JavaScript</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-javascript"><span class="tok-comment">// Increase timeout in jest.config.js</span>
+testTimeout: <span class="tok-number">10000</span></code></pre></div>
+<p><strong>4. Missing test databases</strong></p>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-builtin">npm</span> run test:seed</code></pre></div>
+<h3 id="debug-mode" class="anchored">Debug Mode<a class="heading-anchor" href="#debug-mode" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-comment"># Run Jest with Node inspector</span>
+<span class="tok-builtin">node</span> <span class="tok-flag">--inspect-brk</span> node_modules/.bin/<span class="tok-builtin">jest</span> <span class="tok-flag">--runInBand</span>
+
+<span class="tok-comment"># Verbose output</span>
+<span class="tok-builtin">npm</span> run test:verbose</code></pre></div>
+<h2 id="test-data" class="anchored">Test Data<a class="heading-anchor" href="#test-data" aria-label="Link to this section">#</a></h2>
+<h3 id="sample-event-structure" class="anchored">Sample Event Structure<a class="heading-anchor" href="#sample-event-structure" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="json"><div class="codeblock-bar"><span class="codeblock-lang">JSON</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-json">{
+  <span class="tok-key">&quot;event_id&quot;</span>: <span class="tok-string">&quot;uuid&quot;</span>,
+  <span class="tok-key">&quot;title&quot;</span>: <span class="tok-string">&quot;Graduated from Computer Science&quot;</span>,
+  <span class="tok-key">&quot;start_date&quot;</span>: <span class="tok-string">&quot;2020-05-15&quot;</span>,
+  <span class="tok-key">&quot;end_date&quot;</span>: <span class="tok-bool">null</span>,
+  <span class="tok-key">&quot;description&quot;</span>: <span class="tok-string">&quot;This was a significant moment...&quot;</span>,
+  <span class="tok-key">&quot;category&quot;</span>: <span class="tok-string">&quot;education&quot;</span>,
+  <span class="tok-key">&quot;era_id&quot;</span>: <span class="tok-string">&quot;era-uuid&quot;</span>,
+  <span class="tok-key">&quot;tags&quot;</span>: [<span class="tok-string">&quot;milestone&quot;</span>, <span class="tok-string">&quot;achievement&quot;</span>],
+  <span class="tok-key">&quot;people&quot;</span>: [<span class="tok-string">&quot;John Doe&quot;</span>, <span class="tok-string">&quot;Jane Smith&quot;</span>],
+  <span class="tok-key">&quot;locations&quot;</span>: [<span class="tok-string">&quot;New York&quot;</span>]
+}</code></pre></div>
+<h3 id="realistic-data-features" class="anchored">Realistic Data Features<a class="heading-anchor" href="#realistic-data-features" aria-label="Link to this section">#</a></h3>
+<ul>
+<li><strong>30+ event categories</strong>: work, education, milestone, travel, etc.</li>
+<li><strong>100+ name variations</strong>: First/last name combinations</li>
+<li><strong>50+ location options</strong>: Major cities and regions</li>
+<li><strong>20+ tag types</strong>: From common to specific</li>
+<li><strong>Date distribution</strong>: Realistic spread across years</li>
+<li><strong>Relationships</strong>: Events with appropriate tags, people, locations</li>
+</ul>
+<h2 id="performance-optimization-tips" class="anchored">Performance Optimization Tips<a class="heading-anchor" href="#performance-optimization-tips" aria-label="Link to this section">#</a></h2>
+<ol>
+<li><strong>Use Pagination</strong>: Don&#39;t load all events at once</li>
+<li><strong>Enable Caching</strong>: Use PerformanceService caching</li>
+<li><strong>Batch Operations</strong>: Load relationships in batches</li>
+<li><strong>Index Properly</strong>: Ensure critical columns are indexed</li>
+<li><strong>Regular VACUUM</strong>: Keep database optimized</li>
+</ol>
+<h2 id="contributing-tests" class="anchored">Contributing Tests<a class="heading-anchor" href="#contributing-tests" aria-label="Link to this section">#</a></h2>
+<p>When adding new features:</p>
+<ol>
+<li>Add unit tests in <code>tests/services/</code></li>
+<li>Update sample data generator if needed</li>
+<li>Add performance benchmarks</li>
+<li>Update this README</li>
+<li>Ensure &gt; 80% coverage</li>
+</ol>
+<h2 id="resources" class="anchored">Resources<a class="heading-anchor" href="#resources" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><a href="https://jestjs.io/" target="_blank" rel="noopener noreferrer" class="external-link">Jest Documentation</a></li>
+<li><a href="https://github.com/WiseLibs/better-sqlite3" target="_blank" rel="noopener noreferrer" class="external-link">better-sqlite3 Documentation</a></li>
+<li><a href="https://github.com/goldbergyoni/javascript-testing-best-practices" target="_blank" rel="noopener noreferrer" class="external-link">Testing Best Practices</a></li>
+</ul>
+<h2 id="license" class="anchored">License<a class="heading-anchor" href="#license" aria-label="Link to this section">#</a></h2>
+<p>MIT - Same as main project</p>
+
+<nav class="pager" aria-label="Document navigation">
+  <a class="pager-link pager-prev" href="electron-setup-logs.html">
+      <span class="pager-kind">← Previous</span>
+      <span class="pager-title">Setup script logs</span>
+    </a>
+  <a class="pager-link pager-next" href="electron-test-databases.html">
+      <span class="pager-kind">Next →</span>
+      <span class="pager-title">Test databases</span>
+    </a>
+</nav>
+  </article>
+<aside class="toc" aria-label="On this page">
+  <p class="toc-title">On this page</p>
+  <ul class="toc-list">
+<li class="toc-item toc-h2"><a href="#-legacy--electron-implementation-status-as-of-2026-07-10" data-toc-link>⚠️ LEGACY — Electron implementation (status as of 2026-07-10)</a></li>
+<li class="toc-item toc-h2"><a href="#overview" data-toc-link>Overview</a></li>
+<li class="toc-item toc-h2"><a href="#quick-start" data-toc-link>Quick Start</a></li>
+<li class="toc-item toc-h2"><a href="#test-structure" data-toc-link>Test Structure</a></li>
+<li class="toc-item toc-h2"><a href="#test-databases" data-toc-link>Test Databases</a></li>
+<li class="toc-item toc-h3"><a href="#generating-test-databases" data-toc-link>Generating Test Databases</a></li>
+<li class="toc-item toc-h3"><a href="#using-test-databases" data-toc-link>Using Test Databases</a></li>
+<li class="toc-item toc-h2"><a href="#sample-data-generation" data-toc-link>Sample Data Generation</a></li>
+<li class="toc-item toc-h3"><a href="#generate-json-sample-data" data-toc-link>Generate JSON Sample Data</a></li>
+<li class="toc-item toc-h3"><a href="#programmatic-usage" data-toc-link>Programmatic Usage</a></li>
+<li class="toc-item toc-h2"><a href="#unit-tests" data-toc-link>Unit Tests</a></li>
+<li class="toc-item toc-h3"><a href="#running-specific-test-suites" data-toc-link>Running Specific Test Suites</a></li>
+<li class="toc-item toc-h3"><a href="#test-coverage" data-toc-link>Test Coverage</a></li>
+<li class="toc-item toc-h2"><a href="#performance-tests" data-toc-link>Performance Tests</a></li>
+<li class="toc-item toc-h3"><a href="#running-performance-tests" data-toc-link>Running Performance Tests</a></li>
+<li class="toc-item toc-h3"><a href="#performance-benchmarks" data-toc-link>Performance Benchmarks</a></li>
+<li class="toc-item toc-h3"><a href="#performance-test-output" data-toc-link>Performance Test Output</a></li>
+<li class="toc-item toc-h2"><a href="#writing-tests" data-toc-link>Writing Tests</a></li>
+<li class="toc-item toc-h3"><a href="#test-template" data-toc-link>Test Template</a></li>
+<li class="toc-item toc-h3"><a href="#best-practices" data-toc-link>Best Practices</a></li>
+<li class="toc-item toc-h2"><a href="#continuous-integration" data-toc-link>Continuous Integration</a></li>
+<li class="toc-item toc-h3"><a href="#github-actions-example" data-toc-link>GitHub Actions Example</a></li>
+<li class="toc-item toc-h2"><a href="#troubleshooting" data-toc-link>Troubleshooting</a></li>
+<li class="toc-item toc-h3"><a href="#common-issues" data-toc-link>Common Issues</a></li>
+<li class="toc-item toc-h3"><a href="#debug-mode" data-toc-link>Debug Mode</a></li>
+<li class="toc-item toc-h2"><a href="#test-data" data-toc-link>Test Data</a></li>
+<li class="toc-item toc-h3"><a href="#sample-event-structure" data-toc-link>Sample Event Structure</a></li>
+<li class="toc-item toc-h3"><a href="#realistic-data-features" data-toc-link>Realistic Data Features</a></li>
+<li class="toc-item toc-h2"><a href="#performance-optimization-tips" data-toc-link>Performance Optimization Tips</a></li>
+<li class="toc-item toc-h2"><a href="#contributing-tests" data-toc-link>Contributing Tests</a></li>
+<li class="toc-item toc-h2"><a href="#resources" data-toc-link>Resources</a></li>
+<li class="toc-item toc-h2"><a href="#license" data-toc-link>License</a></li>
+  </ul>
+  <a class="toc-top" href="#main">↑ Back to top</a>
+</aside>
+</div>
+    <footer class="site-footer">
+      <div>
+        <strong>Memory Timeline</strong> documentation ·
+        19 documents ·
+        generated 2026-08-07
+      </div>
+      <div class="footer-links">
+        <a href="index.html">Home</a>
+        <a href="documentation-map.html">All documentation</a>
+        <a href="https://github.com/ethanbissbort/memory-line" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </div>
+      <div class="footer-note">
+        This site is generated from the markdown in the repository — edit the source files and rebuild.
+      </div>
+    </footer>
+  </main>
+</div>
+
+<div class="search-modal" data-search-modal hidden>
+  <div class="search-backdrop" data-search-close></div>
+  <div class="search-panel" role="dialog" aria-modal="true" aria-label="Search documentation">
+    <div class="search-input-row">
+      <svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><circle cx="9" cy="9" r="5.5" stroke="currentColor" stroke-width="1.7" fill="none"/><path d="M13.2 13.2 17 17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <input type="search" placeholder="Search headings and content…" data-search-input autocomplete="off" spellcheck="false" aria-label="Search query">
+      <button class="icon-btn" type="button" data-search-close aria-label="Close search"><kbd>Esc</kbd></button>
+    </div>
+    <div class="search-results" data-search-results>
+      <p class="search-hint">Start typing to search every document on this site.</p>
+    </div>
+  </div>
+</div>
+
+<script src="assets/search-index.js" defer></script>
+<script src="assets/app.js" defer></script>
+</body>
+</html>

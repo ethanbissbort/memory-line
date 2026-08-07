@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Memory Timeline — documentation</title>
+<meta name="description" content="Documentation for Memory Timeline — a local-first Windows desktop app that turns spoken and typed memories into a structured, searchable, interactive personal timeline.">
+<meta property="og:title" content="Memory Timeline — documentation">
+<meta property="og:description" content="Documentation for Memory Timeline — a local-first Windows desktop app that turns spoken and typed memories into a structured, searchable, interactive personal timeline.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%227%22%20fill%3D%22%231d1b18%22%2F%3E%3Cpath%20d%3D%22M4%2021h24%22%20stroke%3D%22%238b8175%22%20stroke-width%3D%221.5%22%20stroke-linecap%3D%22round%22%2F%3E%3Ccircle%20cx%3D%229%22%20cy%3D%2221%22%20r%3D%223.1%22%20fill%3D%22%23e0873f%22%2F%3E%3Ccircle%20cx%3D%2217%22%20cy%3D%2214%22%20r%3D%223.6%22%20fill%3D%22%23f0b46e%22%2F%3E%3Ccircle%20cx%3D%2225%22%20cy%3D%2218%22%20r%3D%222.6%22%20fill%3D%22%236ec2b8%22%2F%3E%3Cpath%20d%3D%22M9%2021%2017%2014%2025%2018%22%20stroke%3D%22%238b8175%22%20stroke-width%3D%221.2%22%20fill%3D%22none%22%20stroke-linejoin%3D%22round%22%20opacity%3D%22.8%22%2F%3E%3C%2Fsvg%3E">
+<link rel="stylesheet" href="assets/styles.css">
+<script>(function(){try{var t=localStorage.getItem('mt-theme');if(t==='light'||t==='dark'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();</script>
+</head>
+<body class="page-landing" data-page="index">
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="icon-btn nav-toggle" type="button" aria-label="Toggle navigation" aria-expanded="false" data-nav-toggle>
+      <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg>
+    </button>
+    <a class="brand" href="index.html">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="26" height="26"><path d="M3 22h26" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity=".45"/><circle cx="8" cy="22" r="3" fill="currentColor" opacity=".55"/><circle cx="16" cy="14" r="3.8" fill="currentColor"/><circle cx="25" cy="18.5" r="2.6" fill="currentColor" opacity=".7"/></svg>
+      </span>
+      <span class="brand-text">
+        <span class="brand-name">Memory Timeline</span>
+        <span class="brand-sub">Documentation</span>
+      </span>
+    </a>
+
+    <button class="searchbar" type="button" data-search-open aria-label="Search documentation">
+      <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><circle cx="9" cy="9" r="5.5" stroke="currentColor" stroke-width="1.7" fill="none"/><path d="M13.2 13.2 17 17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <span>Search the docs</span>
+      <kbd>/</kbd>
+    </button>
+
+    <div class="topbar-actions">
+      <button class="icon-btn" type="button" data-theme-toggle aria-label="Switch colour theme" title="Switch colour theme">
+        <svg class="icon-sun" viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><circle cx="10" cy="10" r="4" fill="currentColor"/><path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6 16 16M16 4l-1.4 1.4M5.4 14.6 4 16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <svg class="icon-moon" viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><path d="M16.5 12.4A7 7 0 0 1 7.6 3.5a7 7 0 1 0 8.9 8.9Z" fill="currentColor"/></svg>
+      </button>
+      <a class="icon-btn" href="https://github.com/ethanbissbort/memory-line" target="_blank" rel="noopener noreferrer" aria-label="View the repository on GitHub" title="Repository on GitHub">
+        <svg viewBox="0 0 16 16" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38l-.01-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.93-.89-1.18-.89-1.18-.73-.5.05-.49.05-.49.81.06 1.23.83 1.23.83.72 1.23 1.88.87 2.34.67.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48l-.01 2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+      </a>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" data-sidebar>
+    <nav aria-label="Documentation">
+      <ul class="nav">
+        <li class="nav-section">
+          <p class="nav-section-title">Start here</p>
+          <ul class="nav-list">
+            <li><a class="nav-link is-active" href="index.html" aria-current="page">Home</a>
+            </li>
+            <li><a class="nav-link" href="documentation-map.html">All documentation</a>
+            </li>
+            <li><a class="nav-link" href="overview.html">Project overview</a>
+            </li>
+            <li><a class="nav-link" href="developer-guide.html">Developer guide</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Windows Native app</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="windows-native.html">Windows Native app</a>
+            </li>
+            <li><a class="nav-link" href="setup-scripts-windows.html">PowerShell setup scripts</a>
+            </li>
+            <li><a class="nav-link" href="testing.html">Testing guide</a>
+            </li>
+            <li><a class="nav-link" href="deployment.html">Deployment guide</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Status &amp; history</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="development-status.html">Development status</a>
+            </li>
+            <li><a class="nav-link" href="development-history.html">Development history</a>
+            </li>
+            <li><a class="nav-link" href="migration-to-native-windows.html">Migration to native Windows</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Audits &amp; reviews</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="feature-audit.html">Feature audit (2026-07)</a>
+            </li>
+            <li><a class="nav-link" href="hardening-followups.html">Hardening follow-ups</a>
+            </li>
+            <li><a class="nav-link" href="repo-audit-2026-07.html">Exhaustive repo audit</a>
+            </li>
+            <li><a class="nav-link" href="multi-agent-code-review.html">Multi-agent code review</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Design notes</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="people-feature-contracts.html">People feature contracts</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Legacy Electron build</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="electron-deployment.html">Electron deployment &amp; install</a>
+            </li>
+            <li><a class="nav-link" href="electron-setup-scripts.html">Electron setup scripts</a>
+            </li>
+            <li><a class="nav-link" href="electron-setup-logs.html">Setup script logs</a>
+            </li>
+            <li><a class="nav-link" href="electron-tests.html">Electron test suite</a>
+            </li>
+            <li><a class="nav-link" href="electron-test-databases.html">Test databases</a>
+            </li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+  </aside>
+  <div class="sidebar-scrim" data-nav-close hidden></div>
+
+  <main class="main" id="main">
+
+<div class="landing">
+  <section class="hero">
+    <div class="hero-copy">
+      <p class="eyebrow">Project documentation</p>
+      <h1>Memory Timeline</h1>
+      <p class="hero-tagline">Capture memories by voice or text, let AI structure them, and explore your life as an interactive timeline.</p>
+      <div class="pills"><span class="pill pill-primary">Windows Native</span><span class="pill">.NET 8 · WinUI 3</span><span class="pill">Local-first</span><span class="pill">Active development</span></div>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="overview.html">Read the overview</a>
+        <a class="btn" href="windows-native.html">Windows Native app</a>
+        <a class="btn btn-quiet" href="documentation-map.html">Browse all 19 documents</a>
+      </div>
+    </div>
+    <div class="hero-visual"><svg class="hero-svg" viewBox="0 0 520 220" role="img" aria-label="Stylised timeline with event bubbles, an era band and an uncertainty range">
+  <defs>
+    <linearGradient id="eraA" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="currentColor" stop-opacity=".16"/>
+      <stop offset="100%" stop-color="currentColor" stop-opacity=".02"/>
+    </linearGradient>
+  </defs>
+  <rect x="28" y="26" width="150" height="150" rx="10" fill="url(#eraA)"/>
+  <rect x="214" y="26" width="118" height="150" rx="10" fill="url(#eraA)"/>
+  <rect x="368" y="26" width="124" height="150" rx="10" fill="url(#eraA)"/>
+  <text x="34" y="44" class="hero-era">Childhood</text>
+  <text x="220" y="44" class="hero-era">University</text>
+  <text x="374" y="44" class="hero-era">Berlin</text>
+
+  <line x1="20" y1="140" x2="500" y2="140" class="hero-axis"/>
+  <line x1="60" y1="134" x2="60" y2="146" class="hero-tick"/><line x1="130" y1="134" x2="130" y2="146" class="hero-tick"/><line x1="200" y1="134" x2="200" y2="146" class="hero-tick"/><line x1="270" y1="134" x2="270" y2="146" class="hero-tick"/><line x1="340" y1="134" x2="340" y2="146" class="hero-tick"/><line x1="410" y1="134" x2="410" y2="146" class="hero-tick"/><line x1="470" y1="134" x2="470" y2="146" class="hero-tick"/>
+  <text x="60" y="162" class="hero-year">1994</text><text x="130" y="162" class="hero-year">1999</text><text x="200" y="162" class="hero-year">2003</text><text x="270" y="162" class="hero-year">2008</text><text x="340" y="162" class="hero-year">2013</text><text x="410" y="162" class="hero-year">2018</text><text x="470" y="162" class="hero-year">2024</text>
+
+  <rect x="176" y="104" width="52" height="12" rx="6" class="hero-uncertain"/>
+  <rect x="292" y="72" width="86" height="10" rx="5" class="hero-span"/>
+
+  <circle cx="62" cy="118" r="9" class="hero-dot dot-a"/>
+  <circle cx="128" cy="94" r="7" class="hero-dot dot-b"/>
+  <circle cx="202" cy="110" r="11" class="hero-dot dot-a"/>
+  <circle cx="268" cy="77" r="8" class="hero-dot dot-c"/>
+  <circle cx="336" cy="112" r="9" class="hero-dot dot-b"/>
+  <circle cx="404" cy="88" r="12" class="hero-dot dot-c"/>
+  <circle cx="468" cy="120" r="7" class="hero-dot dot-a"/>
+
+  <path d="M62 118 128 94 202 110 268 77 336 112 404 88 468 120" class="hero-thread"/>
+</svg></div>
+  </section>
+
+  <section class="stats-strip">
+    <div class="stat">
+      <div class="stat-value">19</div>
+      <div class="stat-label">documents</div>
+      <div class="stat-hint">READMEs, guides, audits and design notes</div>
+    </div><div class="stat">
+      <div class="stat-value">49k</div>
+      <div class="stat-label">words</div>
+      <div class="stat-hint">all rendered and searchable here</div>
+    </div><div class="stat">
+      <div class="stat-value">12</div>
+      <div class="stat-label">features shipped</div>
+      <div class="stat-hint">the F1–F12 wave, August 2026</div>
+    </div><div class="stat">
+      <div class="stat-value">4</div>
+      <div class="stat-label">projects</div>
+      <div class="stat-hint">App · Core · Data · Tests</div>
+    </div>
+  </section>
+
+  <section class="section" id="what-it-is">
+    <div class="section-head">
+      <h2>What it is</h2>
+    </div>
+    <div class="lede">
+      <p>Memory Timeline is a <strong>local-first</strong> desktop app for recording, organizing, and rediscovering your personal history. Speak a memory — or paste and type one — and the app transcribes it on-device with Whisper, has an LLM extract a structured event, and lets you review it onto an interactive timeline.</p><p>Your data lives in a local SQLite database. Embeddings run locally by default, so nothing leaves your machine except the specific text you choose to send to the providers you configure — and geocoding is off unless you opt in.</p>
+    </div>
+  </section>
+
+  <section class="section" id="pipeline">
+    <div class="section-head">
+      <h2>The memory pipeline</h2>
+      <p class="section-lead">The heart of the app is a single flow, from voice to timeline. Every hop persists its state, so a failure at any stage is recoverable and visible in the UI rather than silently swallowed.</p>
+    </div>
+    <ol class="pipeline">
+      <li class="pipe-step">
+      <div class="pipe-index">1</div>
+      <div class="pipe-icon" aria-hidden="true">🎙</div>
+      <div class="pipe-body">
+        <h3>Record</h3>
+        <p>Windows MediaCapture writes a 16 kHz mono WAV.</p>
+        <p class="pipe-sub">Pause · resume · cancel</p>
+      </div>
+    </li><li class="pipe-step">
+      <div class="pipe-index">2</div>
+      <div class="pipe-icon" aria-hidden="true">⏱</div>
+      <div class="pipe-body">
+        <h3>Queue</h3>
+        <p>recording_queue holds the item (pending → done).</p>
+        <p class="pipe-sub">Audio and text share one queue</p>
+      </div>
+    </li><li class="pipe-step">
+      <div class="pipe-index">3</div>
+      <div class="pipe-icon" aria-hidden="true">📝</div>
+      <div class="pipe-body">
+        <h3>Transcribe</h3>
+        <p>Whisper transcribes on-device, fully offline.</p>
+        <p class="pipe-sub">Transcripts persist across retries</p>
+      </div>
+    </li><li class="pipe-step">
+      <div class="pipe-index">4</div>
+      <div class="pipe-icon" aria-hidden="true">🤖</div>
+      <div class="pipe-body">
+        <h3>Extract</h3>
+        <p>An LLM produces a structured event into pending_events.</p>
+        <p class="pipe-sub">Dates with honest precision</p>
+      </div>
+    </li><li class="pipe-step">
+      <div class="pipe-index">5</div>
+      <div class="pipe-icon" aria-hidden="true">👀</div>
+      <div class="pipe-body">
+        <h3>Review</h3>
+        <p>Edit, approve, or reject each extracted event.</p>
+        <p class="pipe-sub">People flagged new / known / update</p>
+      </div>
+    </li><li class="pipe-step">
+      <div class="pipe-index">6</div>
+      <div class="pipe-icon" aria-hidden="true">✅</div>
+      <div class="pipe-body">
+        <h3>Approve</h3>
+        <p>Event + tags + people + locations in one transaction.</p>
+        <p class="pipe-sub">Atomic write</p>
+      </div>
+    </li><li class="pipe-step">
+      <div class="pipe-index">7</div>
+      <div class="pipe-icon" aria-hidden="true">🗓</div>
+      <div class="pipe-body">
+        <h3>Timeline</h3>
+        <p>The event appears and connections update.</p>
+        <p class="pipe-sub">Auto-refresh via the message bus</p>
+      </div>
+    </li>
+    </ol>
+    <div class="callout callout-note"><div class="callout-body"><p>Text joins audio in the same queue: paste or type a memory (Ctrl+Shift+V) and it enters as a text source whose content is stored as its transcript, skipping transcription entirely.</p></div></div>
+  </section>
+
+  <section class="section" id="features">
+    <div class="section-head">
+      <h2>What's inside</h2>
+      <p class="section-lead">The feature surface of the Windows Native app, grouped by what you are trying to do. The full list lives in the <a href="overview.html#features-windows-native">project overview</a>.</p>
+    </div>
+    <div class="feature-grid">
+      <article class="feature-card">
+      <div class="feature-icon" aria-hidden="true">🏠</div>
+      <h3>Home &amp; rediscovery</h3>
+      <ul><li><strong>On This Day</strong> anniversary cards that only surface memories with a real day anchor</li><li><strong>Guided recall prompts</strong> mined from gaps in the archive — never asked twice</li><li>An optional <strong>daily toast</strong>, JumpList entries and Windows Timeline deep links</li></ul>
+    </article><article class="feature-card">
+      <div class="feature-icon" aria-hidden="true">🗓</div>
+      <h3>Timeline</h3>
+      <ul><li>Year / Month / Week / Day zoom with smooth pan and keyboard navigation</li><li><strong>Duration spans</strong>, collapsible <strong>swimlanes</strong>, and <strong>uncertainty bands</strong> for vague dates</li><li><strong>Honest date precision</strong> — &quot;Summer 2003&quot;, never an invented day</li><li>Coalesced scroll reloads, so fast panning no longer piles up queries</li></ul>
+    </article><article class="feature-card">
+      <div class="feature-icon" aria-hidden="true">🎙</div>
+      <h3>Capture → events</h3>
+      <ul><li>Recording with pause / resume / cancel via Windows <code>MediaCapture</code></li><li>Text &amp; paste capture (Ctrl+Shift+V) through the same queue</li><li>Local <strong>Whisper</strong> speech-to-text — offline after a one-time model download</li><li><strong>Media attachments</strong> with EXIF, thumbnails, content-hash dedupe and a lightbox</li></ul>
+    </article><article class="feature-card">
+      <div class="feature-icon" aria-hidden="true">💬</div>
+      <h3>Ask &amp; narrate</h3>
+      <ul><li><strong>Ask your timeline</strong> — hybrid keyword + semantic retrieval with citations to real events</li><li>Honest refusal when the archive has nothing relevant</li><li><strong>Narrative stories</strong> from a range, era, or person, exported as Markdown or HTML</li></ul>
+    </article><article class="feature-card">
+      <div class="feature-icon" aria-hidden="true">🔍</div>
+      <h3>Discover</h3>
+      <ul><li>Faceted <strong>search</strong> across events, tags, people, locations and eras</li><li><strong>Connections</strong> powered by local ONNX embeddings — no API key required</li><li>A fully <strong>offline map</strong> with EXIF GPS backfill and manual pin drops</li><li><strong>Analytics</strong>: category distribution, density, tag cloud, people network</li></ul>
+    </article><article class="feature-card">
+      <div class="feature-icon" aria-hidden="true">🗂</div>
+      <h3>Organize &amp; manage</h3>
+      <ul><li><strong>People hub</strong> with aliases, case-insensitive identity and merge tombstones</li><li><strong>Eras</strong>, <strong>drafts</strong>, and append-only <strong>revision history</strong></li><li><code>.mtbak</code> <strong>backup &amp; restore</strong> with preview, confirmation and scheduling</li><li>JSON / CSV / Markdown <strong>export</strong>, JSON import with duplicate handling</li></ul>
+    </article>
+    </div>
+  </section>
+
+  <section class="section" id="architecture">
+    <div class="section-head">
+      <h2>Architecture</h2>
+      <p class="section-lead">Clean, layered separation across four projects, with a message bus between features.</p>
+    </div>
+    <div class="layer-stack">
+      <div class="layer" style="--layer-index:0">
+      <div class="layer-name"><code>MemoryTimeline</code></div>
+      <div class="layer-role">Presentation — WinUI 3 + XAML</div>
+      <div class="layer-detail">Views, ViewModels, Controls, Converters, and platform services (audio, STT, notifications, JumpList, navigation, theme).</div>
+    </div><div class="layer" style="--layer-index:1">
+      <div class="layer-name"><code>MemoryTimeline.Core</code></div>
+      <div class="layer-role">Business logic</div>
+      <div class="layer-detail">Services for events, timeline, queue, extraction, RAG, ask/query, narrative, resurfacing, recall prompts, media, backup/revisions, export/import and settings — plus DTOs and timeline math.</div>
+    </div><div class="layer" style="--layer-index:2">
+      <div class="layer-name"><code>MemoryTimeline.Data</code></div>
+      <div class="layer-role">Data access</div>
+      <div class="layer-detail">EF Core 8 DbContext over SQLite in WAL mode, entity models, repositories, and the SchemaUpgrader that repairs schema drift at startup.</div>
+    </div><div class="layer" style="--layer-index:3">
+      <div class="layer-name"><code>MemoryTimeline.Tests</code></div>
+      <div class="layer-role">Verification</div>
+      <div class="layer-detail">xUnit unit, integration and performance tests.</div>
+    </div>
+    </div>
+    <h3 class="subhead">Decisions worth knowing</h3>
+    <div class="decision-grid">
+      <article class="decision">
+      <h3>Per-operation <code>DbContext</code> via <code>IDbContextFactory</code></h3>
+      <p>A desktop app has no request scope, so every repository and service opens a short-lived context per operation. This replaced a single app-lifetime context — the root cause of intermittent &quot;second operation on this context&quot; failures.</p>
+    </article><article class="decision">
+      <h3><code>SchemaUpgrader</code> instead of raw <code>EnsureCreated</code></h3>
+      <p>Startup creates the database from the current model and idempotently repairs drift (missing tables and columns) on pre-existing databases — a stopgap until EF migrations are regenerated.</p>
+    </article><article class="decision">
+      <h3>MVVM with a message bus</h3>
+      <p>Cross-feature updates (&quot;event created&quot; → refresh the timeline) flow through <code>WeakReferenceMessenger</code> rather than tight coupling between view models.</p>
+    </article><article class="decision">
+      <h3>Errors are surfaced, not swallowed</h3>
+      <p>Failures propagate to visible <code>InfoBar</code> / status affordances instead of disappearing into logs.</p>
+    </article>
+    </div>
+  </section>
+
+  <section class="section" id="stack">
+    <div class="section-head">
+      <h2>Tech stack</h2>
+    </div>
+    <div class="table-wrap">
+      <table class="stack-table">
+        <thead><tr><th>Layer</th><th>Technology</th></tr></thead>
+        <tbody>
+          <tr><td>UI</td><td>WinUI 3 + XAML, <code>x:Bind</code> compiled bindings</td></tr><tr><td>MVVM</td><td>CommunityToolkit.Mvvm — <code>ObservableObject</code>, <code>[RelayCommand]</code>, <code>WeakReferenceMessenger</code></td></tr><tr><td>Runtime</td><td>.NET 8 (<code>net8.0-windows10.0.22621.0</code>)</td></tr><tr><td>Data</td><td>SQLite via EF Core 8, WAL mode, <code>IDbContextFactory</code> per-operation contexts</td></tr><tr><td>Audio</td><td><code>Windows.Media.Capture</code> and <code>Windows.Media.Playback</code></td></tr><tr><td>Speech-to-text</td><td>Whisper.net (ggml <code>base</code> model, local and offline)</td></tr><tr><td>LLM</td><td>Anthropic Claude, or any OpenAI-compatible endpoint (Ollama, LM Studio, vLLM), routed per call</td></tr><tr><td>Embeddings</td><td>Local ONNX <code>all-MiniLM-L6-v2</code> (384-dim, the default) or OpenAI embeddings</td></tr><tr><td>Media metadata</td><td>MetadataExtractor (EXIF taken-date and GPS) + Windows thumbnails</td></tr><tr><td>Geocoding</td><td>Optional Nominatim — opt-in, off by default</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="section" id="find-your-way">
+    <div class="section-head">
+      <h2>Find your way</h2>
+      <p class="section-lead">Six routes through 19 documents and roughly 49,449 words.</p>
+    </div>
+    <div class="path-grid">
+      <article class="path-card">
+      <div class="path-icon" aria-hidden="true">🧭</div>
+      <h3>New here</h3>
+      <p>Start with what the app does and why it is built the way it is.</p>
+      <ul class="path-links">
+        <li><a href="overview.html">Project overview</a></li><li><a href="windows-native.html">Windows Native app</a></li><li><a href="documentation-map.html">All documentation</a></li>
+      </ul>
+    </article><article class="path-card">
+      <div class="path-icon" aria-hidden="true">🛠</div>
+      <h3>Building &amp; running</h3>
+      <p>Get a working toolchain, build Release|x64, and understand the build reality.</p>
+      <ul class="path-links">
+        <li><a href="developer-guide.html">Developer guide</a></li><li><a href="setup-scripts-windows.html">PowerShell setup scripts</a></li><li><a href="deployment.html">Deployment guide</a></li>
+      </ul>
+    </article><article class="path-card">
+      <div class="path-icon" aria-hidden="true">🧪</div>
+      <h3>Testing &amp; shipping</h3>
+      <p>Test structure, CI behaviour, packaging and Store submission.</p>
+      <ul class="path-links">
+        <li><a href="testing.html">Testing guide</a></li><li><a href="deployment.html">Deployment guide</a></li><li><a href="development-status.html">Development status</a></li>
+      </ul>
+    </article><article class="path-card">
+      <div class="path-icon" aria-hidden="true">🔬</div>
+      <h3>Quality &amp; history</h3>
+      <p>What broke, why, and what is still outstanding.</p>
+      <ul class="path-links">
+        <li><a href="feature-audit.html">Feature audit (2026-07)</a></li><li><a href="repo-audit-2026-07.html">Exhaustive repo audit</a></li><li><a href="hardening-followups.html">Hardening follow-ups</a></li>
+      </ul>
+    </article><article class="path-card">
+      <div class="path-icon" aria-hidden="true">📐</div>
+      <h3>Design &amp; planning</h3>
+      <p>The migration plan and the pre-implementation contracts.</p>
+      <ul class="path-links">
+        <li><a href="migration-to-native-windows.html">Migration to native Windows</a></li><li><a href="people-feature-contracts.html">People feature contracts</a></li>
+      </ul>
+    </article><article class="path-card">
+      <div class="path-icon" aria-hidden="true">📦</div>
+      <h3>Legacy Electron</h3>
+      <p>The earlier cross-platform build, kept for reference.</p>
+      <ul class="path-links">
+        <li><a href="electron-deployment.html">Electron deployment &amp; install</a></li><li><a href="electron-tests.html">Electron test suite</a></li><li><a href="multi-agent-code-review.html">Multi-agent code review</a></li>
+      </ul>
+    </article>
+    </div>
+  </section>
+
+  <section class="section" id="history">
+    <div class="section-head">
+      <h2>How it got here</h2>
+    </div>
+    <ol class="milestones">
+      <li class="milestone is-done">
+      <div class="milestone-when">Phases 0–6</div>
+      <div class="milestone-body">
+        <h3>Native rebuild</h3>
+        <p>Core infrastructure, timeline visualization, audio and processing, LLM integration, RAG and embeddings, then polish and Windows integration — all complete.</p>
+        <a class="milestone-link" href="development-history.html">Read the detail →</a>
+      </div>
+    </li><li class="milestone is-done">
+      <div class="milestone-when">2026-07</div>
+      <div class="milestone-body">
+        <h3>Multi-agent audit &amp; fix pass</h3>
+        <p>Five agents traced every feature end-to-end. Fixed the add-event bug, the search error, the DbContext concurrency underneath both, and made the voice pipeline real with local Whisper.</p>
+        <a class="milestone-link" href="feature-audit.html">Read the detail →</a>
+      </div>
+    </li><li class="milestone is-done">
+      <div class="milestone-when">2026-08</div>
+      <div class="milestone-body">
+        <h3>Feature wave F1–F12</h3>
+        <p>Honest dates, media attachments, text capture, ask-your-timeline, narratives, guided recall, On This Day, spans and swimlanes, the people hub, the offline map, pluggable AI, and backup/restore/revisions.</p>
+        <a class="milestone-link" href="development-status.html">Read the detail →</a>
+      </div>
+    </li><li class="milestone is-active">
+      <div class="milestone-when">Phase 7</div>
+      <div class="milestone-body">
+        <h3>Testing &amp; deployment <span class="chip chip-active">in progress</span></h3>
+        <p>End-to-end runtime validation on real hardware, MSIX packaging, and Microsoft Store submission.</p>
+        <a class="milestone-link" href="deployment.html">Read the detail →</a>
+      </div>
+    </li>
+    </ol>
+  </section>
+
+  <section class="section split" id="roadmap">
+    <div>
+      <div class="section-head"><h2>Roadmap</h2></div>
+      <ul class="checklist">
+        <li>End-to-end <strong>runtime validation</strong> of the pipeline and the F1–F12 wave on a real Windows machine</li><li><strong>Encrypt API keys at rest</strong> with Windows DPAPI (<code>ProtectedData</code>)</li><li><strong>Regenerate EF Core migrations</strong> to replace the <code>SchemaUpgrader</code> stopgap</li><li>Deferred F1–F12 items — photo-import wizard, map tile basemaps, LLM token streaming, PDF narrative export</li><li><strong>Whisper model options</strong> — larger models for accuracy, and a language selection UI</li><li><strong>MSIX packaging</strong> and Microsoft Store submission</li>
+      </ul>
+    </div>
+    <div>
+      <div class="section-head"><h2>Privacy &amp; security</h2></div>
+      <dl class="deflist">
+        <dt>Local-first</dt><dd>All data is stored on your device in SQLite; media is copied into a local managed folder.</dd><dt>On-device transcription</dt><dd>Whisper runs locally — recorded audio is never uploaded.</dd><dt>Local embeddings by default</dt><dd>Connections and Ask retrieval can run entirely on-device with no API key.</dd><dt>Selective cloud calls</dt><dd>Only the transcript text you process reaches your configured LLM provider — which can itself be local.</dd><dt>Geocoding is opt-in</dt><dd>Off by default; coordinates otherwise come only from photo EXIF or manual pin drops.</dd><dt>Known gap</dt><dd>API keys are currently stored in the local settings database; encrypting them at rest is a tracked follow-up.</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section class="section" id="all-docs">
+    <div class="section-head">
+      <h2>Every document</h2>
+      <p class="section-lead">Grouped exactly as they appear in the sidebar.</p>
+    </div>
+    <div class="doc-section">
+      <h3>Start here</h3>
+      <p class="doc-section-blurb">What the project is, and how to find your way around.</p>
+      <div class="doc-card-grid">
+        <a class="doc-card" href="overview.html">
+            <h4>Project overview</h4>
+            <p>The repository README: what Memory Timeline is, the memory pipeline, the full feature list, tech stack, architecture, setup, configuration, and privacy model.</p>
+            <span class="doc-card-meta">13 min read →</span>
+          </a><a class="doc-card" href="developer-guide.html">
+            <h4>Developer orientation guide</h4>
+            <p>The condensed contributor briefing: solution layout, the per-operation DbContext rule, MVVM conventions, settings keys, build reality, and how to add a feature.</p>
+            <span class="doc-card-meta">8 min read →</span>
+          </a>
+      </div>
+    </div><div class="doc-section">
+      <h3>Windows Native app</h3>
+      <p class="doc-section-blurb">The primary, actively developed product: .NET 8 + WinUI 3.</p>
+      <div class="doc-card-grid">
+        <a class="doc-card" href="windows-native.html">
+            <h4>Windows Native app</h4>
+            <p>The main reference for the WinUI 3 app: pipeline, features, quick start, project structure, clean-architecture layers, DI composition, database schema, configuration, and troubleshooting.</p>
+            <span class="doc-card-meta">14 min read →</span>
+          </a><a class="doc-card" href="setup-scripts-windows.html">
+            <h4>PowerShell setup scripts</h4>
+            <p>Setup-Dependencies.ps1 and Verify-Installation.ps1 — automated toolchain install and environment verification, plus the build reality (msbuild, not dotnet build).</p>
+            <span class="doc-card-meta">4 min read →</span>
+          </a><a class="doc-card" href="testing.html">
+            <h4>Testing guide</h4>
+            <p>Test structure, the DbContext factory pattern for test authors, running and filtering tests, coverage goals, performance benchmarks, templates, and CI behaviour.</p>
+            <span class="doc-card-meta">9 min read →</span>
+          </a><a class="doc-card" href="deployment.html">
+            <h4>Deployment guide</h4>
+            <p>Building Release|x64, runtime data layout, MSIX packaging, code signing, Microsoft Store submission, and side-loading.</p>
+            <span class="doc-card-meta">9 min read →</span>
+          </a>
+      </div>
+    </div><div class="doc-section">
+      <h3>Status &amp; history</h3>
+      <p class="doc-section-blurb">Where the project stands, and how it got here.</p>
+      <div class="doc-card-grid">
+        <a class="doc-card" href="development-status.html">
+            <h4>Development status</h4>
+            <p>Phase-by-phase status, the 2026-08 F1–F12 feature wave with per-feature detail and deferred items, known limitations, and success criteria.</p>
+            <span class="doc-card-meta">17 min read →</span>
+          </a><a class="doc-card" href="development-history.html">
+            <h4>Development history</h4>
+            <p>Consolidated phase completion reports (Phase 0 through Phase 6) with deliverables, statistics, and architecture achievements.</p>
+            <span class="doc-card-meta">10 min read →</span>
+          </a><a class="doc-card" href="migration-to-native-windows.html">
+            <h4>Migration to native Windows</h4>
+            <p>The full migration plan from Electron to .NET 8 + WinUI 3: rationale, stack decision, branch strategy, architecture comparison, all seven phases, feature-parity matrix, and checklists.</p>
+            <span class="doc-card-meta">23 min read →</span>
+          </a>
+      </div>
+    </div><div class="doc-section">
+      <h3>Audits &amp; reviews</h3>
+      <p class="doc-section-blurb">Multi-agent audits, root-cause analyses, and deferred hardening.</p>
+      <div class="doc-card-grid">
+        <a class="doc-card" href="feature-audit.html">
+            <h4>Feature audit (2026-07)</h4>
+            <p>Root causes of three reported bugs, the shared-DbContext foundation defect underneath them, a per-feature audit, and the dependency-ordered master fix plan.</p>
+            <span class="doc-card-meta">10 min read →</span>
+          </a><a class="doc-card" href="hardening-followups.html">
+            <h4>Hardening follow-ups</h4>
+            <p>Deferred hardening items ranked high / medium / low — captive DbContext scopes, fire-and-forget embeddings, and migration snapshot drift.</p>
+            <span class="doc-card-meta">3 min read →</span>
+          </a><a class="doc-card" href="repo-audit-2026-07.html">
+            <h4>Exhaustive repo audit</h4>
+            <p>A bug hunt and feature crawl across the whole repository: 27 adversarially verified findings, 61 unverified medium/low findings, and ranked improvement opportunities.</p>
+            <span class="doc-card-meta">66 min read →</span>
+          </a><a class="doc-card" href="multi-agent-code-review.html">
+            <h4>Multi-agent code review</h4>
+            <p>A layered review of the Electron build — UI/renderer, retrieval logic, and database — headlined by a schema-contract fracture running through all three layers.</p>
+            <span class="doc-card-meta">8 min read →</span>
+          </a>
+      </div>
+    </div><div class="doc-section">
+      <h3>Design notes</h3>
+      <p class="doc-section-blurb">Cross-cutting contracts written before implementation.</p>
+      <div class="doc-card-grid">
+        <a class="doc-card" href="people-feature-contracts.html">
+            <h4>People feature contracts</h4>
+            <p>The cross-agent interface contract for the People hub: file ownership map, entity columns, DTOs, service signatures, extraction changes, UI conventions, and DI registrations.</p>
+            <span class="doc-card-meta">12 min read →</span>
+          </a>
+      </div>
+    </div><div class="doc-section">
+      <h3>Legacy Electron build</h3>
+      <p class="doc-section-blurb">The earlier cross-platform app, now in maintenance.</p>
+      <div class="doc-card-grid">
+        <a class="doc-card" href="electron-deployment.html">
+            <h4>Electron deployment &amp; install</h4>
+            <p>Development setup, production builds, platform installers, code signing, distribution, updates, and troubleshooting for the Electron app.</p>
+            <span class="doc-card-meta">8 min read →</span>
+          </a><a class="doc-card" href="electron-setup-scripts.html">
+            <h4>Electron setup scripts</h4>
+            <p>setup-windows.ps1 and setup-ubuntu.sh — cross-platform dependency installation, common issues, manual steps, and verification.</p>
+            <span class="doc-card-meta">4 min read →</span>
+          </a><a class="doc-card" href="electron-setup-logs.html">
+            <h4>Setup script logs</h4>
+            <p>What the setup scripts log, the log format and levels, how to use logs for troubleshooting, and the privacy note about sharing them.</p>
+            <span class="doc-card-meta">2 min read →</span>
+          </a><a class="doc-card" href="electron-tests.html">
+            <h4>Electron test suite</h4>
+            <p>Jest test layout, generating test databases and sample data, running suites, coverage, performance benchmarks, and templates.</p>
+            <span class="doc-card-meta">4 min read →</span>
+          </a><a class="doc-card" href="electron-test-databases.html">
+            <h4>Test databases</h4>
+            <p>The generated SQLite fixtures used by the Electron test suite.</p>
+            <span class="doc-card-meta">1 min read →</span>
+          </a>
+      </div>
+    </div>
+  </section>
+</div>
+    <footer class="site-footer">
+      <div>
+        <strong>Memory Timeline</strong> documentation ·
+        19 documents ·
+        generated 2026-08-07
+      </div>
+      <div class="footer-links">
+        <a href="index.html">Home</a>
+        <a href="documentation-map.html">All documentation</a>
+        <a href="https://github.com/ethanbissbort/memory-line" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </div>
+      <div class="footer-note">
+        This site is generated from the markdown in the repository — edit the source files and rebuild.
+      </div>
+    </footer>
+  </main>
+</div>
+
+<div class="search-modal" data-search-modal hidden>
+  <div class="search-backdrop" data-search-close></div>
+  <div class="search-panel" role="dialog" aria-modal="true" aria-label="Search documentation">
+    <div class="search-input-row">
+      <svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><circle cx="9" cy="9" r="5.5" stroke="currentColor" stroke-width="1.7" fill="none"/><path d="M13.2 13.2 17 17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <input type="search" placeholder="Search headings and content…" data-search-input autocomplete="off" spellcheck="false" aria-label="Search query">
+      <button class="icon-btn" type="button" data-search-close aria-label="Close search"><kbd>Esc</kbd></button>
+    </div>
+    <div class="search-results" data-search-results>
+      <p class="search-hint">Start typing to search every document on this site.</p>
+    </div>
+  </div>
+</div>
+
+<script src="assets/search-index.js" defer></script>
+<script src="assets/app.js" defer></script>
+</body>
+</html>

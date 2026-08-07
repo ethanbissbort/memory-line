@@ -1,0 +1,915 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Electron deployment &amp; install · Memory Timeline docs</title>
+<meta name="description" content="Development setup, production builds, platform installers, code signing, distribution, updates, and troubleshooting for the Electron app.">
+<meta property="og:title" content="Electron deployment &amp; install · Memory Timeline docs">
+<meta property="og:description" content="Development setup, production builds, platform installers, code signing, distribution, updates, and troubleshooting for the Electron app.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%227%22%20fill%3D%22%231d1b18%22%2F%3E%3Cpath%20d%3D%22M4%2021h24%22%20stroke%3D%22%238b8175%22%20stroke-width%3D%221.5%22%20stroke-linecap%3D%22round%22%2F%3E%3Ccircle%20cx%3D%229%22%20cy%3D%2221%22%20r%3D%223.1%22%20fill%3D%22%23e0873f%22%2F%3E%3Ccircle%20cx%3D%2217%22%20cy%3D%2214%22%20r%3D%223.6%22%20fill%3D%22%23f0b46e%22%2F%3E%3Ccircle%20cx%3D%2225%22%20cy%3D%2218%22%20r%3D%222.6%22%20fill%3D%22%236ec2b8%22%2F%3E%3Cpath%20d%3D%22M9%2021%2017%2014%2025%2018%22%20stroke%3D%22%238b8175%22%20stroke-width%3D%221.2%22%20fill%3D%22none%22%20stroke-linejoin%3D%22round%22%20opacity%3D%22.8%22%2F%3E%3C%2Fsvg%3E">
+<link rel="stylesheet" href="assets/styles.css">
+<script>(function(){try{var t=localStorage.getItem('mt-theme');if(t==='light'||t==='dark'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();</script>
+</head>
+<body class="page-doc" data-page="electron-deployment">
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="icon-btn nav-toggle" type="button" aria-label="Toggle navigation" aria-expanded="false" data-nav-toggle>
+      <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg>
+    </button>
+    <a class="brand" href="index.html">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="26" height="26"><path d="M3 22h26" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity=".45"/><circle cx="8" cy="22" r="3" fill="currentColor" opacity=".55"/><circle cx="16" cy="14" r="3.8" fill="currentColor"/><circle cx="25" cy="18.5" r="2.6" fill="currentColor" opacity=".7"/></svg>
+      </span>
+      <span class="brand-text">
+        <span class="brand-name">Memory Timeline</span>
+        <span class="brand-sub">Documentation</span>
+      </span>
+    </a>
+
+    <button class="searchbar" type="button" data-search-open aria-label="Search documentation">
+      <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><circle cx="9" cy="9" r="5.5" stroke="currentColor" stroke-width="1.7" fill="none"/><path d="M13.2 13.2 17 17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <span>Search the docs</span>
+      <kbd>/</kbd>
+    </button>
+
+    <div class="topbar-actions">
+      <button class="icon-btn" type="button" data-theme-toggle aria-label="Switch colour theme" title="Switch colour theme">
+        <svg class="icon-sun" viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><circle cx="10" cy="10" r="4" fill="currentColor"/><path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6 16 16M16 4l-1.4 1.4M5.4 14.6 4 16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <svg class="icon-moon" viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><path d="M16.5 12.4A7 7 0 0 1 7.6 3.5a7 7 0 1 0 8.9 8.9Z" fill="currentColor"/></svg>
+      </button>
+      <a class="icon-btn" href="https://github.com/ethanbissbort/memory-line" target="_blank" rel="noopener noreferrer" aria-label="View the repository on GitHub" title="Repository on GitHub">
+        <svg viewBox="0 0 16 16" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38l-.01-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.93-.89-1.18-.89-1.18-.73-.5.05-.49.05-.49.81.06 1.23.83 1.23.83.72 1.23 1.88.87 2.34.67.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48l-.01 2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+      </a>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" data-sidebar>
+    <nav aria-label="Documentation">
+      <ul class="nav">
+        <li class="nav-section">
+          <p class="nav-section-title">Start here</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="index.html">Home</a>
+            </li>
+            <li><a class="nav-link" href="documentation-map.html">All documentation</a>
+            </li>
+            <li><a class="nav-link" href="overview.html">Project overview</a>
+            </li>
+            <li><a class="nav-link" href="developer-guide.html">Developer guide</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Windows Native app</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="windows-native.html">Windows Native app</a>
+            </li>
+            <li><a class="nav-link" href="setup-scripts-windows.html">PowerShell setup scripts</a>
+            </li>
+            <li><a class="nav-link" href="testing.html">Testing guide</a>
+            </li>
+            <li><a class="nav-link" href="deployment.html">Deployment guide</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Status &amp; history</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="development-status.html">Development status</a>
+            </li>
+            <li><a class="nav-link" href="development-history.html">Development history</a>
+            </li>
+            <li><a class="nav-link" href="migration-to-native-windows.html">Migration to native Windows</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Audits &amp; reviews</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="feature-audit.html">Feature audit (2026-07)</a>
+            </li>
+            <li><a class="nav-link" href="hardening-followups.html">Hardening follow-ups</a>
+            </li>
+            <li><a class="nav-link" href="repo-audit-2026-07.html">Exhaustive repo audit</a>
+            </li>
+            <li><a class="nav-link" href="multi-agent-code-review.html">Multi-agent code review</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Design notes</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="people-feature-contracts.html">People feature contracts</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Legacy Electron build</p>
+          <ul class="nav-list">
+            <li><a class="nav-link is-active" href="electron-deployment.html" aria-current="page">Electron deployment &amp; install</a>
+              <ul class="nav-sub">
+                <li><a class="nav-sublink" href="#-legacy--electron-app-deployment-guide-updated-2026-07-10">⚠️ LEGACY — Electron app deployment guide (updated 2026-07-10)</a></li>
+                <li><a class="nav-sublink" href="#table-of-contents">Table of Contents</a></li>
+                <li><a class="nav-sublink" href="#overview">Overview</a></li>
+                <li><a class="nav-sublink" href="#prerequisites">Prerequisites</a></li>
+                <li><a class="nav-sublink" href="#development-setup">Development Setup</a></li>
+                <li><a class="nav-sublink" href="#building-for-production">Building for Production</a></li>
+                <li><a class="nav-sublink" href="#creating-installers">Creating Installers</a></li>
+                <li><a class="nav-sublink" href="#code-signing">Code Signing</a></li>
+                <li><a class="nav-sublink" href="#deployment">Deployment</a></li>
+                <li><a class="nav-sublink" href="#user-installation">User Installation</a></li>
+                <li><a class="nav-sublink" href="#configuration">Configuration</a></li>
+                <li><a class="nav-sublink" href="#troubleshooting">Troubleshooting</a></li>
+                <li><a class="nav-sublink" href="#updating">Updating</a></li>
+                <li><a class="nav-sublink" href="#advanced-configuration">Advanced Configuration</a></li>
+                <li><a class="nav-sublink" href="#performance-tuning">Performance Tuning</a></li>
+                <li><a class="nav-sublink" href="#security-best-practices">Security Best Practices</a></li>
+                <li><a class="nav-sublink" href="#support--resources">Support &amp; Resources</a></li>
+                <li><a class="nav-sublink" href="#license">License</a></li>
+              </ul>
+            </li>
+            <li><a class="nav-link" href="electron-setup-scripts.html">Electron setup scripts</a>
+            </li>
+            <li><a class="nav-link" href="electron-setup-logs.html">Setup script logs</a>
+            </li>
+            <li><a class="nav-link" href="electron-tests.html">Electron test suite</a>
+            </li>
+            <li><a class="nav-link" href="electron-test-databases.html">Test databases</a>
+            </li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+  </aside>
+  <div class="sidebar-scrim" data-nav-close hidden></div>
+
+  <main class="main" id="main">
+
+<header class="doc-header">
+  <nav class="breadcrumb" aria-label="Breadcrumb">
+    <a href="index.html">Docs</a>
+    <span aria-hidden="true">/</span>
+    <span>Legacy Electron build</span>
+  </nav>
+  <h1>Electron deployment &amp; install</h1>
+  <p class="doc-lede">Development setup, production builds, platform installers, code signing, distribution, updates, and troubleshooting for the Electron app.</p>
+  <div class="doc-meta">
+    <span class="doc-meta-item"><b>For</b> Maintainers</span>
+    <span class="doc-meta-item"><b>1,769</b> words</span>
+    <span class="doc-meta-item"><b>8</b> min read</span>
+    <a class="doc-meta-item doc-source" href="https://github.com/ethanbissbort/memory-line/blob/main/DEPLOYMENT-INSTALL.md" target="_blank" rel="noopener noreferrer">
+      DEPLOYMENT-INSTALL.md ↗
+    </a>
+  </div>
+  <div class="tags"><span class="tag">Electron</span><span class="tag">packaging</span><span class="tag">install</span></div>
+</header>
+<div class="doc-grid">
+  <article class="prose">
+<div class="callout callout-feature"><div class="callout-body"><h2 id="-legacy--electron-app-deployment-guide-updated-2026-07-10" class="anchored">⚠️ LEGACY — Electron app deployment guide (updated 2026-07-10)<a class="heading-anchor" href="#-legacy--electron-app-deployment-guide-updated-2026-07-10" aria-label="Link to this section">#</a></h2>
+<p><strong>This guide covers the legacy Electron desktop app, which is now in maintenance mode.</strong> The <strong>primary, actively developed</strong> Memory Timeline product is the <strong>Windows Native app</strong> (.NET 8 / WinUI 3) under <a href="https://github.com/ethanbissbort/memory-line/tree/main/windows-native" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>windows-native/</code></a>.</p>
+<p><strong>If you want to build, install, or deploy the current product, use the Windows Native docs instead:</strong></p>
+<ul>
+<li><a href="windows-native.html"><code>windows-native/README.md</code></a> — overview and setup</li>
+<li><a href="deployment.html"><code>windows-native/DEPLOYMENT.md</code></a> — deployment and packaging</li>
+</ul>
+<p>The Electron instructions below remain <strong>valid for the legacy app</strong> and are preserved unchanged.</p>
+</div></div>
+<hr>
+<blockquote><p><strong>Version:</strong> 1.0.0
+<strong>Last Updated:</strong> 2025-11-21
+<strong>Applies to:</strong> Legacy Electron app
+<strong>Target Platforms:</strong> Windows 11, macOS 10.15+, Linux (Ubuntu 20.04+)</p>
+</blockquote>
+<h2 id="table-of-contents" class="anchored">Table of Contents<a class="heading-anchor" href="#table-of-contents" aria-label="Link to this section">#</a></h2>
+<ol>
+<li><a href="#overview">Overview</a></li>
+<li><a href="#prerequisites">Prerequisites</a></li>
+<li><a href="#development-setup">Development Setup</a></li>
+<li><a href="#building-for-production">Building for Production</a></li>
+<li><a href="#creating-installers">Creating Installers</a></li>
+<li><a href="#deployment">Deployment</a></li>
+<li><a href="#user-installation">User Installation</a></li>
+<li><a href="#configuration">Configuration</a></li>
+<li><a href="#troubleshooting">Troubleshooting</a></li>
+<li><a href="#updating">Updating</a></li>
+</ol>
+<hr>
+<h2 id="overview" class="anchored">Overview<a class="heading-anchor" href="#overview" aria-label="Link to this section">#</a></h2>
+<p>Memory Timeline is an Electron-based desktop application for creating personal memory timelines with AI-powered event extraction from audio recordings. This guide covers development setup, building, packaging, and deployment procedures.</p>
+<h3 id="application-architecture" class="anchored">Application Architecture<a class="heading-anchor" href="#application-architecture" aria-label="Link to this section">#</a></h3>
+<ul>
+<li><strong>Frontend:</strong> React 18 with Hooks, Zustand state management</li>
+<li><strong>Backend:</strong> Electron main process with Node.js</li>
+<li><strong>Database:</strong> SQLite (better-sqlite3) with full-text search</li>
+<li><strong>AI/LLM:</strong> Anthropic Claude API for event extraction</li>
+<li><strong>STT:</strong> Multiple speech-to-text engine support</li>
+<li><strong>Build System:</strong> Webpack + Babel, Electron Forge for packaging</li>
+</ul>
+<hr>
+<h2 id="prerequisites" class="anchored">Prerequisites<a class="heading-anchor" href="#prerequisites" aria-label="Link to this section">#</a></h2>
+<h3 id="development-requirements" class="anchored">Development Requirements<a class="heading-anchor" href="#development-requirements" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap"><table><thead><tr>
+<th>Tool</th>
+<th>Version</th>
+<th>Purpose</th>
+</tr>
+</thead><tbody><tr>
+<td><strong>Node.js</strong></td>
+<td>16.x or higher</td>
+<td>JavaScript runtime</td>
+</tr>
+<tr>
+<td><strong>npm</strong></td>
+<td>8.x or higher</td>
+<td>Package manager</td>
+</tr>
+<tr>
+<td><strong>Git</strong></td>
+<td>2.x or higher</td>
+<td>Version control</td>
+</tr>
+<tr>
+<td><strong>Python</strong></td>
+<td>3.8+ (optional)</td>
+<td>Native module compilation</td>
+</tr>
+<tr>
+<td><strong>Visual Studio Build Tools</strong></td>
+<td>Latest (Windows only)</td>
+<td>Native module compilation</td>
+</tr>
+<tr>
+<td><strong>Xcode Command Line Tools</strong></td>
+<td>Latest (macOS only)</td>
+<td>Native module compilation</td>
+</tr>
+</tbody></table></div>
+<h3 id="system-requirements" class="anchored">System Requirements<a class="heading-anchor" href="#system-requirements" aria-label="Link to this section">#</a></h3>
+<p><strong>Minimum:</strong></p>
+<ul>
+<li><strong>OS:</strong> Windows 10 (64-bit), macOS 10.15+, Ubuntu 20.04+</li>
+<li><strong>RAM:</strong> 4 GB</li>
+<li><strong>Storage:</strong> 500 MB free space</li>
+<li><strong>CPU:</strong> 64-bit processor</li>
+</ul>
+<p><strong>Recommended:</strong></p>
+<ul>
+<li><strong>RAM:</strong> 8 GB or more</li>
+<li><strong>Storage:</strong> 1 GB free space</li>
+<li><strong>CPU:</strong> Multi-core processor for better performance</li>
+</ul>
+<hr>
+<h2 id="development-setup" class="anchored">Development Setup<a class="heading-anchor" href="#development-setup" aria-label="Link to this section">#</a></h2>
+<h3 id="1-clone-the-repository" class="anchored">1. Clone the Repository<a class="heading-anchor" href="#1-clone-the-repository" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-builtin">git</span> clone https://github.com/ethanbissbort/memory-timeline.<span class="tok-builtin">git</span>
+<span class="tok-builtin">cd</span> memory-timeline</code></pre></div>
+<h3 id="2-install-dependencies" class="anchored">2. Install Dependencies<a class="heading-anchor" href="#2-install-dependencies" aria-label="Link to this section">#</a></h3>
+<h4 id="standard-installation" class="anchored">Standard Installation<a class="heading-anchor" href="#standard-installation" aria-label="Link to this section">#</a></h4>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-builtin">npm</span> install</code></pre></div>
+<h4 id="installation-in-restricted-environments" class="anchored">Installation in Restricted Environments<a class="heading-anchor" href="#installation-in-restricted-environments" aria-label="Link to this section">#</a></h4>
+<p>If you encounter Electron download issues:</p>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-comment"># Use a local Electron mirror</span>
+<span class="tok-builtin">npm</span> config <span class="tok-keyword">set</span> electron_mirror https://npmmirror.com/mirrors/<span class="tok-builtin">electron</span>/
+<span class="tok-builtin">npm</span> install
+
+<span class="tok-comment"># Or skip Electron download during install</span>
+<span class="tok-builtin">npm</span> install <span class="tok-flag">--ignore-scripts</span>
+
+<span class="tok-comment"># Then download Electron separately</span>
+<span class="tok-builtin">npx</span> <span class="tok-builtin">electron</span> install</code></pre></div>
+<h3 id="3-configure-environment-variables-optional" class="anchored">3. Configure Environment Variables (Optional)<a class="heading-anchor" href="#3-configure-environment-variables-optional" aria-label="Link to this section">#</a></h3>
+<p>Create a <code>.env</code> file in the project root:</p>
+<div class="codeblock" data-lang="env"><div class="codeblock-bar"><span class="codeblock-lang">env</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-env"># Development mode
+NODE_ENV=development
+
+# API Keys (optional - can be set in app Settings)
+ANTHROPIC_API_KEY=your_api_key_here
+OPENAI_API_KEY=your_openai_key_here
+
+# Electron settings
+ELECTRON_ENABLE_LOGGING=true</code></pre></div>
+<h3 id="4-run-development-server" class="anchored">4. Run Development Server<a class="heading-anchor" href="#4-run-development-server" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-comment"># Start webpack dev server and Electron concurrently</span>
+<span class="tok-builtin">npm</span> run dev
+
+<span class="tok-comment"># Or run separately</span>
+<span class="tok-builtin">npm</span> run dev:renderer  <span class="tok-comment"># Start webpack dev server (port 8080)</span>
+<span class="tok-builtin">npm</span> run dev:<span class="tok-builtin">electron</span>  <span class="tok-comment"># Start Electron in development mode</span></code></pre></div>
+<p>The application will open automatically with hot-reload enabled.</p>
+<h3 id="5-run-linting-and-tests" class="anchored">5. Run Linting and Tests<a class="heading-anchor" href="#5-run-linting-and-tests" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-comment"># Lint code</span>
+<span class="tok-builtin">npm</span> run lint
+
+<span class="tok-comment"># Run tests (when implemented)</span>
+<span class="tok-builtin">npm</span> test</code></pre></div>
+<hr>
+<h2 id="building-for-production" class="anchored">Building for Production<a class="heading-anchor" href="#building-for-production" aria-label="Link to this section">#</a></h2>
+<h3 id="1-build-renderer-process" class="anchored">1. Build Renderer Process<a class="heading-anchor" href="#1-build-renderer-process" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-builtin">npm</span> run build</code></pre></div>
+<p>This compiles the React application using Webpack and outputs to <code>dist/</code>.</p>
+<p><strong>Build Output:</strong></p>
+<ul>
+<li><code>dist/index.html</code> - Main HTML file</li>
+<li><code>dist/bundle.js</code> - Compiled JavaScript</li>
+<li><code>dist/styles.css</code> - Compiled styles</li>
+</ul>
+<h3 id="2-test-production-build" class="anchored">2. Test Production Build<a class="heading-anchor" href="#2-test-production-build" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-comment"># Set production mode and start Electron</span>
+cross-env NODE_ENV=production <span class="tok-builtin">electron</span> .</code></pre></div>
+<h3 id="3-verify-build" class="anchored">3. Verify Build<a class="heading-anchor" href="#3-verify-build" aria-label="Link to this section">#</a></h3>
+<p>Check that:</p>
+<ul>
+<li class="task-item">Application starts without errors</li>
+<li class="task-item">Database initializes correctly</li>
+<li class="task-item">All panels load (Timeline, Recorder, Queue, Settings)</li>
+<li class="task-item">Audio recording works</li>
+<li class="task-item">LLM integration functions (with API key)</li>
+<li class="task-item">Export/import features work</li>
+</ul>
+<hr>
+<h2 id="creating-installers" class="anchored">Creating Installers<a class="heading-anchor" href="#creating-installers" aria-label="Link to this section">#</a></h2>
+<p>Memory Timeline uses <strong>Electron Forge</strong> to create platform-specific installers.</p>
+<h3 id="platform-specific-installers" class="anchored">Platform-Specific Installers<a class="heading-anchor" href="#platform-specific-installers" aria-label="Link to this section">#</a></h3>
+<h4 id="windows-squirrel-installer" class="anchored">Windows (Squirrel Installer)<a class="heading-anchor" href="#windows-squirrel-installer" aria-label="Link to this section">#</a></h4>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-comment"># Package for Windows</span>
+<span class="tok-builtin">npm</span> run package -- <span class="tok-flag">--platform</span> win32
+
+<span class="tok-comment"># Create Windows installer</span>
+<span class="tok-builtin">npm</span> run <span class="tok-builtin">make</span> -- <span class="tok-flag">--platform</span> win32</code></pre></div>
+<p><strong>Output:</strong> <code>out/make/squirrel.windows/x64/MemoryTimelineSetup.exe</code></p>
+<p><strong>Installer Features:</strong></p>
+<ul>
+<li>Auto-updates via Squirrel</li>
+<li>Start menu shortcuts</li>
+<li>Uninstaller</li>
+<li>Custom icon</li>
+</ul>
+<h4 id="macos-dmg" class="anchored">macOS (DMG)<a class="heading-anchor" href="#macos-dmg" aria-label="Link to this section">#</a></h4>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-comment"># Package for macOS</span>
+<span class="tok-builtin">npm</span> run package -- <span class="tok-flag">--platform</span> darwin
+
+<span class="tok-comment"># Create macOS installer</span>
+<span class="tok-builtin">npm</span> run <span class="tok-builtin">make</span> -- <span class="tok-flag">--platform</span> darwin</code></pre></div>
+<p><strong>Output:</strong> <code>out/make/Memory Timeline-1.0.0.dmg</code></p>
+<p><strong>Requirements for Distribution:</strong></p>
+<ul>
+<li>Apple Developer ID certificate for code signing</li>
+<li>Notarization for Catalina+ (see <a href="#code-signing">Code Signing</a>)</li>
+</ul>
+<h4 id="linux-deb-and-rpm" class="anchored">Linux (DEB and RPM)<a class="heading-anchor" href="#linux-deb-and-rpm" aria-label="Link to this section">#</a></h4>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-comment"># Create Debian package</span>
+<span class="tok-builtin">npm</span> run <span class="tok-builtin">make</span> -- <span class="tok-flag">--platform</span> linux <span class="tok-flag">--arch</span> x64
+
+<span class="tok-comment"># Create RPM package (if configured)</span>
+<span class="tok-builtin">npm</span> run <span class="tok-builtin">make</span> -- <span class="tok-flag">--platform</span> linux</code></pre></div>
+<p><strong>Output:</strong></p>
+<ul>
+<li><code>out/make/deb/x64/memory-timeline_1.0.0_amd64.deb</code></li>
+<li><code>out/make/rpm/x64/memory-timeline-1.0.0.x86_64.rpm</code></li>
+</ul>
+<h4 id="create-all-platforms" class="anchored">Create All Platforms<a class="heading-anchor" href="#create-all-platforms" aria-label="Link to this section">#</a></h4>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-builtin">npm</span> run <span class="tok-builtin">make</span></code></pre></div>
+<p>This creates installers for all configured platforms. <strong>Note:</strong> You can only build for platforms your current OS supports (e.g., macOS DMG requires macOS).</p>
+<hr>
+<h2 id="code-signing" class="anchored">Code Signing<a class="heading-anchor" href="#code-signing" aria-label="Link to this section">#</a></h2>
+<h3 id="windows-code-signing" class="anchored">Windows Code Signing<a class="heading-anchor" href="#windows-code-signing" aria-label="Link to this section">#</a></h3>
+<p><strong>Requirements:</strong></p>
+<ul>
+<li>Code signing certificate (.pfx file)</li>
+<li>Certificate password</li>
+</ul>
+<p><strong>Setup:</strong></p>
+<ol>
+<li><p>Obtain a code signing certificate from a trusted CA (e.g., DigiCert, Sectigo)</p>
+</li>
+<li><p>Set environment variables:</p>
+</li>
+</ol>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-comment"># Windows</span>
+<span class="tok-keyword">set</span> WINDOWS_CERTIFICATE_FILE=path\to\certificate.pfx
+<span class="tok-keyword">set</span> WINDOWS_CERTIFICATE_PASSWORD=your_password
+
+<span class="tok-comment"># macOS/Linux</span>
+<span class="tok-keyword">export</span> WINDOWS_CERTIFICATE_FILE=path/to/certificate.pfx
+<span class="tok-keyword">export</span> WINDOWS_CERTIFICATE_PASSWORD=your_password</code></pre></div>
+<ol start="3">
+<li>Update <code>forge.config.js</code>:</li>
+</ol>
+<div class="codeblock" data-lang="javascript"><div class="codeblock-bar"><span class="codeblock-lang">JavaScript</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-javascript">certificateFile: process.env.<span class="tok-type">WINDOWS_CERTIFICATE_FILE</span>,
+certificatePassword: process.env.<span class="tok-type">WINDOWS_CERTIFICATE_PASSWORD</span></code></pre></div>
+<h3 id="macos-code-signing--notarization" class="anchored">macOS Code Signing &amp; Notarization<a class="heading-anchor" href="#macos-code-signing--notarization" aria-label="Link to this section">#</a></h3>
+<p><strong>Requirements:</strong></p>
+<ul>
+<li>Apple Developer account ($99/year)</li>
+<li>Valid Developer ID Application certificate</li>
+<li>App-specific password for notarization</li>
+</ul>
+<p><strong>Setup:</strong></p>
+<ol>
+<li><p>Install certificates from Apple Developer portal</p>
+</li>
+<li><p>Configure signing in <code>forge.config.js</code>:</p>
+</li>
+</ol>
+<div class="codeblock" data-lang="javascript"><div class="codeblock-bar"><span class="codeblock-lang">JavaScript</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-javascript">osxSign: {
+    identity: <span class="tok-string">'Developer ID Application: Your Name (XXXXXXXXXX)'</span>,
+    <span class="tok-string">'hardened-runtime'</span>: <span class="tok-bool">true</span>,
+    entitlements: <span class="tok-string">'entitlements.plist'</span>,
+    <span class="tok-string">'entitlements-inherit'</span>: <span class="tok-string">'entitlements.plist'</span>,
+    <span class="tok-string">'signature-flags'</span>: <span class="tok-string">'library'</span>
+}</code></pre></div>
+<ol start="3">
+<li>Create <code>entitlements.plist</code>:</li>
+</ol>
+<div class="codeblock" data-lang="xml"><div class="codeblock-bar"><span class="codeblock-lang">XML</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-xml">&lt;?xml <span class="tok-attr">version</span>=<span class="tok-string">&quot;1.0&quot;</span> <span class="tok-attr">encoding</span>=<span class="tok-string">&quot;UTF-8&quot;</span>?<span class="tok-tag">&gt;</span>
+&lt;!DOCTYPE plist PUBLIC <span class="tok-string">&quot;-//Apple//DTD PLIST 1.0//EN&quot;</span> <span class="tok-string">&quot;http://www.apple.com/DTDs/PropertyList-1.0.dtd&quot;</span><span class="tok-tag">&gt;</span>
+<span class="tok-tag">&lt;plist</span> <span class="tok-attr">version</span>=<span class="tok-string">&quot;1.0&quot;</span><span class="tok-tag">&gt;</span>
+<span class="tok-tag">&lt;dict</span><span class="tok-tag">&gt;</span>
+    <span class="tok-tag">&lt;key</span><span class="tok-tag">&gt;</span>com.apple.security.cs.allow-jit<span class="tok-tag">&lt;/key</span><span class="tok-tag">&gt;</span>
+    <span class="tok-tag">&lt;true</span><span class="tok-tag">/&gt;</span>
+    <span class="tok-tag">&lt;key</span><span class="tok-tag">&gt;</span>com.apple.security.cs.allow-unsigned-executable-memory<span class="tok-tag">&lt;/key</span><span class="tok-tag">&gt;</span>
+    <span class="tok-tag">&lt;true</span><span class="tok-tag">/&gt;</span>
+    <span class="tok-tag">&lt;key</span><span class="tok-tag">&gt;</span>com.apple.security.cs.allow-dyld-environment-variables<span class="tok-tag">&lt;/key</span><span class="tok-tag">&gt;</span>
+    <span class="tok-tag">&lt;true</span><span class="tok-tag">/&gt;</span>
+<span class="tok-tag">&lt;/dict</span><span class="tok-tag">&gt;</span>
+<span class="tok-tag">&lt;/plist</span><span class="tok-tag">&gt;</span></code></pre></div>
+<ol start="4">
+<li>Configure notarization:</li>
+</ol>
+<div class="codeblock" data-lang="javascript"><div class="codeblock-bar"><span class="codeblock-lang">JavaScript</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-javascript">osxNotarize: {
+    appleId: process.env.<span class="tok-type">APPLE_ID</span>,
+    appleIdPassword: process.env.<span class="tok-type">APPLE_ID_PASSWORD</span>,
+    teamId: process.env.<span class="tok-type">APPLE_TEAM_ID</span>
+}</code></pre></div>
+<hr>
+<h2 id="deployment" class="anchored">Deployment<a class="heading-anchor" href="#deployment" aria-label="Link to this section">#</a></h2>
+<h3 id="distribution-methods" class="anchored">Distribution Methods<a class="heading-anchor" href="#distribution-methods" aria-label="Link to this section">#</a></h3>
+<h4 id="1-direct-download-github-releases" class="anchored">1. Direct Download (GitHub Releases)<a class="heading-anchor" href="#1-direct-download-github-releases" aria-label="Link to this section">#</a></h4>
+<p><strong>Steps:</strong></p>
+<ol>
+<li>Create a new release on GitHub:</li>
+</ol>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-builtin">git</span> tag <span class="tok-flag">-a</span> v1.<span class="tok-number">0.0</span> <span class="tok-flag">-m</span> <span class="tok-string">&quot;Release version 1.0.0&quot;</span>
+<span class="tok-builtin">git</span> push origin v1.<span class="tok-number">0.0</span></code></pre></div>
+<ol start="2">
+<li><p>Upload installers to GitHub Release assets:</p>
+<ul>
+<li><code>MemoryTimelineSetup.exe</code> (Windows)</li>
+<li><code>Memory Timeline-1.0.0.dmg</code> (macOS)</li>
+<li><code>memory-timeline_1.0.0_amd64.deb</code> (Linux)</li>
+<li><code>memory-timeline-1.0.0.x86_64.rpm</code> (Linux)</li>
+</ul>
+</li>
+<li><p>Write release notes with:</p>
+<ul>
+<li>New features</li>
+<li>Bug fixes</li>
+<li>Breaking changes</li>
+<li>Installation instructions</li>
+</ul>
+</li>
+</ol>
+<h4 id="2-auto-updates-squirrel-for-windows" class="anchored">2. Auto-Updates (Squirrel for Windows)<a class="heading-anchor" href="#2-auto-updates-squirrel-for-windows" aria-label="Link to this section">#</a></h4>
+<p><strong>Setup Squirrel Update Server:</strong></p>
+<ol>
+<li><p>Host a static file server with update files</p>
+</li>
+<li><p>Configure update feed URL in <code>src/main/main.js</code>:</p>
+</li>
+</ol>
+<div class="codeblock" data-lang="javascript"><div class="codeblock-bar"><span class="codeblock-lang">JavaScript</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-javascript"><span class="tok-keyword">const</span> { autoUpdater } = require(<span class="tok-string">'electron-updater'</span>);
+
+autoUpdater.setFeedURL({
+    provider: <span class="tok-string">'generic'</span>,
+    url: <span class="tok-string">'https://your-domain.com/updates/'</span>
+});
+
+autoUpdater.checkForUpdatesAndNotify();</code></pre></div>
+<ol start="3">
+<li>Upload release files to update server:<ul>
+<li><code>RELEASES</code> file (generated by Squirrel)</li>
+<li><code>.nupkg</code> files (delta updates)</li>
+</ul>
+</li>
+</ol>
+<h4 id="3-microsoft-store-windows" class="anchored">3. Microsoft Store (Windows)<a class="heading-anchor" href="#3-microsoft-store-windows" aria-label="Link to this section">#</a></h4>
+<ol>
+<li>Convert to MSIX package:</li>
+</ol>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-builtin">npm</span> install @<span class="tok-builtin">electron</span>/windows-store <span class="tok-flag">--save-dev</span>
+<span class="tok-builtin">npx</span> <span class="tok-builtin">electron</span>-windows-store <span class="tok-flag">--input-directory</span> ./out/Memory\ Timeline-win32-x64 <span class="tok-flag">--output-directory</span> ./out/store <span class="tok-flag">--package-name</span> MemoryTimeline</code></pre></div>
+<ol start="2">
+<li>Submit to Microsoft Partner Center</li>
+</ol>
+<h4 id="4-mac-app-store" class="anchored">4. Mac App Store<a class="heading-anchor" href="#4-mac-app-store" aria-label="Link to this section">#</a></h4>
+<ol>
+<li>Configure entitlements and provisioning profiles</li>
+<li>Package with App Store build config</li>
+<li>Submit via Xcode or Transporter</li>
+</ol>
+<hr>
+<h2 id="user-installation" class="anchored">User Installation<a class="heading-anchor" href="#user-installation" aria-label="Link to this section">#</a></h2>
+<h3 id="windows" class="anchored">Windows<a class="heading-anchor" href="#windows" aria-label="Link to this section">#</a></h3>
+<p><strong>Method 1: Installer (.exe)</strong></p>
+<ol>
+<li>Download <code>MemoryTimelineSetup.exe</code></li>
+<li>Run installer</li>
+<li>Follow on-screen instructions</li>
+<li>Launch from Start Menu or Desktop shortcut</li>
+</ol>
+<p><strong>Method 2: Portable (ZIP)</strong></p>
+<ol>
+<li>Download <code>Memory Timeline-win32-x64.zip</code></li>
+<li>Extract to desired location</li>
+<li>Run <code>memory-timeline.exe</code></li>
+</ol>
+<h3 id="macos" class="anchored">macOS<a class="heading-anchor" href="#macos" aria-label="Link to this section">#</a></h3>
+<p><strong>Method 1: DMG</strong></p>
+<ol>
+<li>Download <code>Memory Timeline-1.0.0.dmg</code></li>
+<li>Open DMG file</li>
+<li>Drag <code>Memory Timeline.app</code> to Applications folder</li>
+<li>Right-click and select &quot;Open&quot; (first time only)</li>
+</ol>
+<p><strong>Method 2: Homebrew Cask (if published)</strong></p>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-builtin">brew</span> install <span class="tok-flag">--cask</span> memory-timeline</code></pre></div>
+<h3 id="linux" class="anchored">Linux<a class="heading-anchor" href="#linux" aria-label="Link to this section">#</a></h3>
+<p><strong>Debian/Ubuntu (.deb)</strong></p>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-keyword">sudo</span> dpkg <span class="tok-flag">-i</span> memory-timeline_1.<span class="tok-number">0</span>.0_amd64.deb
+<span class="tok-keyword">sudo</span> <span class="tok-builtin">apt</span>-get install <span class="tok-flag">-f</span>  <span class="tok-comment"># Install dependencies</span></code></pre></div>
+<p><strong>Fedora/RHEL (.rpm)</strong></p>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-keyword">sudo</span> rpm <span class="tok-flag">-i</span> memory-timeline-<span class="tok-number">1.0.0</span>.x86_64.rpm</code></pre></div>
+<p><strong>AppImage (Universal)</strong></p>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-builtin">chmod</span> +x Memory-Timeline-<span class="tok-number">1.0.0</span>.AppImage
+./Memory-Timeline-<span class="tok-number">1.0.0</span>.AppImage</code></pre></div>
+<hr>
+<h2 id="configuration" class="anchored">Configuration<a class="heading-anchor" href="#configuration" aria-label="Link to this section">#</a></h2>
+<h3 id="first-time-setup" class="anchored">First-Time Setup<a class="heading-anchor" href="#first-time-setup" aria-label="Link to this section">#</a></h3>
+<p>When launching the application for the first time:</p>
+<ol>
+<li><p><strong>Navigate to Settings</strong> (⚙️ icon in sidebar)</p>
+</li>
+<li><p><strong>Configure LLM API Key</strong> (required for event extraction):</p>
+<ul>
+<li>Click &quot;API Configuration&quot;</li>
+<li>Enter your Anthropic API key</li>
+<li>Get key from: <a href="https://console.anthropic.com/" target="_blank" rel="noopener noreferrer" class="external-link">https://console.anthropic.com/</a></li>
+</ul>
+</li>
+<li><p><strong>Configure Speech-to-Text Engine</strong> (optional):</p>
+<ul>
+<li>Select STT engine (Mock, Whisper Local, Whisper API, etc.)</li>
+<li>Enter engine-specific configuration (API key or model path)</li>
+<li>Click &quot;Initialize STT Engine&quot;</li>
+</ul>
+</li>
+<li><p><strong>Configure RAG Settings</strong> (optional):</p>
+<ul>
+<li>Select embedding provider (OpenAI, Voyage AI, Cohere, Local)</li>
+<li>Choose embedding model</li>
+<li>Enter API key (if cloud provider)</li>
+<li>Click &quot;Initialize Embedding Service&quot;</li>
+</ul>
+</li>
+</ol>
+<h3 id="data-location" class="anchored">Data Location<a class="heading-anchor" href="#data-location" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap"><table><thead><tr>
+<th>Platform</th>
+<th>Path</th>
+</tr>
+</thead><tbody><tr>
+<td><strong>Windows</strong></td>
+<td><code>%APPDATA%\memory-timeline\</code></td>
+</tr>
+<tr>
+<td><strong>macOS</strong></td>
+<td><code>~/Library/Application Support/memory-timeline/</code></td>
+</tr>
+<tr>
+<td><strong>Linux</strong></td>
+<td><code>~/.config/memory-timeline/</code></td>
+</tr>
+</tbody></table></div>
+<p><strong>Files:</strong></p>
+<ul>
+<li><code>timeline.db</code> - SQLite database</li>
+<li><code>assets/audio/</code> - Recorded audio files</li>
+<li><code>logs/</code> - Application logs</li>
+</ul>
+<h3 id="backup--restore" class="anchored">Backup &amp; Restore<a class="heading-anchor" href="#backup--restore" aria-label="Link to this section">#</a></h3>
+<p><strong>Manual Backup:</strong></p>
+<ol>
+<li>Go to Settings → Database Management</li>
+<li>Click &quot;Create Backup&quot;</li>
+<li>Choose backup location</li>
+<li>Save <code>memory-timeline-backup-YYYY-MM-DD.db</code></li>
+</ol>
+<p><strong>Restore from Backup:</strong></p>
+<ol>
+<li>Close the application</li>
+<li>Replace <code>timeline.db</code> with backup file</li>
+<li>Restart the application</li>
+</ol>
+<p><strong>Automated Backup Script (Optional):</strong></p>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-comment"># Linux/macOS</span>
+<span class="tok-comment">#!/bin/bash</span>
+<span class="tok-builtin">cp</span> ~/.config/memory-timeline/timeline.db ~/backups/timeline-$(date +%Y%m%d).db
+
+<span class="tok-comment"># Windows (PowerShell)</span>
+Copy-Item <span class="tok-string">&quot;$env:APPDATA\memory-timeline\timeline.db&quot;</span> `
+  <span class="tok-flag">-Destination</span> <span class="tok-string">&quot;$env:USERPROFILE\backups\timeline-$(Get-Date -Format yyyyMMdd).db&quot;</span></code></pre></div>
+<hr>
+<h2 id="troubleshooting" class="anchored">Troubleshooting<a class="heading-anchor" href="#troubleshooting" aria-label="Link to this section">#</a></h2>
+<h3 id="common-issues" class="anchored">Common Issues<a class="heading-anchor" href="#common-issues" aria-label="Link to this section">#</a></h3>
+<h4 id="1-application-wont-start" class="anchored">1. Application Won&#39;t Start<a class="heading-anchor" href="#1-application-wont-start" aria-label="Link to this section">#</a></h4>
+<p><strong>Symptoms:</strong> App crashes on launch or shows error dialog</p>
+<p><strong>Solutions:</strong></p>
+<ul>
+<li>Check system requirements</li>
+<li>Update to latest version</li>
+<li>Delete database and restart (will lose data):<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-comment"># Windows</span>
+del <span class="tok-string">&quot;%APPDATA%\memory-timeline\timeline.db&quot;</span>
+
+<span class="tok-comment"># macOS/Linux</span>
+<span class="tok-builtin">rm</span> ~/.config/memory-timeline/timeline.db</code></pre></div>
+</li>
+</ul>
+<h4 id="2-database-corruption" class="anchored">2. Database Corruption<a class="heading-anchor" href="#2-database-corruption" aria-label="Link to this section">#</a></h4>
+<p><strong>Symptoms:</strong> &quot;Database disk image is malformed&quot; error</p>
+<p><strong>Solutions:</strong></p>
+<ol>
+<li><p>Try database recovery:</p>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash">sqlite3 timeline.db <span class="tok-string">&quot;.recover&quot;</span> <span class="tok-operator">|</span> sqlite3 timeline_recovered.db</code></pre></div>
+</li>
+<li><p>Restore from backup (Settings → Database Management → Restore)</p>
+</li>
+<li><p>Use SQLite CLI to repair:</p>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash">sqlite3 timeline.db <span class="tok-string">&quot;PRAGMA integrity_check;&quot;</span>
+sqlite3 timeline.db <span class="tok-string">&quot;VACUUM;&quot;</span></code></pre></div>
+</li>
+</ol>
+<h4 id="3-audio-recording-not-working" class="anchored">3. Audio Recording Not Working<a class="heading-anchor" href="#3-audio-recording-not-working" aria-label="Link to this section">#</a></h4>
+<p><strong>Symptoms:</strong> Microphone access denied or recording fails</p>
+<p><strong>Solutions:</strong></p>
+<ul>
+<li><strong>Windows:</strong> Settings → Privacy → Microphone → Allow apps</li>
+<li><strong>macOS:</strong> System Preferences → Security &amp; Privacy → Microphone</li>
+<li><strong>Linux:</strong> Check PulseAudio/ALSA configuration</li>
+</ul>
+<h4 id="4-llm-api-errors" class="anchored">4. LLM API Errors<a class="heading-anchor" href="#4-llm-api-errors" aria-label="Link to this section">#</a></h4>
+<p><strong>Symptoms:</strong> &quot;API key not set&quot; or &quot;Failed to extract event data&quot;</p>
+<p><strong>Solutions:</strong></p>
+<ul>
+<li>Verify API key in Settings</li>
+<li>Check API key has correct permissions</li>
+<li>Verify internet connection</li>
+<li>Check Anthropic API status: <a href="https://status.anthropic.com/" target="_blank" rel="noopener noreferrer" class="external-link">https://status.anthropic.com/</a></li>
+</ul>
+<h4 id="5-performance-issues-with-large-databases" class="anchored">5. Performance Issues with Large Databases<a class="heading-anchor" href="#5-performance-issues-with-large-databases" aria-label="Link to this section">#</a></h4>
+<p><strong>Symptoms:</strong> Slow loading, lag when scrolling timeline</p>
+<p><strong>Solutions:</strong></p>
+<ol>
+<li><p>Optimize database:</p>
+<ul>
+<li>Settings → Database Management → &quot;Optimize Database&quot;</li>
+</ul>
+</li>
+<li><p>Clear performance cache:</p>
+<ul>
+<li>Restart application</li>
+<li>Or use developer console: <code>window.electronAPI.performance.clearCache()</code></li>
+</ul>
+</li>
+<li><p>Reduce timeline view range:</p>
+<ul>
+<li>Use zoom controls to view smaller date ranges</li>
+<li>Filter by category or era</li>
+</ul>
+</li>
+</ol>
+<h4 id="6-export-failures" class="anchored">6. Export Failures<a class="heading-anchor" href="#6-export-failures" aria-label="Link to this section">#</a></h4>
+<p><strong>Symptoms:</strong> Export completes but file is empty or corrupted</p>
+<p><strong>Solutions:</strong></p>
+<ul>
+<li>Ensure write permissions for target directory</li>
+<li>Check available disk space</li>
+<li>Try exporting to different location</li>
+<li>Verify database integrity first</li>
+</ul>
+<hr>
+<h2 id="updating" class="anchored">Updating<a class="heading-anchor" href="#updating" aria-label="Link to this section">#</a></h2>
+<h3 id="automatic-updates-windows-with-squirrel" class="anchored">Automatic Updates (Windows with Squirrel)<a class="heading-anchor" href="#automatic-updates-windows-with-squirrel" aria-label="Link to this section">#</a></h3>
+<p>If auto-updates are configured:</p>
+<ol>
+<li>App checks for updates on startup</li>
+<li>Notification appears when update available</li>
+<li>Click &quot;Install Update&quot;</li>
+<li>App restarts with new version</li>
+</ol>
+<h3 id="manual-updates" class="anchored">Manual Updates<a class="heading-anchor" href="#manual-updates" aria-label="Link to this section">#</a></h3>
+<h4 id="windows-1" class="anchored">Windows<a class="heading-anchor" href="#windows-1" aria-label="Link to this section">#</a></h4>
+<ol>
+<li>Download new installer</li>
+<li>Run installer (will update existing installation)</li>
+<li>No need to uninstall old version</li>
+</ol>
+<h4 id="macos-1" class="anchored">macOS<a class="heading-anchor" href="#macos-1" aria-label="Link to this section">#</a></h4>
+<ol>
+<li>Download new DMG</li>
+<li>Replace app in Applications folder</li>
+<li>First launch may require &quot;Open&quot; from right-click menu</li>
+</ol>
+<h4 id="linux-1" class="anchored">Linux<a class="heading-anchor" href="#linux-1" aria-label="Link to this section">#</a></h4>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-comment"># Debian/Ubuntu</span>
+<span class="tok-keyword">sudo</span> dpkg <span class="tok-flag">-i</span> memory-timeline_1.<span class="tok-number">1</span>.0_amd64.deb
+
+<span class="tok-comment"># Fedora/RHEL</span>
+<span class="tok-keyword">sudo</span> rpm <span class="tok-flag">-Uvh</span> memory-timeline-<span class="tok-number">1.1.0</span>.x86_64.rpm</code></pre></div>
+<h3 id="migration-notes" class="anchored">Migration Notes<a class="heading-anchor" href="#migration-notes" aria-label="Link to this section">#</a></h3>
+<p><strong>Version 1.x to 2.x:</strong></p>
+<ul>
+<li>Backup database before upgrading</li>
+<li>Database schema will auto-migrate</li>
+<li>Check release notes for breaking changes</li>
+</ul>
+<hr>
+<h2 id="advanced-configuration" class="anchored">Advanced Configuration<a class="heading-anchor" href="#advanced-configuration" aria-label="Link to this section">#</a></h2>
+<h3 id="custom-electron-flags" class="anchored">Custom Electron Flags<a class="heading-anchor" href="#custom-electron-flags" aria-label="Link to this section">#</a></h3>
+<p>Launch with custom flags:</p>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-comment"># Disable GPU acceleration (for compatibility)</span>
+memory-timeline <span class="tok-flag">--disable-gpu</span>
+
+<span class="tok-comment"># Enable verbose logging</span>
+memory-timeline <span class="tok-flag">--enable-logging</span> <span class="tok-flag">--v</span>=<span class="tok-number">1</span>
+
+<span class="tok-comment"># Specific data directory</span>
+memory-timeline <span class="tok-flag">--user-data-dir</span>=/custom/path</code></pre></div>
+<h3 id="environment-variables" class="anchored">Environment Variables<a class="heading-anchor" href="#environment-variables" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-comment"># Windows</span>
+<span class="tok-keyword">set</span> ELECTRON_ENABLE_LOGGING=true
+<span class="tok-keyword">set</span> DEBUG=*
+
+<span class="tok-comment"># macOS/Linux</span>
+<span class="tok-keyword">export</span> ELECTRON_ENABLE_LOGGING=true
+<span class="tok-keyword">export</span> DEBUG=*</code></pre></div>
+<h3 id="developer-tools" class="anchored">Developer Tools<a class="heading-anchor" href="#developer-tools" aria-label="Link to this section">#</a></h3>
+<p>Enable developer console:</p>
+<ul>
+<li><strong>Windows/Linux:</strong> <code>Ctrl + Shift + I</code></li>
+<li><strong>macOS:</strong> <code>Cmd + Option + I</code></li>
+</ul>
+<p>Or add to code:</p>
+<div class="codeblock" data-lang="javascript"><div class="codeblock-bar"><span class="codeblock-lang">JavaScript</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-javascript">mainWindow.webContents.openDevTools();</code></pre></div>
+<hr>
+<h2 id="performance-tuning" class="anchored">Performance Tuning<a class="heading-anchor" href="#performance-tuning" aria-label="Link to this section">#</a></h2>
+<h3 id="for-large-databases-1000-events" class="anchored">For Large Databases (1000+ Events)<a class="heading-anchor" href="#for-large-databases-1000-events" aria-label="Link to this section">#</a></h3>
+<ol>
+<li><strong>Enable database optimizations</strong> (automatic in v1.0+)</li>
+<li><strong>Use pagination</strong> when viewing events</li>
+<li><strong>Limit embedding generation</strong> to important events</li>
+<li><strong>Regular maintenance:</strong><div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-comment"># Vacuum database monthly</span>
+sqlite3 timeline.db <span class="tok-string">&quot;VACUUM;&quot;</span>
+
+<span class="tok-comment"># Analyze for query optimization</span>
+sqlite3 timeline.db <span class="tok-string">&quot;ANALYZE;&quot;</span></code></pre></div>
+</li>
+</ol>
+<h3 id="for-low-memory-systems" class="anchored">For Low-Memory Systems<a class="heading-anchor" href="#for-low-memory-systems" aria-label="Link to this section">#</a></h3>
+<ol>
+<li>Reduce zoom range on timeline</li>
+<li>Disable auto-embedding generation</li>
+<li>Close other applications</li>
+<li>Use local STT instead of cloud APIs</li>
+</ol>
+<hr>
+<h2 id="security-best-practices" class="anchored">Security Best Practices<a class="heading-anchor" href="#security-best-practices" aria-label="Link to this section">#</a></h2>
+<ol>
+<li><strong>API Keys:</strong> Store securely, never commit to version control</li>
+<li><strong>Database:</strong> Regular backups to encrypted storage</li>
+<li><strong>Updates:</strong> Keep application and dependencies updated</li>
+<li><strong>Permissions:</strong> Only grant necessary system permissions</li>
+<li><strong>Network:</strong> Use HTTPS for all API calls (configured by default)</li>
+</ol>
+<hr>
+<h2 id="support--resources" class="anchored">Support &amp; Resources<a class="heading-anchor" href="#support--resources" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><strong>Documentation:</strong> <a href="https://github.com/yourusername/memory-timeline/wiki" target="_blank" rel="noopener noreferrer" class="external-link">https://github.com/yourusername/memory-timeline/wiki</a></li>
+<li><strong>Issues:</strong> <a href="https://github.com/yourusername/memory-timeline/issues" target="_blank" rel="noopener noreferrer" class="external-link">https://github.com/yourusername/memory-timeline/issues</a></li>
+<li><strong>Discussions:</strong> <a href="https://github.com/yourusername/memory-timeline/discussions" target="_blank" rel="noopener noreferrer" class="external-link">https://github.com/yourusername/memory-timeline/discussions</a></li>
+<li><strong>Email:</strong> <a href="mailto:support@memorytimeline.app">support@memorytimeline.app</a></li>
+</ul>
+<hr>
+<h2 id="license" class="anchored">License<a class="heading-anchor" href="#license" aria-label="Link to this section">#</a></h2>
+<p>MIT License - See LICENSE file for details.</p>
+<hr>
+<p><strong>Document Version:</strong> 1.0.0<br><strong>Last Updated:</strong> 2025-11-21<br><strong>Maintained By:</strong> Memory Timeline Development Team  </p>
+
+<nav class="pager" aria-label="Document navigation">
+  <a class="pager-link pager-prev" href="people-feature-contracts.html">
+      <span class="pager-kind">← Previous</span>
+      <span class="pager-title">People feature contracts</span>
+    </a>
+  <a class="pager-link pager-next" href="electron-setup-scripts.html">
+      <span class="pager-kind">Next →</span>
+      <span class="pager-title">Electron setup scripts</span>
+    </a>
+</nav>
+  </article>
+<aside class="toc" aria-label="On this page">
+  <p class="toc-title">On this page</p>
+  <ul class="toc-list">
+<li class="toc-item toc-h2"><a href="#-legacy--electron-app-deployment-guide-updated-2026-07-10" data-toc-link>⚠️ LEGACY — Electron app deployment guide (updated 2026-07-10)</a></li>
+<li class="toc-item toc-h2"><a href="#table-of-contents" data-toc-link>Table of Contents</a></li>
+<li class="toc-item toc-h2"><a href="#overview" data-toc-link>Overview</a></li>
+<li class="toc-item toc-h3"><a href="#application-architecture" data-toc-link>Application Architecture</a></li>
+<li class="toc-item toc-h2"><a href="#prerequisites" data-toc-link>Prerequisites</a></li>
+<li class="toc-item toc-h3"><a href="#development-requirements" data-toc-link>Development Requirements</a></li>
+<li class="toc-item toc-h3"><a href="#system-requirements" data-toc-link>System Requirements</a></li>
+<li class="toc-item toc-h2"><a href="#development-setup" data-toc-link>Development Setup</a></li>
+<li class="toc-item toc-h3"><a href="#1-clone-the-repository" data-toc-link>1. Clone the Repository</a></li>
+<li class="toc-item toc-h3"><a href="#2-install-dependencies" data-toc-link>2. Install Dependencies</a></li>
+<li class="toc-item toc-h3"><a href="#3-configure-environment-variables-optional" data-toc-link>3. Configure Environment Variables (Optional)</a></li>
+<li class="toc-item toc-h3"><a href="#4-run-development-server" data-toc-link>4. Run Development Server</a></li>
+<li class="toc-item toc-h3"><a href="#5-run-linting-and-tests" data-toc-link>5. Run Linting and Tests</a></li>
+<li class="toc-item toc-h2"><a href="#building-for-production" data-toc-link>Building for Production</a></li>
+<li class="toc-item toc-h3"><a href="#1-build-renderer-process" data-toc-link>1. Build Renderer Process</a></li>
+<li class="toc-item toc-h3"><a href="#2-test-production-build" data-toc-link>2. Test Production Build</a></li>
+<li class="toc-item toc-h3"><a href="#3-verify-build" data-toc-link>3. Verify Build</a></li>
+<li class="toc-item toc-h2"><a href="#creating-installers" data-toc-link>Creating Installers</a></li>
+<li class="toc-item toc-h3"><a href="#platform-specific-installers" data-toc-link>Platform-Specific Installers</a></li>
+<li class="toc-item toc-h2"><a href="#code-signing" data-toc-link>Code Signing</a></li>
+<li class="toc-item toc-h3"><a href="#windows-code-signing" data-toc-link>Windows Code Signing</a></li>
+<li class="toc-item toc-h3"><a href="#macos-code-signing--notarization" data-toc-link>macOS Code Signing &amp; Notarization</a></li>
+<li class="toc-item toc-h2"><a href="#deployment" data-toc-link>Deployment</a></li>
+<li class="toc-item toc-h3"><a href="#distribution-methods" data-toc-link>Distribution Methods</a></li>
+<li class="toc-item toc-h2"><a href="#user-installation" data-toc-link>User Installation</a></li>
+<li class="toc-item toc-h3"><a href="#windows" data-toc-link>Windows</a></li>
+<li class="toc-item toc-h3"><a href="#macos" data-toc-link>macOS</a></li>
+<li class="toc-item toc-h3"><a href="#linux" data-toc-link>Linux</a></li>
+<li class="toc-item toc-h2"><a href="#configuration" data-toc-link>Configuration</a></li>
+<li class="toc-item toc-h3"><a href="#first-time-setup" data-toc-link>First-Time Setup</a></li>
+<li class="toc-item toc-h3"><a href="#data-location" data-toc-link>Data Location</a></li>
+<li class="toc-item toc-h3"><a href="#backup--restore" data-toc-link>Backup &amp; Restore</a></li>
+<li class="toc-item toc-h2"><a href="#troubleshooting" data-toc-link>Troubleshooting</a></li>
+<li class="toc-item toc-h3"><a href="#common-issues" data-toc-link>Common Issues</a></li>
+<li class="toc-item toc-h2"><a href="#updating" data-toc-link>Updating</a></li>
+<li class="toc-item toc-h3"><a href="#automatic-updates-windows-with-squirrel" data-toc-link>Automatic Updates (Windows with Squirrel)</a></li>
+<li class="toc-item toc-h3"><a href="#manual-updates" data-toc-link>Manual Updates</a></li>
+<li class="toc-item toc-h3"><a href="#migration-notes" data-toc-link>Migration Notes</a></li>
+<li class="toc-item toc-h2"><a href="#advanced-configuration" data-toc-link>Advanced Configuration</a></li>
+<li class="toc-item toc-h3"><a href="#custom-electron-flags" data-toc-link>Custom Electron Flags</a></li>
+<li class="toc-item toc-h3"><a href="#environment-variables" data-toc-link>Environment Variables</a></li>
+<li class="toc-item toc-h3"><a href="#developer-tools" data-toc-link>Developer Tools</a></li>
+<li class="toc-item toc-h2"><a href="#performance-tuning" data-toc-link>Performance Tuning</a></li>
+<li class="toc-item toc-h3"><a href="#for-large-databases-1000-events" data-toc-link>For Large Databases (1000+ Events)</a></li>
+<li class="toc-item toc-h3"><a href="#for-low-memory-systems" data-toc-link>For Low-Memory Systems</a></li>
+<li class="toc-item toc-h2"><a href="#security-best-practices" data-toc-link>Security Best Practices</a></li>
+<li class="toc-item toc-h2"><a href="#support--resources" data-toc-link>Support &amp; Resources</a></li>
+<li class="toc-item toc-h2"><a href="#license" data-toc-link>License</a></li>
+  </ul>
+  <a class="toc-top" href="#main">↑ Back to top</a>
+</aside>
+</div>
+    <footer class="site-footer">
+      <div>
+        <strong>Memory Timeline</strong> documentation ·
+        19 documents ·
+        generated 2026-08-07
+      </div>
+      <div class="footer-links">
+        <a href="index.html">Home</a>
+        <a href="documentation-map.html">All documentation</a>
+        <a href="https://github.com/ethanbissbort/memory-line" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </div>
+      <div class="footer-note">
+        This site is generated from the markdown in the repository — edit the source files and rebuild.
+      </div>
+    </footer>
+  </main>
+</div>
+
+<div class="search-modal" data-search-modal hidden>
+  <div class="search-backdrop" data-search-close></div>
+  <div class="search-panel" role="dialog" aria-modal="true" aria-label="Search documentation">
+    <div class="search-input-row">
+      <svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><circle cx="9" cy="9" r="5.5" stroke="currentColor" stroke-width="1.7" fill="none"/><path d="M13.2 13.2 17 17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <input type="search" placeholder="Search headings and content…" data-search-input autocomplete="off" spellcheck="false" aria-label="Search query">
+      <button class="icon-btn" type="button" data-search-close aria-label="Close search"><kbd>Esc</kbd></button>
+    </div>
+    <div class="search-results" data-search-results>
+      <p class="search-hint">Start typing to search every document on this site.</p>
+    </div>
+  </div>
+</div>
+
+<script src="assets/search-index.js" defer></script>
+<script src="assets/app.js" defer></script>
+</body>
+</html>

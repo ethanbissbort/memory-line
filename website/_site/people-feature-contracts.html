@@ -1,0 +1,712 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>People feature contracts · Memory Timeline docs</title>
+<meta name="description" content="The cross-agent interface contract for the People hub: file ownership map, entity columns, DTOs, service signatures, extraction changes, UI conventions, and DI registrations.">
+<meta property="og:title" content="People feature contracts · Memory Timeline docs">
+<meta property="og:description" content="The cross-agent interface contract for the People hub: file ownership map, entity columns, DTOs, service signatures, extraction changes, UI conventions, and DI registrations.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%227%22%20fill%3D%22%231d1b18%22%2F%3E%3Cpath%20d%3D%22M4%2021h24%22%20stroke%3D%22%238b8175%22%20stroke-width%3D%221.5%22%20stroke-linecap%3D%22round%22%2F%3E%3Ccircle%20cx%3D%229%22%20cy%3D%2221%22%20r%3D%223.1%22%20fill%3D%22%23e0873f%22%2F%3E%3Ccircle%20cx%3D%2217%22%20cy%3D%2214%22%20r%3D%223.6%22%20fill%3D%22%23f0b46e%22%2F%3E%3Ccircle%20cx%3D%2225%22%20cy%3D%2218%22%20r%3D%222.6%22%20fill%3D%22%236ec2b8%22%2F%3E%3Cpath%20d%3D%22M9%2021%2017%2014%2025%2018%22%20stroke%3D%22%238b8175%22%20stroke-width%3D%221.2%22%20fill%3D%22none%22%20stroke-linejoin%3D%22round%22%20opacity%3D%22.8%22%2F%3E%3C%2Fsvg%3E">
+<link rel="stylesheet" href="assets/styles.css">
+<script>(function(){try{var t=localStorage.getItem('mt-theme');if(t==='light'||t==='dark'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();</script>
+</head>
+<body class="page-doc" data-page="people-feature-contracts">
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="icon-btn nav-toggle" type="button" aria-label="Toggle navigation" aria-expanded="false" data-nav-toggle>
+      <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg>
+    </button>
+    <a class="brand" href="index.html">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="26" height="26"><path d="M3 22h26" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity=".45"/><circle cx="8" cy="22" r="3" fill="currentColor" opacity=".55"/><circle cx="16" cy="14" r="3.8" fill="currentColor"/><circle cx="25" cy="18.5" r="2.6" fill="currentColor" opacity=".7"/></svg>
+      </span>
+      <span class="brand-text">
+        <span class="brand-name">Memory Timeline</span>
+        <span class="brand-sub">Documentation</span>
+      </span>
+    </a>
+
+    <button class="searchbar" type="button" data-search-open aria-label="Search documentation">
+      <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><circle cx="9" cy="9" r="5.5" stroke="currentColor" stroke-width="1.7" fill="none"/><path d="M13.2 13.2 17 17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <span>Search the docs</span>
+      <kbd>/</kbd>
+    </button>
+
+    <div class="topbar-actions">
+      <button class="icon-btn" type="button" data-theme-toggle aria-label="Switch colour theme" title="Switch colour theme">
+        <svg class="icon-sun" viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><circle cx="10" cy="10" r="4" fill="currentColor"/><path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6 16 16M16 4l-1.4 1.4M5.4 14.6 4 16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <svg class="icon-moon" viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><path d="M16.5 12.4A7 7 0 0 1 7.6 3.5a7 7 0 1 0 8.9 8.9Z" fill="currentColor"/></svg>
+      </button>
+      <a class="icon-btn" href="https://github.com/ethanbissbort/memory-line" target="_blank" rel="noopener noreferrer" aria-label="View the repository on GitHub" title="Repository on GitHub">
+        <svg viewBox="0 0 16 16" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38l-.01-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.93-.89-1.18-.89-1.18-.73-.5.05-.49.05-.49.81.06 1.23.83 1.23.83.72 1.23 1.88.87 2.34.67.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48l-.01 2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+      </a>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" data-sidebar>
+    <nav aria-label="Documentation">
+      <ul class="nav">
+        <li class="nav-section">
+          <p class="nav-section-title">Start here</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="index.html">Home</a>
+            </li>
+            <li><a class="nav-link" href="documentation-map.html">All documentation</a>
+            </li>
+            <li><a class="nav-link" href="overview.html">Project overview</a>
+            </li>
+            <li><a class="nav-link" href="developer-guide.html">Developer guide</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Windows Native app</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="windows-native.html">Windows Native app</a>
+            </li>
+            <li><a class="nav-link" href="setup-scripts-windows.html">PowerShell setup scripts</a>
+            </li>
+            <li><a class="nav-link" href="testing.html">Testing guide</a>
+            </li>
+            <li><a class="nav-link" href="deployment.html">Deployment guide</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Status &amp; history</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="development-status.html">Development status</a>
+            </li>
+            <li><a class="nav-link" href="development-history.html">Development history</a>
+            </li>
+            <li><a class="nav-link" href="migration-to-native-windows.html">Migration to native Windows</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Audits &amp; reviews</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="feature-audit.html">Feature audit (2026-07)</a>
+            </li>
+            <li><a class="nav-link" href="hardening-followups.html">Hardening follow-ups</a>
+            </li>
+            <li><a class="nav-link" href="repo-audit-2026-07.html">Exhaustive repo audit</a>
+            </li>
+            <li><a class="nav-link" href="multi-agent-code-review.html">Multi-agent code review</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Design notes</p>
+          <ul class="nav-list">
+            <li><a class="nav-link is-active" href="people-feature-contracts.html" aria-current="page">People feature contracts</a>
+              <ul class="nav-sub">
+                <li><a class="nav-sublink" href="#1-feature-summary">1. Feature summary</a></li>
+                <li><a class="nav-sublink" href="#2-file-ownership-map">2. File ownership map</a></li>
+                <li><a class="nav-sublink" href="#3-data-layer-agent-a">3. Data layer (Agent A)</a></li>
+                <li><a class="nav-sublink" href="#4-core-dtos--services-agent-b">4. Core DTOs + services (Agent B)</a></li>
+                <li><a class="nav-sublink" href="#5-extraction--review-pipeline-agent-c">5. Extraction + review pipeline (Agent C)</a></li>
+                <li><a class="nav-sublink" href="#6-shared-ui-contracts-agents-dg--integrator">6. Shared UI contracts (Agents D–G + integrator)</a></li>
+                <li><a class="nav-sublink" href="#7-di-registrations-integrator-applies">7. DI registrations (integrator applies)</a></li>
+                <li><a class="nav-sublink" href="#8-conventions-checklist-all-agents">8. Conventions checklist (all agents)</a></li>
+              </ul>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Legacy Electron build</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="electron-deployment.html">Electron deployment &amp; install</a>
+            </li>
+            <li><a class="nav-link" href="electron-setup-scripts.html">Electron setup scripts</a>
+            </li>
+            <li><a class="nav-link" href="electron-setup-logs.html">Setup script logs</a>
+            </li>
+            <li><a class="nav-link" href="electron-tests.html">Electron test suite</a>
+            </li>
+            <li><a class="nav-link" href="electron-test-databases.html">Test databases</a>
+            </li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+  </aside>
+  <div class="sidebar-scrim" data-nav-close hidden></div>
+
+  <main class="main" id="main">
+
+<header class="doc-header">
+  <nav class="breadcrumb" aria-label="Breadcrumb">
+    <a href="index.html">Docs</a>
+    <span aria-hidden="true">/</span>
+    <span>Design notes</span>
+  </nav>
+  <h1>People feature contracts</h1>
+  <p class="doc-lede">The cross-agent interface contract for the People hub: file ownership map, entity columns, DTOs, service signatures, extraction changes, UI conventions, and DI registrations.</p>
+  <div class="doc-meta">
+    <span class="doc-meta-item"><b>For</b> Developers</span>
+    <span class="doc-meta-item"><b>2,718</b> words</span>
+    <span class="doc-meta-item"><b>12</b> min read</span>
+    <a class="doc-meta-item doc-source" href="https://github.com/ethanbissbort/memory-line/blob/main/docs/design/people-feature-contracts.md" target="_blank" rel="noopener noreferrer">
+      docs/design/people-feature-contracts.md ↗
+    </a>
+  </div>
+  <div class="tags"><span class="tag">design</span><span class="tag">contracts</span><span class="tag">people</span></div>
+</header>
+<div class="doc-grid">
+  <article class="prose">
+<p><strong>Status:</strong> Implementation contract (binding for the 2026-08 people feature build)<br><strong>Scope:</strong> <code>windows-native/</code> only. All paths below are relative to <code>windows-native/src/</code>.  </p>
+<p>This document pins the exact contracts shared between parallel implementation
+agents. Every agent implements its owned files <strong>exactly</strong> against these
+signatures; deviations must be reported, not silently made. Files not owned by
+an agent are read-only for that agent.</p>
+<hr>
+<h2 id="1-feature-summary" class="anchored">1. Feature summary<a class="heading-anchor" href="#1-feature-summary" aria-label="Link to this section">#</a></h2>
+<ol>
+<li><strong>Contact-book persons</strong> — <code>Person</code> grows contact fields (nickname,
+relationship, email, phone, birthday, company, notes, photo, avatar color,
+favorite, first-met date).</li>
+<li><strong>People page</strong> — new nav tab (<code>Tag=&quot;People&quot;</code>, page key <code>&quot;People&quot;</code>,
+<code>ContactsPage</code>) for managing contacts: search, sort, favorites,
+add/edit/delete, merge duplicates, per-person linked-event list.</li>
+<li><strong>Events with persons everywhere</strong> — event create/edit dialog gets a person
+picker (plus tags/location/era enrichment); search gets a person facet;
+event display surfaces people.</li>
+<li><strong>Audio → person suggestions</strong> — extraction emits per-person details; the
+Review queue shows <em>new person / known person / update details</em> suggestions
+with one-click apply.</li>
+<li><strong>Drafts</strong> — &quot;Save as draft&quot; in event, era, and person editors; a Drafts
+section (Pivot) on the Review page lists drafts and resumes them in the
+owning editor via navigation parameter <code>&quot;draft:&lt;draftId&gt;&quot;</code>.</li>
+</ol>
+<h2 id="2-file-ownership-map" class="anchored">2. File ownership map<a class="heading-anchor" href="#2-file-ownership-map" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap"><table><thead><tr>
+<th>Agent</th>
+<th>Owns (create/modify)</th>
+</tr>
+</thead><tbody><tr>
+<td><strong>A — Data</strong></td>
+<td><code>MemoryTimeline.Data/Models/Person.cs</code>, <code>MemoryTimeline.Data/Models/Draft.cs</code> (new), <code>MemoryTimeline.Data/AppDbContext.cs</code>, <code>MemoryTimeline.Data/SchemaUpgrader.cs</code>, <code>MemoryTimeline.Data/Repositories/IPersonRepository.cs</code>, <code>PersonRepository.cs</code>, <code>IDraftRepository.cs</code> (new), <code>DraftRepository.cs</code> (new)</td>
+</tr>
+<tr>
+<td><strong>B — Core services</strong></td>
+<td><code>MemoryTimeline.Core/Services/IPersonService.cs</code> (new, interface + impl), <code>MemoryTimeline.Core/Services/IDraftService.cs</code> (new, interface + impl), <code>MemoryTimeline.Core/DTOs/PersonDto.cs</code> (new), <code>MemoryTimeline.Core/DTOs/DraftDto.cs</code> (new, incl. payload classes), <code>MemoryTimeline.Core/Services/Messages.cs</code></td>
+</tr>
+<tr>
+<td><strong>C — Extraction</strong></td>
+<td><code>MemoryTimeline.Core/Services/EventExtractionService.cs</code>, <code>IEventExtractionService.cs</code>, <code>ILlmService.cs</code>, <code>AnthropicLlmService.cs</code>, <code>MemoryTimeline.Core/DTOs/PersonSuggestionDto.cs</code> (new), <code>MemoryTimeline.Core/DTOs/PendingEventDto.cs</code></td>
+</tr>
+<tr>
+<td><strong>D — Contacts UI</strong></td>
+<td><code>MemoryTimeline/Views/ContactsPage.xaml</code> (new), <code>ContactsPage.xaml.cs</code> (new), <code>MemoryTimeline/ViewModels/ContactsViewModel.cs</code> (new), <code>MemoryTimeline/Converters/HexToBrushConverter.cs</code> (new)</td>
+</tr>
+<tr>
+<td><strong>E — Review UI</strong></td>
+<td><code>MemoryTimeline/Views/ReviewPage.xaml</code>, <code>ReviewPage.xaml.cs</code>, <code>MemoryTimeline/ViewModels/ReviewViewModel.cs</code></td>
+</tr>
+<tr>
+<td><strong>F — Event CRUD UI</strong></td>
+<td><code>MemoryTimeline/Controls/TimelineControl.xaml</code>, <code>TimelineControl.xaml.cs</code>, <code>MemoryTimeline/ViewModels/TimelineViewModel.cs</code>, <code>MemoryTimeline/Views/TimelinePage.xaml.cs</code>, <code>MemoryTimeline.Core/DTOs/TimelineEventDto.cs</code>, <code>MemoryTimeline/Controls/EventBubble.xaml</code>, <code>EventBubble.xaml.cs</code></td>
+</tr>
+<tr>
+<td><strong>G — Eras + Search UI</strong></td>
+<td><code>MemoryTimeline/Views/ErasPage.xaml</code>, <code>ErasPage.xaml.cs</code>, <code>MemoryTimeline/ViewModels/ErasViewModel.cs</code>, <code>MemoryTimeline/Views/SearchPage.xaml</code>, <code>SearchPage.xaml.cs</code>, <code>MemoryTimeline/ViewModels/SearchViewModel.cs</code>, <code>MemoryTimeline.Core/Services/IAdvancedSearchService.cs</code>, <code>MemoryTimeline.Core/Models/SearchModels.cs</code></td>
+</tr>
+<tr>
+<td><strong>H — Tests</strong></td>
+<td>New files only under <code>MemoryTimeline.Tests/</code>: <code>Services/PersonServiceTests.cs</code>, <code>Services/DraftServiceTests.cs</code>, <code>UnitTests/PersonSuggestionTests.cs</code>, <code>Integration/PeopleSchemaTests.cs</code></td>
+</tr>
+<tr>
+<td><strong>Integrator (orchestrator)</strong></td>
+<td><code>MemoryTimeline/App.xaml.cs</code> (DI), <code>MemoryTimeline/MainWindow.xaml</code>, <code>MainWindow.xaml.cs</code>, <code>MemoryTimeline/App.xaml</code>, root docs</td>
+</tr>
+</tbody></table></div>
+<p>Nobody edits <code>App.xaml.cs</code>, <code>MainWindow.*</code>, or <code>App.xaml</code> except the
+integrator. UI agents needing converters define <strong>page-local</strong> resources and
+new converter classes with agent-unique names.</p>
+<h2 id="3-data-layer-agent-a" class="anchored">3. Data layer (Agent A)<a class="heading-anchor" href="#3-data-layer-agent-a" aria-label="Link to this section">#</a></h2>
+<h3 id="31-person-entity--new-columns-all-additive" class="anchored">3.1 <code>Person</code> entity — new columns (all additive)<a class="heading-anchor" href="#31-person-entity--new-columns-all-additive" aria-label="Link to this section">#</a></h3>
+<p>Extend the existing <code>Person</code> class (table <code>people</code>) with:</p>
+<div class="codeblock" data-lang="csharp"><div class="codeblock-bar"><span class="codeblock-lang">C#</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-csharp"><span class="tok-attribute">[MaxLength(100)]</span>  <span class="tok-attribute">[Column(&quot;nickname&quot;)]</span>       <span class="tok-keyword">public</span> <span class="tok-keyword">string</span>? <span class="tok-type">Nickname</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+<span class="tok-attribute">[MaxLength(100)]</span>  <span class="tok-attribute">[Column(&quot;relationship&quot;)]</span>   <span class="tok-keyword">public</span> <span class="tok-keyword">string</span>? <span class="tok-type">Relationship</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+<span class="tok-attribute">[MaxLength(320)]</span>  <span class="tok-attribute">[Column(&quot;email&quot;)]</span>          <span class="tok-keyword">public</span> <span class="tok-keyword">string</span>? <span class="tok-type">Email</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+<span class="tok-attribute">[MaxLength(50)]</span>   <span class="tok-attribute">[Column(&quot;phone&quot;)]</span>          <span class="tok-keyword">public</span> <span class="tok-keyword">string</span>? <span class="tok-type">Phone</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+                  <span class="tok-attribute">[Column(&quot;birthday&quot;)]</span>       <span class="tok-keyword">public</span> <span class="tok-type">DateTime</span>? <span class="tok-type">Birthday</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+<span class="tok-attribute">[MaxLength(200)]</span>  <span class="tok-attribute">[Column(&quot;company&quot;)]</span>        <span class="tok-keyword">public</span> <span class="tok-keyword">string</span>? <span class="tok-type">Company</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+                  <span class="tok-attribute">[Column(&quot;notes&quot;)]</span>          <span class="tok-keyword">public</span> <span class="tok-keyword">string</span>? <span class="tok-type">Notes</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+                  <span class="tok-attribute">[Column(&quot;photo_path&quot;)]</span>     <span class="tok-keyword">public</span> <span class="tok-keyword">string</span>? <span class="tok-type">PhotoPath</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+<span class="tok-attribute">[MaxLength(9)]</span>    <span class="tok-attribute">[Column(&quot;avatar_color&quot;)]</span>   <span class="tok-keyword">public</span> <span class="tok-keyword">string</span>? <span class="tok-type">AvatarColor</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+                  <span class="tok-attribute">[Column(&quot;is_favorite&quot;)]</span>    <span class="tok-keyword">public</span> <span class="tok-keyword">bool</span> <span class="tok-type">IsFavorite</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+                  <span class="tok-attribute">[Column(&quot;first_met_date&quot;)]</span> <span class="tok-keyword">public</span> <span class="tok-type">DateTime</span>? <span class="tok-type">FirstMetDate</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+                  <span class="tok-attribute">[Column(&quot;updated_at&quot;)]</span>     <span class="tok-keyword">public</span> <span class="tok-type">DateTime</span> <span class="tok-type">UpdatedAt</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; } = <span class="tok-type">DateTime</span>.<span class="tok-type">UtcNow</span>;</code></pre></div>
+<p>Existing <code>PersonId</code>, <code>Name</code>, <code>CreatedAt</code>, <code>EventPeople</code> are unchanged.</p>
+<h3 id="32-draft-entity-new-file-modelsdraftcs" class="anchored">3.2 <code>Draft</code> entity (new file <code>Models/Draft.cs</code>)<a class="heading-anchor" href="#32-draft-entity-new-file-modelsdraftcs" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="csharp"><div class="codeblock-bar"><span class="codeblock-lang">C#</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-csharp"><span class="tok-attribute">[Table(&quot;drafts&quot;)]</span>
+<span class="tok-keyword">public</span> <span class="tok-keyword">class</span> <span class="tok-type">Draft</span>
+{
+    <span class="tok-attribute">[Key]</span> <span class="tok-attribute">[Column(&quot;draft_id&quot;)]</span>                 <span class="tok-keyword">public</span> <span class="tok-keyword">string</span> <span class="tok-type">DraftId</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; } = <span class="tok-type">Guid</span>.<span class="tok-type">NewGuid</span>().<span class="tok-type">ToString</span>();
+    <span class="tok-attribute">[Required]</span> <span class="tok-attribute">[MaxLength(20)]</span> <span class="tok-attribute">[Column(&quot;draft_type&quot;)]</span> <span class="tok-keyword">public</span> <span class="tok-keyword">string</span> <span class="tok-type">DraftType</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; } = <span class="tok-keyword">string</span>.<span class="tok-type">Empty</span>;
+    <span class="tok-attribute">[Required]</span> <span class="tok-attribute">[MaxLength(500)]</span> <span class="tok-attribute">[Column(&quot;title&quot;)]</span>     <span class="tok-keyword">public</span> <span class="tok-keyword">string</span> <span class="tok-type">Title</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; } = <span class="tok-keyword">string</span>.<span class="tok-type">Empty</span>;
+    <span class="tok-attribute">[Required]</span> <span class="tok-attribute">[Column(&quot;payload_json&quot;)]</span>        <span class="tok-keyword">public</span> <span class="tok-keyword">string</span> <span class="tok-type">PayloadJson</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; } = <span class="tok-string">&quot;{}&quot;</span>;
+    <span class="tok-attribute">[Column(&quot;created_at&quot;)]</span>                     <span class="tok-keyword">public</span> <span class="tok-type">DateTime</span> <span class="tok-type">CreatedAt</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; } = <span class="tok-type">DateTime</span>.<span class="tok-type">UtcNow</span>;
+    <span class="tok-attribute">[Column(&quot;updated_at&quot;)]</span>                     <span class="tok-keyword">public</span> <span class="tok-type">DateTime</span> <span class="tok-type">UpdatedAt</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; } = <span class="tok-type">DateTime</span>.<span class="tok-type">UtcNow</span>;
+}
+
+<span class="tok-keyword">public</span> <span class="tok-keyword">static</span> <span class="tok-keyword">class</span> <span class="tok-type">DraftTypes</span>
+{
+    <span class="tok-keyword">public</span> <span class="tok-keyword">const</span> <span class="tok-keyword">string</span> <span class="tok-type">Event</span> = <span class="tok-string">&quot;event&quot;</span>;
+    <span class="tok-keyword">public</span> <span class="tok-keyword">const</span> <span class="tok-keyword">string</span> <span class="tok-type">Era</span> = <span class="tok-string">&quot;era&quot;</span>;
+    <span class="tok-keyword">public</span> <span class="tok-keyword">const</span> <span class="tok-keyword">string</span> <span class="tok-type">Person</span> = <span class="tok-string">&quot;person&quot;</span>;
+}</code></pre></div>
+<h3 id="33-appdbcontext" class="anchored">3.3 <code>AppDbContext</code><a class="heading-anchor" href="#33-appdbcontext" aria-label="Link to this section">#</a></h3>
+<ul>
+<li><code>public DbSet&lt;Draft&gt; Drafts { get; set; } = null!;</code></li>
+<li><code>OnModelCreating</code>: Draft — <code>HasKey(DraftId)</code>, <code>HasIndex(DraftType)</code>,
+<code>HasIndex(UpdatedAt)</code>. Person — add <code>entity.HasIndex(p =&gt; p.IsFavorite);</code>
+(keep existing unique Name index).</li>
+<li><code>UpdateTimestamps()</code>: also stamp <code>Person.UpdatedAt</code> and <code>Draft.UpdatedAt</code>
+for modified entries.</li>
+</ul>
+<h3 id="34-schemaupgrader-drift-repair-for-pre-existing-dbs" class="anchored">3.4 <code>SchemaUpgrader</code> (drift repair for pre-existing DBs)<a class="heading-anchor" href="#34-schemaupgrader-drift-repair-for-pre-existing-dbs" aria-label="Link to this section">#</a></h3>
+<p>New table (via <code>EnsureTableAsync</code>):</p>
+<div class="codeblock" data-lang="sql"><div class="codeblock-bar"><span class="codeblock-lang">SQL</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-sql"><span class="tok-keyword">CREATE</span> <span class="tok-keyword">TABLE</span> IF <span class="tok-keyword">NOT</span> EXISTS &quot;drafts&quot; (
+    &quot;draft_id&quot; <span class="tok-type">TEXT</span> <span class="tok-keyword">NOT</span> <span class="tok-keyword">NULL</span> CONSTRAINT &quot;PK_drafts&quot; <span class="tok-keyword">PRIMARY</span> <span class="tok-keyword">KEY</span>,
+    &quot;draft_type&quot; <span class="tok-type">TEXT</span> <span class="tok-keyword">NOT</span> <span class="tok-keyword">NULL</span>,
+    &quot;title&quot; <span class="tok-type">TEXT</span> <span class="tok-keyword">NOT</span> <span class="tok-keyword">NULL</span>,
+    &quot;payload_json&quot; <span class="tok-type">TEXT</span> <span class="tok-keyword">NOT</span> <span class="tok-keyword">NULL</span>,
+    &quot;created_at&quot; <span class="tok-type">TEXT</span> <span class="tok-keyword">NOT</span> <span class="tok-keyword">NULL</span>,
+    &quot;updated_at&quot; <span class="tok-type">TEXT</span> <span class="tok-keyword">NOT</span> <span class="tok-keyword">NULL</span>
+);</code></pre></div>
+<p>Indexes: <code>IX_drafts_draft_type</code> on <code>draft_type</code>, <code>IX_drafts_updated_at</code> on
+<code>updated_at</code>.</p>
+<p>New columns on <code>people</code> (via <code>EnsureColumnsAsync</code>; NOT NULL columns must carry
+constant defaults — SQLite <code>ALTER TABLE ADD COLUMN</code> requirement):</p>
+<div class="codeblock" data-lang="text"><div class="codeblock-bar"><span class="codeblock-lang">text</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-text">nickname TEXT NULL · relationship TEXT NULL · email TEXT NULL · phone TEXT NULL
+birthday TEXT NULL · company TEXT NULL · notes TEXT NULL · photo_path TEXT NULL
+avatar_color TEXT NULL · is_favorite INTEGER NOT NULL DEFAULT 0
+first_met_date TEXT NULL · updated_at TEXT NOT NULL DEFAULT '2025-01-21 00:00:00'</code></pre></div>
+<p>Plus <code>CREATE INDEX IF NOT EXISTS &quot;IX_people_is_favorite&quot; ON &quot;people&quot; (&quot;is_favorite&quot;);</code>
+(only when the <code>people</code> table exists).</p>
+<h3 id="35-repositories" class="anchored">3.5 Repositories<a class="heading-anchor" href="#35-repositories" aria-label="Link to this section">#</a></h3>
+<p><code>IPersonRepository</code> additions:</p>
+<div class="codeblock" data-lang="csharp"><div class="codeblock-bar"><span class="codeblock-lang">C#</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-csharp"><span class="tok-type">Task</span>&lt;<span class="tok-type">IEnumerable&lt;Person&gt;</span>&gt; <span class="tok-type">GetFavoritesAsync</span>();
+<span class="tok-type">Task</span>&lt;<span class="tok-type">Dictionary&lt;string, int&gt;</span>&gt; <span class="tok-type">GetEventCountsAsync</span>();               <span class="tok-comment">// personId -&gt; event count</span>
+<span class="tok-type">Task</span>&lt;<span class="tok-type">Dictionary&lt;string, (DateTime First, DateTime Last)&gt;</span>&gt; <span class="tok-type">GetEventDateRangesAsync</span>(); <span class="tok-comment">// personId -&gt; first/last event StartDate</span></code></pre></div>
+<p><code>IDraftRepository</code> (new): <code>IRepository&lt;Draft&gt;</code> plus</p>
+<div class="codeblock" data-lang="csharp"><div class="codeblock-bar"><span class="codeblock-lang">C#</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-csharp"><span class="tok-type">Task</span>&lt;<span class="tok-type">IEnumerable&lt;Draft&gt;</span>&gt; <span class="tok-type">GetByTypeAsync</span>(<span class="tok-keyword">string</span> draftType);   <span class="tok-comment">// ordered UpdatedAt desc</span>
+<span class="tok-type">Task</span>&lt;<span class="tok-type">IEnumerable&lt;Draft&gt;</span>&gt; <span class="tok-type">GetAllOrderedAsync</span>();               <span class="tok-comment">// ordered UpdatedAt desc</span></code></pre></div>
+<p>Both repository impls follow the existing factory pattern
+(<code>IDbContextFactory&lt;AppDbContext&gt;</code>, <code>await using</code> context per operation,
+<code>AsNoTracking()</code> for reads, tracked-load-then-mutate for updates — see
+<code>PersonRepository.cs</code> today).</p>
+<h2 id="4-core-dtos--services-agent-b" class="anchored">4. Core DTOs + services (Agent B)<a class="heading-anchor" href="#4-core-dtos--services-agent-b" aria-label="Link to this section">#</a></h2>
+<p>All DTOs live in <code>MemoryTimeline.Core.DTOs</code>, are
+<code>partial class … : ObservableObject</code> with <code>[ObservableProperty]</code> fields
+(follow <code>PendingEventDto.cs</code> style). <strong>No <code>Microsoft.UI</code> references in the new
+DTOs</strong> — colors are hex strings; the app layer converts.</p>
+<h3 id="41-persondto-new-file-dtospersondtocs" class="anchored">4.1 <code>PersonDto</code> (new file <code>DTOs/PersonDto.cs</code>)<a class="heading-anchor" href="#41-persondto-new-file-dtospersondtocs" aria-label="Link to this section">#</a></h3>
+<p>Observable properties (backing-field names shown):</p>
+<div class="codeblock" data-lang="text"><div class="codeblock-bar"><span class="codeblock-lang">text</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-text">_personId (init Guid.NewGuid().ToString()), _name (&quot;&quot;), _nickname, _relationship,
+_email, _phone, _birthday (DateTime?), _company, _notes, _photoPath,
+_avatarColor, _isFavorite (bool), _firstMetDate (DateTime?),
+_createdAt (DateTime), _updatedAt (DateTime),
+_eventCount (int), _firstEventDate (DateTime?), _lastEventDate (DateTime?),
+_isSelected (bool)</code></pre></div>
+<p>Computed (plain get-only, with <code>partial void On…Changed</code> notifications where
+the source is observable):</p>
+<div class="codeblock" data-lang="csharp"><div class="codeblock-bar"><span class="codeblock-lang">C#</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-csharp"><span class="tok-keyword">public</span> <span class="tok-keyword">string</span> <span class="tok-type">DisplayName</span>   <span class="tok-comment">// Name, or $&quot;{Name} ({Nickname})&quot; when nickname set</span>
+<span class="tok-keyword">public</span> <span class="tok-keyword">string</span> <span class="tok-type">Initials</span>      <span class="tok-comment">// up to 2 uppercase initials from Name words; &quot;?&quot; when empty</span>
+<span class="tok-keyword">public</span> <span class="tok-keyword">string</span> <span class="tok-type">EffectiveAvatarColor</span> <span class="tok-comment">// AvatarColor if set, else deterministic pick from AvatarPalette by stable hash of Name</span>
+<span class="tok-keyword">public</span> <span class="tok-keyword">string</span> <span class="tok-type">EventCountDisplay</span>    <span class="tok-comment">// &quot;3 events&quot; / &quot;1 event&quot; / &quot;No events&quot;</span>
+<span class="tok-keyword">public</span> <span class="tok-keyword">string</span> <span class="tok-type">BirthdayDisplay</span>      <span class="tok-comment">// &quot;MMM d, yyyy&quot; or &quot;&quot;</span>
+<span class="tok-keyword">public</span> <span class="tok-keyword">bool</span> <span class="tok-type">HasBirthday</span>, <span class="tok-type">HasEmail</span>, <span class="tok-type">HasPhone</span>, <span class="tok-type">HasCompany</span>, <span class="tok-type">HasNotes</span>, <span class="tok-type">HasRelationship</span>
+<span class="tok-keyword">public</span> <span class="tok-keyword">static</span> <span class="tok-keyword">readonly</span> <span class="tok-keyword">string</span>[] <span class="tok-type">AvatarPalette</span> <span class="tok-comment">// 10 pleasant hex colors</span>
+<span class="tok-keyword">public</span> <span class="tok-keyword">static</span> <span class="tok-type">PersonDto</span> <span class="tok-type">FromPerson</span>(<span class="tok-type">Person</span> person, <span class="tok-keyword">int</span> eventCount = <span class="tok-number">0</span>, <span class="tok-type">DateTime</span>? firstEventDate = <span class="tok-keyword">null</span>, <span class="tok-type">DateTime</span>? lastEventDate = <span class="tok-keyword">null</span>);
+<span class="tok-keyword">public</span> <span class="tok-type">Person</span> <span class="tok-type">ToPerson</span>();                 <span class="tok-comment">// full copy incl. PersonId</span>
+<span class="tok-keyword">public</span> <span class="tok-keyword">void</span> <span class="tok-type">CopyTo</span>(<span class="tok-type">Person</span> person);        <span class="tok-comment">// copies editable fields (not PersonId/CreatedAt)</span></code></pre></div>
+<p>The deterministic hash must be <strong>stable across processes</strong> (do not use
+<code>string.GetHashCode()</code>; sum chars or use a simple FNV-1a).</p>
+<h3 id="42-draftdto--payloads-new-file-dtosdraftdtocs" class="anchored">4.2 <code>DraftDto</code> + payloads (new file <code>DTOs/DraftDto.cs</code>)<a class="heading-anchor" href="#42-draftdto--payloads-new-file-dtosdraftdtocs" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="csharp"><div class="codeblock-bar"><span class="codeblock-lang">C#</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-csharp"><span class="tok-keyword">public</span> partial <span class="tok-keyword">class</span> <span class="tok-type">DraftDto</span> : <span class="tok-type">ObservableObject</span>
+{
+    <span class="tok-comment">// _draftId, _draftType, _title, _payloadJson, _createdAt, _updatedAt</span>
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span> <span class="tok-type">TypeDisplay</span> { <span class="tok-keyword">get</span>; }   <span class="tok-comment">// &quot;Event&quot; | &quot;Era&quot; | &quot;Person&quot; (fallback: DraftType)</span>
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span> <span class="tok-type">TypeGlyph</span> { <span class="tok-keyword">get</span>; }     <span class="tok-comment">// &quot;\uE8EB&quot; event (calendar), &quot;\uE81C&quot; era, &quot;\uE77B&quot; person</span>
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span> <span class="tok-type">UpdatedDisplay</span> { <span class="tok-keyword">get</span>; } <span class="tok-comment">// &quot;MMM d, yyyy h:mm tt&quot;</span>
+    <span class="tok-keyword">public</span> <span class="tok-keyword">static</span> <span class="tok-type">DraftDto</span> <span class="tok-type">FromDraft</span>(<span class="tok-type">Draft</span> draft);
+    <span class="tok-keyword">public</span> <span class="tok-type">Draft</span> <span class="tok-type">ToDraft</span>();
+    <span class="tok-keyword">public</span> <span class="tok-type">T</span>? <span class="tok-type">GetPayload&lt;T&gt;</span>() <span class="tok-keyword">where</span> <span class="tok-type">T</span> : <span class="tok-keyword">class</span>;  <span class="tok-comment">// JSON deserialize, null on malformed (no throw)</span>
+}</code></pre></div>
+<p>Payload classes (same file, plain mutable classes, serialized with
+<code>System.Text.Json</code> default options):</p>
+<div class="codeblock" data-lang="csharp"><div class="codeblock-bar"><span class="codeblock-lang">C#</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-csharp"><span class="tok-keyword">public</span> <span class="tok-keyword">sealed</span> <span class="tok-keyword">class</span> <span class="tok-type">EventDraftPayload</span>
+{
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span> <span class="tok-type">Title</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; } = <span class="tok-keyword">string</span>.<span class="tok-type">Empty</span>;
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span>? <span class="tok-type">Description</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+    <span class="tok-keyword">public</span> <span class="tok-type">DateTime</span>? <span class="tok-type">StartDate</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+    <span class="tok-keyword">public</span> <span class="tok-type">DateTime</span>? <span class="tok-type">EndDate</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span>? <span class="tok-type">Category</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span>? <span class="tok-type">EraId</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span>? <span class="tok-type">Location</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+    <span class="tok-keyword">public</span> <span class="tok-type">List&lt;string&gt;</span> <span class="tok-type">TagNames</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; } = <span class="tok-keyword">new</span>();
+    <span class="tok-keyword">public</span> <span class="tok-type">List&lt;string&gt;</span> <span class="tok-type">PersonIds</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; } = <span class="tok-keyword">new</span>();   <span class="tok-comment">// existing persons</span>
+    <span class="tok-keyword">public</span> <span class="tok-type">List&lt;string&gt;</span> <span class="tok-type">PersonNames</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; } = <span class="tok-keyword">new</span>(); <span class="tok-comment">// to-be-created persons</span>
+}
+
+<span class="tok-keyword">public</span> <span class="tok-keyword">sealed</span> <span class="tok-keyword">class</span> <span class="tok-type">EraDraftPayload</span>
+{
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span> <span class="tok-type">Name</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; } = <span class="tok-keyword">string</span>.<span class="tok-type">Empty</span>;
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span>? <span class="tok-type">Subtitle</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+    <span class="tok-keyword">public</span> <span class="tok-type">DateTime</span>? <span class="tok-type">StartDate</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+    <span class="tok-keyword">public</span> <span class="tok-type">DateTime</span>? <span class="tok-type">EndDate</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span>? <span class="tok-type">CategoryId</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span>? <span class="tok-type">ColorCode</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span>? <span class="tok-type">Description</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span>? <span class="tok-type">Notes</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+    <span class="tok-keyword">public</span> <span class="tok-type">List&lt;string&gt;</span> <span class="tok-type">Tags</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; } = <span class="tok-keyword">new</span>();
+}
+
+<span class="tok-keyword">public</span> <span class="tok-keyword">sealed</span> <span class="tok-keyword">class</span> <span class="tok-type">PersonDraftPayload</span>
+{
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span> <span class="tok-type">Name</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; } = <span class="tok-keyword">string</span>.<span class="tok-type">Empty</span>;
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span>? <span class="tok-type">Nickname</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span>? <span class="tok-type">Relationship</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span>? <span class="tok-type">Email</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span>? <span class="tok-type">Phone</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+    <span class="tok-keyword">public</span> <span class="tok-type">DateTime</span>? <span class="tok-type">Birthday</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span>? <span class="tok-type">Company</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span>? <span class="tok-type">Notes</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span>? <span class="tok-type">AvatarColor</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+    <span class="tok-keyword">public</span> <span class="tok-keyword">bool</span> <span class="tok-type">IsFavorite</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+    <span class="tok-keyword">public</span> <span class="tok-type">DateTime</span>? <span class="tok-type">FirstMetDate</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+}</code></pre></div>
+<h3 id="43-ipersonservice-new-file-servicesipersonservicecs-interface--personservice-impl-in-same-file" class="anchored">4.3 <code>IPersonService</code> (new file <code>Services/IPersonService.cs</code>, interface + <code>PersonService</code> impl in same file)<a class="heading-anchor" href="#43-ipersonservice-new-file-servicesipersonservicecs-interface--personservice-impl-in-same-file" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="csharp"><div class="codeblock-bar"><span class="codeblock-lang">C#</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-csharp"><span class="tok-keyword">public</span> <span class="tok-keyword">enum</span> <span class="tok-type">PersonSortOption</span> { <span class="tok-type">Name</span>, <span class="tok-type">RecentlyAdded</span>, <span class="tok-type">MostEvents</span>, <span class="tok-type">RecentlyUpdated</span> }
+<span class="tok-keyword">public</span> <span class="tok-keyword">enum</span> <span class="tok-type">PersonMatchKind</span> { <span class="tok-type">Exact</span>, <span class="tok-type">Nickname</span>, <span class="tok-type">Fuzzy</span> }
+
+<span class="tok-keyword">public</span> <span class="tok-keyword">sealed</span> <span class="tok-keyword">class</span> <span class="tok-type">PersonMatch</span>
+{
+    <span class="tok-keyword">public</span> required <span class="tok-type">PersonDto</span> <span class="tok-type">Person</span> { <span class="tok-keyword">get</span>; init; }
+    <span class="tok-keyword">public</span> <span class="tok-type">PersonMatchKind</span> <span class="tok-type">Kind</span> { <span class="tok-keyword">get</span>; init; }
+}
+
+<span class="tok-keyword">public</span> <span class="tok-keyword">sealed</span> <span class="tok-keyword">class</span> <span class="tok-type">PersonDuplicatePair</span>
+{
+    <span class="tok-keyword">public</span> required <span class="tok-type">PersonDto</span> <span class="tok-type">First</span> { <span class="tok-keyword">get</span>; init; }
+    <span class="tok-keyword">public</span> required <span class="tok-type">PersonDto</span> <span class="tok-type">Second</span> { <span class="tok-keyword">get</span>; init; }
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span> <span class="tok-type">Reason</span> { <span class="tok-keyword">get</span>; init; } = <span class="tok-keyword">string</span>.<span class="tok-type">Empty</span>;
+}
+
+<span class="tok-keyword">public</span> <span class="tok-keyword">sealed</span> <span class="tok-keyword">class</span> <span class="tok-type">PersonEventSummary</span>
+{
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span> <span class="tok-type">EventId</span> { <span class="tok-keyword">get</span>; init; } = <span class="tok-keyword">string</span>.<span class="tok-type">Empty</span>;
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span> <span class="tok-type">Title</span> { <span class="tok-keyword">get</span>; init; } = <span class="tok-keyword">string</span>.<span class="tok-type">Empty</span>;
+    <span class="tok-keyword">public</span> <span class="tok-type">DateTime</span> <span class="tok-type">StartDate</span> { <span class="tok-keyword">get</span>; init; }
+    <span class="tok-keyword">public</span> <span class="tok-type">DateTime</span>? <span class="tok-type">EndDate</span> { <span class="tok-keyword">get</span>; init; }
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span>? <span class="tok-type">Category</span> { <span class="tok-keyword">get</span>; init; }
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span> <span class="tok-type">StartDateDisplay</span> =&gt; <span class="tok-type">StartDate</span>.<span class="tok-type">ToString</span>(<span class="tok-string">&quot;MMM d, yyyy&quot;</span>);
+}
+
+<span class="tok-keyword">public</span> <span class="tok-keyword">interface</span> <span class="tok-type">IPersonService</span>
+{
+    <span class="tok-type">Task</span>&lt;<span class="tok-type">List&lt;PersonDto&gt;</span>&gt; <span class="tok-type">GetAllPersonsAsync</span>(<span class="tok-type">PersonSortOption</span> sortBy = <span class="tok-type">PersonSortOption</span>.<span class="tok-type">Name</span>, <span class="tok-keyword">bool</span> favoritesFirst = <span class="tok-keyword">true</span>);
+    <span class="tok-type">Task</span>&lt;<span class="tok-type">List&lt;PersonDto&gt;</span>&gt; <span class="tok-type">SearchPersonsAsync</span>(<span class="tok-keyword">string</span> searchTerm, <span class="tok-type">PersonSortOption</span> sortBy = <span class="tok-type">PersonSortOption</span>.<span class="tok-type">Name</span>);
+    <span class="tok-type">Task&lt;PersonDto?&gt;</span> <span class="tok-type">GetPersonAsync</span>(<span class="tok-keyword">string</span> personId);
+    <span class="tok-type">Task&lt;PersonDto?&gt;</span> <span class="tok-type">GetPersonByNameAsync</span>(<span class="tok-keyword">string</span> name);          <span class="tok-comment">// case-insensitive exact</span>
+    <span class="tok-type">Task</span>&lt;<span class="tok-type">List&lt;PersonDto&gt;</span>&gt; <span class="tok-type">GetPersonsForEventAsync</span>(<span class="tok-keyword">string</span> eventId);
+    <span class="tok-type">Task&lt;PersonDto&gt;</span> <span class="tok-type">CreatePersonAsync</span>(<span class="tok-type">PersonDto</span> person);         <span class="tok-comment">// throws InvalidOperationException on duplicate name</span>
+    <span class="tok-type">Task&lt;PersonDto&gt;</span> <span class="tok-type">UpdatePersonAsync</span>(<span class="tok-type">PersonDto</span> person);
+    <span class="tok-type">Task</span> <span class="tok-type">DeletePersonAsync</span>(<span class="tok-keyword">string</span> personId);                     <span class="tok-comment">// junction rows cascade</span>
+    <span class="tok-type">Task&lt;bool&gt;</span> <span class="tok-type">ToggleFavoriteAsync</span>(<span class="tok-keyword">string</span> personId);             <span class="tok-comment">// returns new state</span>
+    <span class="tok-type">Task</span>&lt;<span class="tok-type">List&lt;PersonEventSummary&gt;</span>&gt; <span class="tok-type">GetEventsForPersonAsync</span>(<span class="tok-keyword">string</span> personId); <span class="tok-comment">// StartDate desc</span>
+    <span class="tok-type">Task</span> <span class="tok-type">MergePersonsAsync</span>(<span class="tok-keyword">string</span> sourcePersonId, <span class="tok-keyword">string</span> targetPersonId);
+    <span class="tok-type">Task</span>&lt;<span class="tok-type">List&lt;PersonDuplicatePair&gt;</span>&gt; <span class="tok-type">FindPotentialDuplicatesAsync</span>();
+    <span class="tok-type">Task&lt;PersonMatch?&gt;</span> <span class="tok-type">FindBestMatchAsync</span>(<span class="tok-keyword">string</span> name);
+}</code></pre></div>
+<p>Implementation notes (binding):</p>
+<ul>
+<li><code>PersonService(IDbContextFactory&lt;AppDbContext&gt; contextFactory, ILogger&lt;PersonService&gt; logger)</code> —
+query via short-lived contexts like <code>EventService</code> does; event
+counts/dates via grouped queries over <code>EventPeople</code>/<code>Events</code> (no N+1).</li>
+<li>All returned <code>PersonDto</code>s carry <code>EventCount</code>; <code>GetPersonAsync</code> also fills
+<code>FirstEventDate</code>/<code>LastEventDate</code>.</li>
+<li><code>MergePersonsAsync</code>: one transaction — repoint <code>event_people</code> rows from
+source to target (skip rows that would duplicate the composite PK), copy any
+contact fields the target lacks (null/empty on target, present on source),
+delete source row, send <code>PersonsMergedMessage</code>.</li>
+<li><code>FindBestMatchAsync</code>: exact name (OrdinalIgnoreCase) → <code>Exact</code>; exact
+nickname → <code>Nickname</code>; else normalized-containment or Levenshtein distance
+≤ 2 on names → <code>Fuzzy</code>; null when nothing plausible.</li>
+<li><code>FindPotentialDuplicatesAsync</code>: pairs with equal normalized names
+(trim/casefold), nickname==name matches, or distance ≤ 1; <code>Reason</code> is
+human-readable.</li>
+<li>Messages: send <code>PersonCreatedMessage</code>/<code>PersonUpdatedMessage</code>/
+<code>PersonDeletedMessage</code>/<code>PersonsMergedMessage</code> after successful writes,
+wrapped in try/catch like <code>EventExtractionService</code> does for
+<code>EventCreatedMessage</code>.</li>
+</ul>
+<h3 id="44-idraftservice-new-file-servicesidraftservicecs-interface--draftservice-impl" class="anchored">4.4 <code>IDraftService</code> (new file <code>Services/IDraftService.cs</code>, interface + <code>DraftService</code> impl)<a class="heading-anchor" href="#44-idraftservice-new-file-servicesidraftservicecs-interface--draftservice-impl" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="csharp"><div class="codeblock-bar"><span class="codeblock-lang">C#</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-csharp"><span class="tok-keyword">public</span> <span class="tok-keyword">interface</span> <span class="tok-type">IDraftService</span>
+{
+    <span class="tok-type">Task&lt;DraftDto&gt;</span> <span class="tok-type">SaveDraftAsync</span>(<span class="tok-keyword">string</span> draftType, <span class="tok-keyword">string</span> title, <span class="tok-keyword">string</span> payloadJson, <span class="tok-keyword">string</span>? draftId = <span class="tok-keyword">null</span>); <span class="tok-comment">// upsert; new id when draftId null/unknown</span>
+    <span class="tok-type">Task</span>&lt;<span class="tok-type">List&lt;DraftDto&gt;</span>&gt; <span class="tok-type">GetDraftsAsync</span>(<span class="tok-keyword">string</span>? draftType = <span class="tok-keyword">null</span>);  <span class="tok-comment">// UpdatedAt desc</span>
+    <span class="tok-type">Task&lt;DraftDto?&gt;</span> <span class="tok-type">GetDraftAsync</span>(<span class="tok-keyword">string</span> draftId);
+    <span class="tok-type">Task</span> <span class="tok-type">DeleteDraftAsync</span>(<span class="tok-keyword">string</span> draftId);
+    <span class="tok-type">Task&lt;int&gt;</span> <span class="tok-type">GetDraftCountAsync</span>();
+}</code></pre></div>
+<p><code>DraftService(IDraftRepository draftRepository, ILogger&lt;DraftService&gt; logger)</code>.
+Sends <code>DraftsChangedMessage</code> after successful save/delete. Empty titles are
+stored as <code>&quot;Untitled&quot;</code> + type display.</p>
+<h3 id="45-messagescs-additions-keep-eventcreatedmessage-untouched" class="anchored">4.5 <code>Messages.cs</code> additions (keep <code>EventCreatedMessage</code> untouched)<a class="heading-anchor" href="#45-messagescs-additions-keep-eventcreatedmessage-untouched" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="csharp"><div class="codeblock-bar"><span class="codeblock-lang">C#</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-csharp"><span class="tok-keyword">public</span> <span class="tok-keyword">sealed</span> <span class="tok-keyword">record</span> <span class="tok-type">PersonCreatedMessage</span>(<span class="tok-keyword">string</span> <span class="tok-type">PersonId</span>);
+<span class="tok-keyword">public</span> <span class="tok-keyword">sealed</span> <span class="tok-keyword">record</span> <span class="tok-type">PersonUpdatedMessage</span>(<span class="tok-keyword">string</span> <span class="tok-type">PersonId</span>);
+<span class="tok-keyword">public</span> <span class="tok-keyword">sealed</span> <span class="tok-keyword">record</span> <span class="tok-type">PersonDeletedMessage</span>(<span class="tok-keyword">string</span> <span class="tok-type">PersonId</span>);
+<span class="tok-keyword">public</span> <span class="tok-keyword">sealed</span> <span class="tok-keyword">record</span> <span class="tok-type">PersonsMergedMessage</span>(<span class="tok-keyword">string</span> <span class="tok-type">SourcePersonId</span>, <span class="tok-keyword">string</span> <span class="tok-type">TargetPersonId</span>);
+<span class="tok-keyword">public</span> <span class="tok-keyword">sealed</span> <span class="tok-keyword">record</span> <span class="tok-type">DraftsChangedMessage</span>;
+<span class="tok-keyword">public</span> <span class="tok-keyword">sealed</span> <span class="tok-keyword">record</span> <span class="tok-type">EventUpdatedMessage</span>(<span class="tok-keyword">string</span> <span class="tok-type">EventId</span>);</code></pre></div>
+<h2 id="5-extraction--review-pipeline-agent-c" class="anchored">5. Extraction + review pipeline (Agent C)<a class="heading-anchor" href="#5-extraction--review-pipeline-agent-c" aria-label="Link to this section">#</a></h2>
+<h3 id="51-illmservicecs" class="anchored">5.1 <code>ILlmService.cs</code><a class="heading-anchor" href="#51-illmservicecs" aria-label="Link to this section">#</a></h3>
+<p>Add alongside <code>ExtractedEvent</code>:</p>
+<div class="codeblock" data-lang="csharp"><div class="codeblock-bar"><span class="codeblock-lang">C#</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-csharp"><span class="tok-keyword">public</span> <span class="tok-keyword">class</span> <span class="tok-type">ExtractedPersonDetail</span>
+{
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span> <span class="tok-type">Name</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; } = <span class="tok-keyword">string</span>.<span class="tok-type">Empty</span>;
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span>? <span class="tok-type">Relationship</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span>? <span class="tok-type">Details</span> { <span class="tok-keyword">get</span>; <span class="tok-keyword">set</span>; }
+}</code></pre></div>
+<p><code>ExtractedEvent</code> gains <code>public List&lt;ExtractedPersonDetail&gt;? PeopleDetails { get; set; }</code>
+(the flat <code>People</code> list stays for compatibility).</p>
+<h3 id="52-anthropicllmservicecs" class="anchored">5.2 <code>AnthropicLlmService.cs</code><a class="heading-anchor" href="#52-anthropicllmservicecs" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>Extraction prompt: request <code>peopleDetails</code> array (<code>name</code>, <code>relationship</code>,
+<code>details</code>) in the JSON schema alongside <code>people</code>; instruct that <code>people</code>
+stays the flat name list.</li>
+<li>When <code>ExtractionContext.KnownPeople</code> is non-empty, include a &quot;Known people
+(use these canonical spellings when they match): …&quot; line in the prompt.</li>
+</ul>
+<h3 id="53-personsuggestiondto-new-file-dtospersonsuggestiondtocs" class="anchored">5.3 <code>PersonSuggestionDto</code> (new file <code>DTOs/PersonSuggestionDto.cs</code>)<a class="heading-anchor" href="#53-personsuggestiondto-new-file-dtospersonsuggestiondtocs" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="csharp"><div class="codeblock-bar"><span class="codeblock-lang">C#</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-csharp"><span class="tok-keyword">public</span> <span class="tok-keyword">enum</span> <span class="tok-type">PersonSuggestionKind</span> { <span class="tok-type">NewPerson</span>, <span class="tok-type">KnownPerson</span>, <span class="tok-type">UpdateDetails</span> }
+
+<span class="tok-keyword">public</span> partial <span class="tok-keyword">class</span> <span class="tok-type">PersonSuggestionDto</span> : <span class="tok-type">ObservableObject</span>
+{
+    <span class="tok-comment">// _pendingEventId, _name, _matchedPersonId (string?), _matchedPersonName (string?),</span>
+    <span class="tok-comment">// _kind (PersonSuggestionKind), _suggestedRelationship (string?),</span>
+    <span class="tok-comment">// _suggestedDetails (string?), _isApplied (bool)</span>
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span> <span class="tok-type">KindDisplay</span> { <span class="tok-keyword">get</span>; }  <span class="tok-comment">// &quot;New person&quot; | &quot;Known&quot; | &quot;Update details&quot;</span>
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span> <span class="tok-type">KindGlyph</span> { <span class="tok-keyword">get</span>; }    <span class="tok-comment">// &quot;\uE8FA&quot; new person, &quot;\uE73E&quot; check, &quot;\uE70F&quot; edit</span>
+    <span class="tok-keyword">public</span> <span class="tok-keyword">string</span> <span class="tok-type">Summary</span> { <span class="tok-keyword">get</span>; }      <span class="tok-comment">// e.g. &quot;Will be added as a new contact&quot; / &quot;Matches existing contact 'X'&quot; / &quot;Adds relationship 'sister' to 'X'&quot;</span>
+    <span class="tok-keyword">public</span> <span class="tok-keyword">bool</span> <span class="tok-type">CanApply</span> =&gt; !<span class="tok-type">IsApplied</span> &amp;&amp; <span class="tok-type">Kind</span> != <span class="tok-type">PersonSuggestionKind</span>.<span class="tok-type">KnownPerson</span>;
+}</code></pre></div>
+<p>(Notify <code>CanApply</code> from <code>OnIsAppliedChanged</code>/<code>OnKindChanged</code>.)</p>
+<h3 id="54-ieventextractionservice-additions" class="anchored">5.4 <code>IEventExtractionService</code> additions<a class="heading-anchor" href="#54-ieventextractionservice-additions" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="csharp"><div class="codeblock-bar"><span class="codeblock-lang">C#</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-csharp"><span class="tok-comment">/// &lt;summary&gt;Computes create/update suggestions for the people mentioned in a pending event.&lt;/summary&gt;</span>
+<span class="tok-type">Task</span>&lt;<span class="tok-type">List&lt;PersonSuggestionDto&gt;</span>&gt; <span class="tok-type">GetPersonSuggestionsAsync</span>(<span class="tok-keyword">string</span> pendingEventId);
+
+<span class="tok-comment">/// &lt;summary&gt;Applies one suggestion (creates the person or merges suggested details). Returns the updated suggestion (IsApplied=true).&lt;/summary&gt;</span>
+<span class="tok-type">Task&lt;PersonSuggestionDto&gt;</span> <span class="tok-type">ApplyPersonSuggestionAsync</span>(<span class="tok-type">PersonSuggestionDto</span> suggestion);</code></pre></div>
+<h3 id="55-eventextractionservice-changes" class="anchored">5.5 <code>EventExtractionService</code> changes<a class="heading-anchor" href="#55-eventextractionservice-changes" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>Constructor gains <code>IPersonService personService</code> (registered by integrator).</li>
+<li><code>BuildExtractionContextAsync</code>: populate <code>context.KnownPeople</code> with up to 100
+person display names via <code>IPersonService.GetAllPersonsAsync(PersonSortOption.MostEvents)</code>
+(best-effort; keep the existing catch-and-continue shape). Resolve the
+existing TODO.</li>
+<li><code>GetPersonSuggestionsAsync</code>: deserialize <code>ExtractedData</code>; source names from
+<code>PeopleDetails</code> (fallback <code>People</code>); for each distinct name run
+<code>IPersonService.FindBestMatchAsync</code>:<ul>
+<li>no match → <code>NewPerson</code> (carry suggested relationship/details);</li>
+<li>match, and the suggestion has relationship/details the matched person
+lacks → <code>UpdateDetails</code>;</li>
+<li>match otherwise → <code>KnownPerson</code>.</li>
+</ul>
+</li>
+<li><code>ApplyPersonSuggestionAsync</code>: <code>NewPerson</code> → <code>CreatePersonAsync</code> with
+Name/Relationship(+Details→Notes); <code>UpdateDetails</code> → fill only missing
+fields on the matched person via <code>UpdatePersonAsync</code>; <code>KnownPerson</code> → no-op.
+Always return with <code>IsApplied = true</code>. Duplicate-create races resolve to the
+existing person (catch the duplicate <code>InvalidOperationException</code>, re-match).</li>
+<li><code>ApprovePendingEventAsync</code> / <code>MapExtractedMetadataAsync</code>: when creating a
+brand-new <code>Person</code> during approve, if a matching <code>ExtractedPersonDetail</code>
+exists, populate <code>Relationship</code> and <code>Notes</code> (details) on the new row.
+Matching stays name-based (OrdinalIgnoreCase).</li>
+<li><code>PendingEventDto</code>: add read-only <code>List&lt;string&gt; PeopleNames</code> populated in
+<code>FromPendingEvent</code> by deserializing ExtractedData (<code>PeopleDetails</code> ??
+<code>People</code>, distinct, trimmed; empty list on malformed) + <code>bool HasPeople</code>,
+<code>string PeopleDisplay =&gt; string.Join(&quot;, &quot;, PeopleNames)</code>.</li>
+</ul>
+<h2 id="6-shared-ui-contracts-agents-dg--integrator" class="anchored">6. Shared UI contracts (Agents D–G + integrator)<a class="heading-anchor" href="#6-shared-ui-contracts-agents-dg--integrator" aria-label="Link to this section">#</a></h2>
+<h3 id="61-navigation" class="anchored">6.1 Navigation<a class="heading-anchor" href="#61-navigation" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>Page key <code>&quot;People&quot;</code> → <code>ContactsPage</code> (integrator registers; nav item
+<code>Content=&quot;People&quot; Tag=&quot;People&quot;</code>, FontIcon glyph <code>&amp;#xE716;</code>).</li>
+<li><strong>Draft resume parameter:</strong> <code>Frame</code> navigation parameter string
+<code>&quot;draft:&lt;draftId&gt;&quot;</code>.<ul>
+<li><code>TimelinePage.OnNavigatedTo</code> (F): parameter starting <code>&quot;draft:&quot;</code> → tell
+<code>TimelineViewModel</code> to open the event editor prefilled from that draft;
+otherwise existing eventId behavior.</li>
+<li><code>ErasPage.OnNavigatedTo</code> (G) and <code>ContactsPage.OnNavigatedTo</code> (D): same
+pattern for era/person drafts.</li>
+<li>A plain (non-<code>draft:</code>) string parameter to <code>ContactsPage</code> is a personId to
+select/show in the detail pane.</li>
+</ul>
+</li>
+<li>Review&#39;s Drafts tab resumes via
+<code>INavigationService.NavigateTo(pageKeyFor(draftType), $&quot;draft:{draftId}&quot;)</code>
+where event→<code>&quot;Timeline&quot;</code>, era→<code>&quot;Eras&quot;</code>, person→<code>&quot;People&quot;</code>.</li>
+<li>Person chips on events/search results may navigate with
+<code>NavigateTo(&quot;People&quot;, personId)</code>.</li>
+</ul>
+<h3 id="62-save-as-draft-editor-behavior-all-editors" class="anchored">6.2 Save-as-draft editor behavior (all editors)<a class="heading-anchor" href="#62-save-as-draft-editor-behavior-all-editors" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>Editors (event dialog in TimelineControl, era dialog in ErasPage, person
+dialog in ContactsPage) get a <strong>&quot;Save as Draft&quot;</strong> <code>SecondaryButton</code> (or
+equivalent) that serializes the corresponding payload class
+(§4.2) with <code>System.Text.Json.JsonSerializer.Serialize(...)</code> and calls
+<code>IDraftService.SaveDraftAsync(DraftTypes.X, title, json, currentDraftId)</code>.</li>
+<li>When an editor was opened from a draft, keep the <code>draftId</code>; saving the real
+entity <strong>deletes the draft</strong> on success (<code>DeleteDraftAsync</code>).</li>
+<li>Draft titles: the entity&#39;s title/name, else <code>&quot;Untitled event/era/person&quot;</code>.</li>
+</ul>
+<h3 id="63-viewmodels" class="anchored">6.3 ViewModels<a class="heading-anchor" href="#63-viewmodels" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>Resolve services via constructor injection (registered in DI by
+integrator): <code>IPersonService</code>, <code>IDraftService</code>, <code>IEventExtractionService</code>,
+etc. Pages fetch VMs with <code>App.Current.Services.GetRequiredService&lt;T&gt;()</code>
+in the constructor (existing pattern).</li>
+<li>Marshal service callbacks/messenger handlers to the UI thread via
+<code>DispatcherQueue</code> as existing VMs do.</li>
+<li><code>WeakReferenceMessenger.Default</code> for cross-feature refresh
+(<code>PersonCreated/Updated/Deleted/Merged</code>, <code>DraftsChangedMessage</code>,
+<code>EventCreatedMessage</code>, <code>EventUpdatedMessage</code>).</li>
+</ul>
+<h3 id="64-timelineeventdto-additions-agent-f-g-may-bind-not-edit" class="anchored">6.4 <code>TimelineEventDto</code> additions (Agent F; G may bind, not edit)<a class="heading-anchor" href="#64-timelineeventdto-additions-agent-f-g-may-bind-not-edit" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="csharp"><div class="codeblock-bar"><span class="codeblock-lang">C#</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-csharp"><span class="tok-attribute">[ObservableProperty]</span> <span class="tok-keyword">private</span> <span class="tok-type">List&lt;string&gt;</span> _peopleNames = <span class="tok-keyword">new</span>();
+<span class="tok-keyword">public</span> <span class="tok-keyword">bool</span> <span class="tok-type">HasPeople</span> =&gt; <span class="tok-type">PeopleNames</span>.<span class="tok-type">Count</span> &gt; <span class="tok-number">0</span>;
+<span class="tok-keyword">public</span> <span class="tok-keyword">string</span> <span class="tok-type">PeopleDisplay</span> =&gt; <span class="tok-keyword">string</span>.<span class="tok-type">Join</span>(<span class="tok-string">&quot;, &quot;</span>, <span class="tok-type">PeopleNames</span>);
+<span class="tok-comment">// partial void OnPeopleNamesChanged(...) notifies HasPeople + PeopleDisplay</span></code></pre></div>
+<p><code>FromEvent</code> populates <code>PeopleNames</code> from <code>e.EventPeople</code> when the navigation
+is loaded (<code>ep.Person?.Name</code>, non-null, ordered by name).</p>
+<h3 id="65-xaml-conventions" class="anchored">6.5 XAML conventions<a class="heading-anchor" href="#65-xaml-conventions" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>WinUI 3 + <code>x:Bind</code> (Page/Control property <code>ViewModel</code>), <code>ThemeResource</code>
+brushes only, converters from <code>App.xaml</code> (NullToVisibility,
+BoolToVisibility, InvertedBoolToVisibility, BoolNegation, NullToFalse,
+DateFormat, ZeroToVisibility) or <strong>page-local</strong> new converters.</li>
+<li><code>ContentDialog.XamlRoot</code> must be set from the hosting page before
+<code>ShowAsync</code> (existing pattern).</li>
+<li><strong>No new NuGet packages.</strong> Person chips = <code>ItemsControl</code>/<code>ItemsRepeater</code>
+with chip-styled <code>Button</code>s + <code>AutoSuggestBox</code>; do not assume
+<code>TokenizingTextBox</code> works.</li>
+<li>Segoe Fluent glyphs (use <code>\uXXXX</code> in C#, <code>&amp;#xXXXX;</code> in XAML):
+people <code>E716</code>, person <code>E77B</code>, add <code>E710</code>, favorite outline <code>E734</code> /
+filled <code>E735</code>, edit <code>E70F</code>, delete <code>E74D</code>, drafts <code>E70B</code>, save <code>E74E</code>,
+mail <code>E715</code>, phone <code>E717</code>, calendar <code>E787</code>, company <code>E821</code>,
+check <code>E73E</code>, add-friend <code>E8FA</code>, merge/link <code>E71B</code>.</li>
+</ul>
+<h2 id="7-di-registrations-integrator-applies" class="anchored">7. DI registrations (integrator applies)<a class="heading-anchor" href="#7-di-registrations-integrator-applies" aria-label="Link to this section">#</a></h2>
+<div class="codeblock" data-lang="csharp"><div class="codeblock-bar"><span class="codeblock-lang">C#</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-csharp">services.<span class="tok-type">AddSingleton&lt;IDraftRepository, DraftRepository&gt;</span>();
+services.<span class="tok-type">AddSingleton&lt;IPersonService, PersonService&gt;</span>();
+services.<span class="tok-type">AddSingleton&lt;IDraftService, DraftService&gt;</span>();
+services.<span class="tok-type">AddTransient&lt;ContactsViewModel&gt;</span>();</code></pre></div>
+<p><code>MainWindow</code>: nav item People (after Review), <code>RegisterPage(&quot;People&quot;, typeof(ContactsPage))</code>.</p>
+<h2 id="8-conventions-checklist-all-agents" class="anchored">8. Conventions checklist (all agents)<a class="heading-anchor" href="#8-conventions-checklist-all-agents" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>File-scoped namespaces, 4-space indent, <code>Nullable enable</code>, C# 12, XML doc
+comments on public members, <code>ILogger&lt;T&gt;</code> logging, no <code>.Result</code>/<code>.Wait()</code>.</li>
+<li>EF: <code>await using var context = await _contextFactory.CreateDbContextAsync();</code>
+per operation; <code>AsNoTracking()</code> for reads; load-tracked-then-mutate for
+updates (never <code>Update()</code> on detached graphs with junctions).</li>
+<li>Time: store <code>DateTime.UtcNow</code> timestamps; display via local formatting.</li>
+<li>Do <strong>not</strong> run <code>git commit</code>; the integrator commits.</li>
+<li>Do <strong>not</strong> modify files outside your ownership row (§2).</li>
+<li>Report every deviation from this contract in your final summary.</li>
+</ul>
+
+<nav class="pager" aria-label="Document navigation">
+  <a class="pager-link pager-prev" href="multi-agent-code-review.html">
+      <span class="pager-kind">← Previous</span>
+      <span class="pager-title">Multi-agent code review</span>
+    </a>
+  <a class="pager-link pager-next" href="electron-deployment.html">
+      <span class="pager-kind">Next →</span>
+      <span class="pager-title">Electron deployment &amp; install</span>
+    </a>
+</nav>
+  </article>
+<aside class="toc" aria-label="On this page">
+  <p class="toc-title">On this page</p>
+  <ul class="toc-list">
+<li class="toc-item toc-h2"><a href="#1-feature-summary" data-toc-link>1. Feature summary</a></li>
+<li class="toc-item toc-h2"><a href="#2-file-ownership-map" data-toc-link>2. File ownership map</a></li>
+<li class="toc-item toc-h2"><a href="#3-data-layer-agent-a" data-toc-link>3. Data layer (Agent A)</a></li>
+<li class="toc-item toc-h3"><a href="#31-person-entity--new-columns-all-additive" data-toc-link>3.1 Person entity — new columns (all additive)</a></li>
+<li class="toc-item toc-h3"><a href="#32-draft-entity-new-file-modelsdraftcs" data-toc-link>3.2 Draft entity (new file Models/Draft.cs)</a></li>
+<li class="toc-item toc-h3"><a href="#33-appdbcontext" data-toc-link>3.3 AppDbContext</a></li>
+<li class="toc-item toc-h3"><a href="#34-schemaupgrader-drift-repair-for-pre-existing-dbs" data-toc-link>3.4 SchemaUpgrader (drift repair for pre-existing DBs)</a></li>
+<li class="toc-item toc-h3"><a href="#35-repositories" data-toc-link>3.5 Repositories</a></li>
+<li class="toc-item toc-h2"><a href="#4-core-dtos--services-agent-b" data-toc-link>4. Core DTOs + services (Agent B)</a></li>
+<li class="toc-item toc-h3"><a href="#41-persondto-new-file-dtospersondtocs" data-toc-link>4.1 PersonDto (new file DTOs/PersonDto.cs)</a></li>
+<li class="toc-item toc-h3"><a href="#42-draftdto--payloads-new-file-dtosdraftdtocs" data-toc-link>4.2 DraftDto + payloads (new file DTOs/DraftDto.cs)</a></li>
+<li class="toc-item toc-h3"><a href="#43-ipersonservice-new-file-servicesipersonservicecs-interface--personservice-impl-in-same-file" data-toc-link>4.3 IPersonService (new file Services/IPersonService.cs, interface + PersonService impl in same file)</a></li>
+<li class="toc-item toc-h3"><a href="#44-idraftservice-new-file-servicesidraftservicecs-interface--draftservice-impl" data-toc-link>4.4 IDraftService (new file Services/IDraftService.cs, interface + DraftService impl)</a></li>
+<li class="toc-item toc-h3"><a href="#45-messagescs-additions-keep-eventcreatedmessage-untouched" data-toc-link>4.5 Messages.cs additions (keep EventCreatedMessage untouched)</a></li>
+<li class="toc-item toc-h2"><a href="#5-extraction--review-pipeline-agent-c" data-toc-link>5. Extraction + review pipeline (Agent C)</a></li>
+<li class="toc-item toc-h3"><a href="#51-illmservicecs" data-toc-link>5.1 ILlmService.cs</a></li>
+<li class="toc-item toc-h3"><a href="#52-anthropicllmservicecs" data-toc-link>5.2 AnthropicLlmService.cs</a></li>
+<li class="toc-item toc-h3"><a href="#53-personsuggestiondto-new-file-dtospersonsuggestiondtocs" data-toc-link>5.3 PersonSuggestionDto (new file DTOs/PersonSuggestionDto.cs)</a></li>
+<li class="toc-item toc-h3"><a href="#54-ieventextractionservice-additions" data-toc-link>5.4 IEventExtractionService additions</a></li>
+<li class="toc-item toc-h3"><a href="#55-eventextractionservice-changes" data-toc-link>5.5 EventExtractionService changes</a></li>
+<li class="toc-item toc-h2"><a href="#6-shared-ui-contracts-agents-dg--integrator" data-toc-link>6. Shared UI contracts (Agents D–G + integrator)</a></li>
+<li class="toc-item toc-h3"><a href="#61-navigation" data-toc-link>6.1 Navigation</a></li>
+<li class="toc-item toc-h3"><a href="#62-save-as-draft-editor-behavior-all-editors" data-toc-link>6.2 Save-as-draft editor behavior (all editors)</a></li>
+<li class="toc-item toc-h3"><a href="#63-viewmodels" data-toc-link>6.3 ViewModels</a></li>
+<li class="toc-item toc-h3"><a href="#64-timelineeventdto-additions-agent-f-g-may-bind-not-edit" data-toc-link>6.4 TimelineEventDto additions (Agent F; G may bind, not edit)</a></li>
+<li class="toc-item toc-h3"><a href="#65-xaml-conventions" data-toc-link>6.5 XAML conventions</a></li>
+<li class="toc-item toc-h2"><a href="#7-di-registrations-integrator-applies" data-toc-link>7. DI registrations (integrator applies)</a></li>
+<li class="toc-item toc-h2"><a href="#8-conventions-checklist-all-agents" data-toc-link>8. Conventions checklist (all agents)</a></li>
+  </ul>
+  <a class="toc-top" href="#main">↑ Back to top</a>
+</aside>
+</div>
+    <footer class="site-footer">
+      <div>
+        <strong>Memory Timeline</strong> documentation ·
+        19 documents ·
+        generated 2026-08-07
+      </div>
+      <div class="footer-links">
+        <a href="index.html">Home</a>
+        <a href="documentation-map.html">All documentation</a>
+        <a href="https://github.com/ethanbissbort/memory-line" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </div>
+      <div class="footer-note">
+        This site is generated from the markdown in the repository — edit the source files and rebuild.
+      </div>
+    </footer>
+  </main>
+</div>
+
+<div class="search-modal" data-search-modal hidden>
+  <div class="search-backdrop" data-search-close></div>
+  <div class="search-panel" role="dialog" aria-modal="true" aria-label="Search documentation">
+    <div class="search-input-row">
+      <svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><circle cx="9" cy="9" r="5.5" stroke="currentColor" stroke-width="1.7" fill="none"/><path d="M13.2 13.2 17 17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <input type="search" placeholder="Search headings and content…" data-search-input autocomplete="off" spellcheck="false" aria-label="Search query">
+      <button class="icon-btn" type="button" data-search-close aria-label="Close search"><kbd>Esc</kbd></button>
+    </div>
+    <div class="search-results" data-search-results>
+      <p class="search-hint">Start typing to search every document on this site.</p>
+    </div>
+  </div>
+</div>
+
+<script src="assets/search-index.js" defer></script>
+<script src="assets/app.js" defer></script>
+</body>
+</html>

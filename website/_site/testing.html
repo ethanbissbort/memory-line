@@ -1,0 +1,725 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Testing guide · Memory Timeline docs</title>
+<meta name="description" content="Test structure, the DbContext factory pattern for test authors, running and filtering tests, coverage goals, performance benchmarks, templates, and CI behaviour.">
+<meta property="og:title" content="Testing guide · Memory Timeline docs">
+<meta property="og:description" content="Test structure, the DbContext factory pattern for test authors, running and filtering tests, coverage goals, performance benchmarks, templates, and CI behaviour.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%227%22%20fill%3D%22%231d1b18%22%2F%3E%3Cpath%20d%3D%22M4%2021h24%22%20stroke%3D%22%238b8175%22%20stroke-width%3D%221.5%22%20stroke-linecap%3D%22round%22%2F%3E%3Ccircle%20cx%3D%229%22%20cy%3D%2221%22%20r%3D%223.1%22%20fill%3D%22%23e0873f%22%2F%3E%3Ccircle%20cx%3D%2217%22%20cy%3D%2214%22%20r%3D%223.6%22%20fill%3D%22%23f0b46e%22%2F%3E%3Ccircle%20cx%3D%2225%22%20cy%3D%2218%22%20r%3D%222.6%22%20fill%3D%22%236ec2b8%22%2F%3E%3Cpath%20d%3D%22M9%2021%2017%2014%2025%2018%22%20stroke%3D%22%238b8175%22%20stroke-width%3D%221.2%22%20fill%3D%22none%22%20stroke-linejoin%3D%22round%22%20opacity%3D%22.8%22%2F%3E%3C%2Fsvg%3E">
+<link rel="stylesheet" href="assets/styles.css">
+<script>(function(){try{var t=localStorage.getItem('mt-theme');if(t==='light'||t==='dark'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();</script>
+</head>
+<body class="page-doc" data-page="testing">
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="icon-btn nav-toggle" type="button" aria-label="Toggle navigation" aria-expanded="false" data-nav-toggle>
+      <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg>
+    </button>
+    <a class="brand" href="index.html">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="26" height="26"><path d="M3 22h26" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity=".45"/><circle cx="8" cy="22" r="3" fill="currentColor" opacity=".55"/><circle cx="16" cy="14" r="3.8" fill="currentColor"/><circle cx="25" cy="18.5" r="2.6" fill="currentColor" opacity=".7"/></svg>
+      </span>
+      <span class="brand-text">
+        <span class="brand-name">Memory Timeline</span>
+        <span class="brand-sub">Documentation</span>
+      </span>
+    </a>
+
+    <button class="searchbar" type="button" data-search-open aria-label="Search documentation">
+      <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><circle cx="9" cy="9" r="5.5" stroke="currentColor" stroke-width="1.7" fill="none"/><path d="M13.2 13.2 17 17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <span>Search the docs</span>
+      <kbd>/</kbd>
+    </button>
+
+    <div class="topbar-actions">
+      <button class="icon-btn" type="button" data-theme-toggle aria-label="Switch colour theme" title="Switch colour theme">
+        <svg class="icon-sun" viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><circle cx="10" cy="10" r="4" fill="currentColor"/><path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6 16 16M16 4l-1.4 1.4M5.4 14.6 4 16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <svg class="icon-moon" viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><path d="M16.5 12.4A7 7 0 0 1 7.6 3.5a7 7 0 1 0 8.9 8.9Z" fill="currentColor"/></svg>
+      </button>
+      <a class="icon-btn" href="https://github.com/ethanbissbort/memory-line" target="_blank" rel="noopener noreferrer" aria-label="View the repository on GitHub" title="Repository on GitHub">
+        <svg viewBox="0 0 16 16" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38l-.01-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.93-.89-1.18-.89-1.18-.73-.5.05-.49.05-.49.81.06 1.23.83 1.23.83.72 1.23 1.88.87 2.34.67.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48l-.01 2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+      </a>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" data-sidebar>
+    <nav aria-label="Documentation">
+      <ul class="nav">
+        <li class="nav-section">
+          <p class="nav-section-title">Start here</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="index.html">Home</a>
+            </li>
+            <li><a class="nav-link" href="documentation-map.html">All documentation</a>
+            </li>
+            <li><a class="nav-link" href="overview.html">Project overview</a>
+            </li>
+            <li><a class="nav-link" href="developer-guide.html">Developer guide</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Windows Native app</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="windows-native.html">Windows Native app</a>
+            </li>
+            <li><a class="nav-link" href="setup-scripts-windows.html">PowerShell setup scripts</a>
+            </li>
+            <li><a class="nav-link is-active" href="testing.html" aria-current="page">Testing guide</a>
+              <ul class="nav-sub">
+                <li><a class="nav-sublink" href="#test-structure">Test Structure</a></li>
+                <li><a class="nav-sublink" href="#test-framework-and-tools">Test Framework and Tools</a></li>
+                <li><a class="nav-sublink" href="#running-tests">Running Tests</a></li>
+                <li><a class="nav-sublink" href="#code-coverage">Code Coverage</a></li>
+                <li><a class="nav-sublink" href="#test-categories-explained">Test Categories Explained</a></li>
+                <li><a class="nav-sublink" href="#performance-benchmarks">Performance Benchmarks</a></li>
+                <li><a class="nav-sublink" href="#test-data-generators">Test Data Generators</a></li>
+                <li><a class="nav-sublink" href="#continuous-integration">Continuous Integration</a></li>
+                <li><a class="nav-sublink" href="#writing-new-tests">Writing New Tests</a></li>
+                <li><a class="nav-sublink" href="#best-practices">Best Practices</a></li>
+                <li><a class="nav-sublink" href="#troubleshooting-tests">Troubleshooting Tests</a></li>
+                <li><a class="nav-sublink" href="#test-statistics">Test Statistics</a></li>
+              </ul>
+            </li>
+            <li><a class="nav-link" href="deployment.html">Deployment guide</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Status &amp; history</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="development-status.html">Development status</a>
+            </li>
+            <li><a class="nav-link" href="development-history.html">Development history</a>
+            </li>
+            <li><a class="nav-link" href="migration-to-native-windows.html">Migration to native Windows</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Audits &amp; reviews</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="feature-audit.html">Feature audit (2026-07)</a>
+            </li>
+            <li><a class="nav-link" href="hardening-followups.html">Hardening follow-ups</a>
+            </li>
+            <li><a class="nav-link" href="repo-audit-2026-07.html">Exhaustive repo audit</a>
+            </li>
+            <li><a class="nav-link" href="multi-agent-code-review.html">Multi-agent code review</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Design notes</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="people-feature-contracts.html">People feature contracts</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Legacy Electron build</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="electron-deployment.html">Electron deployment &amp; install</a>
+            </li>
+            <li><a class="nav-link" href="electron-setup-scripts.html">Electron setup scripts</a>
+            </li>
+            <li><a class="nav-link" href="electron-setup-logs.html">Setup script logs</a>
+            </li>
+            <li><a class="nav-link" href="electron-tests.html">Electron test suite</a>
+            </li>
+            <li><a class="nav-link" href="electron-test-databases.html">Test databases</a>
+            </li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+  </aside>
+  <div class="sidebar-scrim" data-nav-close hidden></div>
+
+  <main class="main" id="main">
+
+<header class="doc-header">
+  <nav class="breadcrumb" aria-label="Breadcrumb">
+    <a href="index.html">Docs</a>
+    <span aria-hidden="true">/</span>
+    <span>Windows Native app</span>
+  </nav>
+  <h1>Testing guide</h1>
+  <p class="doc-lede">Test structure, the DbContext factory pattern for test authors, running and filtering tests, coverage goals, performance benchmarks, templates, and CI behaviour.</p>
+  <div class="doc-meta">
+    <span class="doc-meta-item"><b>For</b> Developers</span>
+    <span class="doc-meta-item"><b>1,913</b> words</span>
+    <span class="doc-meta-item"><b>9</b> min read</span>
+    <a class="doc-meta-item doc-source" href="https://github.com/ethanbissbort/memory-line/blob/main/windows-native/TESTING.md" target="_blank" rel="noopener noreferrer">
+      windows-native/TESTING.md ↗
+    </a>
+  </div>
+  <div class="tags"><span class="tag">xUnit</span><span class="tag">testing</span><span class="tag">CI</span></div>
+</header>
+<div class="doc-grid">
+  <article class="prose">
+<p>This document describes the testing strategy and how to run tests for the Memory Timeline Windows native application.</p>
+<blockquote><p><strong>How to run these tests (read first).</strong> The test project references the WinUI 3 app, and that app cannot be built with the <code>dotnet</code> CLI (its WinUI PRI/XAML resource tooling is a .NET Framework MSBuild task that fails under the <code>dotnet</code> build engine). So <strong><code>dotnet test</code> does not work</strong> — it would rebuild the WinUI app and fail. Instead you <strong>build the solution once with Visual Studio <code>msbuild.exe</code></strong> and then run the already-built test assembly with <strong><code>dotnet vstest</code></strong>. See <a href="#running-tests">Running Tests</a>. This is also what CI does.</p>
+</blockquote>
+<h2 id="test-structure" class="anchored">Test Structure<a class="heading-anchor" href="#test-structure" aria-label="Link to this section">#</a></h2>
+<figure class="diagram"><pre aria-label="Diagram">MemoryTimeline.Tests/
+├── TestDbContextFactory.cs     # Test IDbContextFactory&lt;AppDbContext&gt; (shared by most tests)
+├── Services/                   # Service-level unit tests (in-memory DB)
+│   ├── EventServiceTests.cs
+│   ├── TimelineServiceTests.cs
+│   └── SettingsServiceTests.cs
+├── UnitTests/                  # Additional unit tests
+│   ├── QueueServiceTests.cs    # Pure mock-based (no DbContext)
+│   ├── ExportServiceTests.cs
+│   ├── ImportServiceTests.cs
+│   └── RagServiceTests.cs
+├── Models/                     # Pure model/logic tests (no DB)
+│   ├── EventLayoutEngineTests.cs
+│   ├── TimelineViewportTests.cs
+│   └── TimelineScaleTests.cs
+├── Integration/                # Integration tests against a real SQLite file DB
+│   └── DatabaseIntegrationTests.cs
+└── Performance/                # Performance / load tests (SQLite file DB)
+    └── PerformanceTests.cs</pre></figure>
+<h2 id="test-framework-and-tools" class="anchored">Test Framework and Tools<a class="heading-anchor" href="#test-framework-and-tools" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><strong>xUnit</strong>: Test framework</li>
+<li><strong>Moq</strong>: Mocking framework for dependencies</li>
+<li><strong>FluentAssertions</strong>: Fluent assertion library for readable assertions</li>
+<li><strong>EF Core InMemory</strong>: In-memory database for service/unit tests</li>
+<li><strong>SQLite (file-based)</strong>: Real database for integration and performance tests</li>
+<li><strong>Coverlet</strong>: Code coverage tool</li>
+</ul>
+<h3 id="dbcontext-factory-pattern-important-for-test-authors" class="anchored">DbContext factory pattern (important for test authors)<a class="heading-anchor" href="#dbcontext-factory-pattern-important-for-test-authors" aria-label="Link to this section">#</a></h3>
+<p>Data access in the app now goes through <strong><code>IDbContextFactory&lt;AppDbContext&gt;</code></strong>: services and repositories open a short-lived <code>AppDbContext</code> per operation instead of holding a long-lived shared context. The tests mirror this via <code>TestDbContextFactory</code>, which wraps a single <code>DbContextOptions</code> so every <code>CreateDbContext()</code> returns a <strong>new</strong> context over the <strong>same</strong> database. Two provider caveats it encodes:</p>
+<ul>
+<li><strong>EF Core InMemory</strong> — all contexts built from the same options instance share the same in-memory store, so a factory over a uniquely named InMemory DB works. Use <code>TestDbContextFactory.CreateInMemory()</code>.</li>
+<li><strong>SQLite <code>:memory:</code></strong> — does <strong>not</strong> work with the factory, because every new connection gets a fresh, empty database. Tests that need SQLite must use a <strong>file-based temp database</strong> (<code>TestDbContextFactory.CreateSqliteFile(path)</code>), which is why the integration and performance tests create a temp <code>.db</code> file rather than an in-memory SQLite connection.</li>
+</ul>
+<p>Integration/performance tests build their schema with <code>Database.EnsureCreated()</code> (there are no EF migrations in the repo — the app uses a hand-rolled <code>SchemaUpgrader</code> at runtime instead).</p>
+<h2 id="running-tests" class="anchored">Running Tests<a class="heading-anchor" href="#running-tests" aria-label="Link to this section">#</a></h2>
+<blockquote><p><strong>Do not use <code>dotnet test</code></strong> (it rebuilds the WinUI app with the <code>dotnet</code> engine and fails). Build once with VS <code>msbuild.exe</code>, then run the built assembly with <code>dotnet vstest</code>.</p>
+</blockquote>
+<h3 id="build-once-then-run" class="anchored">Build once, then run<a class="heading-anchor" href="#build-once-then-run" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell">cd windows-native/src
+
+<span class="tok-comment"># 1. Build the solution (Release | x64) with Visual Studio MSBuild.</span>
+<span class="tok-comment">#    'msbuild' here is the VS msbuild.exe (e.g. Developer PowerShell for VS 2022),</span>
+<span class="tok-comment">#    NOT 'dotnet build'.</span>
+<span class="tok-builtin">msbuild</span> MemoryTimeline.sln /t:Restore,Build /p:Configuration=Release /p:Platform=x64 /m
+
+<span class="tok-comment"># 2. Run the already-built test assembly (no rebuild).</span>
+<span class="tok-variable">$dll</span> = <span class="tok-string">&quot;MemoryTimeline.Tests/bin/x64/Release/net8.0-windows10.0.22621.0/MemoryTimeline.Tests.dll&quot;</span>
+<span class="tok-builtin">dotnet</span> <span class="tok-builtin">vstest</span> <span class="tok-variable">$dll</span> --logger:<span class="tok-string">&quot;trx;LogFileName=test.trx&quot;</span> --ResultsDirectory:TestResults</code></pre></div>
+<h3 id="by-category--class--method" class="anchored">By Category / Class / Method<a class="heading-anchor" href="#by-category--class--method" aria-label="Link to this section">#</a></h3>
+<p><code>dotnet vstest</code> filters with <code>--TestCaseFilter</code>:</p>
+<div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell"><span class="tok-builtin">dotnet</span> <span class="tok-builtin">vstest</span> <span class="tok-variable">$dll</span> --TestCaseFilter:<span class="tok-string">&quot;FullyQualifiedName~UnitTests&quot;</span>
+<span class="tok-builtin">dotnet</span> <span class="tok-builtin">vstest</span> <span class="tok-variable">$dll</span> --TestCaseFilter:<span class="tok-string">&quot;FullyQualifiedName~Integration&quot;</span>
+<span class="tok-builtin">dotnet</span> <span class="tok-builtin">vstest</span> <span class="tok-variable">$dll</span> --TestCaseFilter:<span class="tok-string">&quot;FullyQualifiedName~Performance&quot;</span>
+<span class="tok-builtin">dotnet</span> <span class="tok-builtin">vstest</span> <span class="tok-variable">$dll</span> --TestCaseFilter:<span class="tok-string">&quot;FullyQualifiedName~QueueServiceTests&quot;</span>
+<span class="tok-builtin">dotnet</span> <span class="tok-builtin">vstest</span> <span class="tok-variable">$dll</span> --TestCaseFilter:<span class="tok-string">&quot;FullyQualifiedName=MemoryTimeline.Tests.UnitTests.QueueServiceTests.AddToQueueAsync_ValidRecording_AddsToQueue&quot;</span></code></pre></div>
+<blockquote><p><strong>Environment note.</strong> Running a self-contained WinUI 3 test assembly under headless VSTest is finicky; in CI this step is treated as best-effort (it does not gate the build). If the app assembly fails to build for any reason, the test project — which references it — will also fail to build, so a green <strong>compile</strong> is the primary signal.</p>
+</blockquote>
+<h2 id="code-coverage" class="anchored">Code Coverage<a class="heading-anchor" href="#code-coverage" aria-label="Link to this section">#</a></h2>
+<p>Coverage can be collected while running the built assembly, e.g.:</p>
+<div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell"><span class="tok-builtin">dotnet</span> <span class="tok-builtin">vstest</span> <span class="tok-variable">$dll</span> --collect:<span class="tok-string">&quot;Code Coverage&quot;</span> --ResultsDirectory:TestResults</code></pre></div>
+<p>(or wire up <code>coverlet.collector</code> via a runsettings file). Then generate an HTML report:</p>
+<div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell"><span class="tok-builtin">dotnet</span> tool install --global <span class="tok-builtin">dotnet</span>-reportgenerator-globaltool
+reportgenerator <span class="tok-flag">-reports</span>:**/*.cobertura.xml <span class="tok-flag">-targetdir</span>:./coverage-report <span class="tok-flag">-reporttypes</span>:Html</code></pre></div>
+<h3 id="coverage-goals-aspirational-not-measured" class="anchored">Coverage Goals (aspirational, not measured)<a class="heading-anchor" href="#coverage-goals-aspirational-not-measured" aria-label="Link to this section">#</a></h3>
+<ul>
+<li><strong>Overall</strong>: aim for &gt; 80%</li>
+<li><strong>Critical paths</strong>: aim for &gt; 90%<ul>
+<li>Event CRUD operations</li>
+<li>Audio recording / queue processing</li>
+<li>RAG and similarity search</li>
+<li>Export / Import operations</li>
+</ul>
+</li>
+</ul>
+<p>These are targets, not verified figures.</p>
+<h2 id="test-categories-explained" class="anchored">Test Categories Explained<a class="heading-anchor" href="#test-categories-explained" aria-label="Link to this section">#</a></h2>
+<h3 id="1-unit--service-tests" class="anchored">1. Unit / Service Tests<a class="heading-anchor" href="#1-unit--service-tests" aria-label="Link to this section">#</a></h3>
+<p>These verify individual components using mocked dependencies and, where a database is involved, an EF Core InMemory store created through <code>TestDbContextFactory.CreateInMemory()</code>.</p>
+<p><strong>Service tests</strong> (<code>Services/</code>) cover the factory-backed services directly:</p>
+<ul>
+<li><strong>EventServiceTests</strong> — CRUD, validation (empty title, end-before-start, invalid/normalized category), date-range and search queries, counts.</li>
+<li><strong>TimelineServiceTests</strong> — viewport creation, zoom in/out, panning, event/era loading, earliest/latest dates, track layout.</li>
+<li><strong>SettingsServiceTests</strong> — typed get/set, existence/delete, defaults (default theme is <code>dark</code>).</li>
+</ul>
+<p><strong>QueueServiceTests</strong> (mock-only; no DbContext)</p>
+<ul>
+<li>✅ Requires an <code>INotificationService</code> (constructor throws <code>ArgumentNullException</code> if null)</li>
+<li>✅ Adding recordings to queue</li>
+<li>✅ Retrieving queue items</li>
+<li>✅ Updating queue item status</li>
+<li>✅ Getting queue count by status</li>
+<li>✅ Removing queue items</li>
+<li>✅ Retrying failed items</li>
+<li>✅ Clearing completed items</li>
+<li>✅ Event raising on status change</li>
+</ul>
+<p><strong>ExportServiceTests</strong> (in-memory DB via <code>TestDbContextFactory</code>)</p>
+<ul>
+<li>✅ JSON export with full event data</li>
+<li>✅ JSON export with date filtering</li>
+<li>✅ CSV export</li>
+<li>✅ Markdown export with year organization</li>
+<li>✅ Full database export (events, eras, tags)</li>
+<li>✅ Progress reporting</li>
+<li>✅ Special character escaping in CSV</li>
+</ul>
+<p><strong>ImportServiceTests</strong> (in-memory DB via <code>TestDbContextFactory</code>)</p>
+<ul>
+<li>✅ Valid JSON import</li>
+<li>✅ Duplicate detection with skip resolution</li>
+<li>✅ Overwrite conflict resolution</li>
+<li>✅ Create duplicate resolution</li>
+<li>✅ Tag import</li>
+<li>✅ Era import</li>
+<li>✅ File validation</li>
+<li>✅ Invalid file handling</li>
+<li>✅ Progress reporting</li>
+</ul>
+<p><strong>RagServiceTests</strong> (in-memory DB; mocked <code>IEmbeddingService</code>, <code>IEventService</code>, <code>ICrossReferenceRepository</code>)</p>
+<ul>
+<li>✅ Finding similar events</li>
+<li>✅ Similarity threshold filtering</li>
+<li>✅ Tag suggestions based on similar events</li>
+<li>✅ Pattern detection with/without date ranges</li>
+<li>✅ Cross-reference detection (heuristic — temporal proximity / shared category; no LLM) persisted via <code>ICrossReferenceRepository</code></li>
+<li>✅ Non-existent event handling</li>
+<li>✅ Embedding similarity calculation</li>
+</ul>
+<h3 id="2-integration-tests" class="anchored">2. Integration Tests<a class="heading-anchor" href="#2-integration-tests" aria-label="Link to this section">#</a></h3>
+<p>Integration tests verify components working together with real database operations.</p>
+<p><strong>DatabaseIntegrationTests</strong> (real SQLite <strong>file</strong> DB via <code>TestDbContextFactory.CreateSqliteFile</code>)</p>
+<ul>
+<li>✅ Database connection</li>
+<li>✅ Full CRUD operations</li>
+<li>✅ Relationships (events with eras and tags)</li>
+<li>✅ Pagination (25 events, 3 pages)</li>
+<li>✅ Date range queries</li>
+<li>✅ Search functionality</li>
+<li>✅ Category filtering</li>
+<li>✅ Transaction rollback on errors</li>
+<li>✅ Concurrent write operations (10 simultaneous)</li>
+</ul>
+<h3 id="3-performance-tests" class="anchored">3. Performance Tests<a class="heading-anchor" href="#3-performance-tests" aria-label="Link to this section">#</a></h3>
+<p>Performance tests ensure the application meets scalability requirements.</p>
+<p><strong>PerformanceTests</strong> (real SQLite <strong>file</strong> DB via <code>TestDbContextFactory.CreateSqliteFile</code>)</p>
+<p><strong>Load Tests:</strong></p>
+<ul>
+<li>✅ Create 5000 events (&lt; 10 seconds)</li>
+<li>✅ Query 5000 events (&lt; 2 seconds)</li>
+<li>✅ Pagination with 5000 events (&lt; 500ms)</li>
+<li>✅ Date range query on 5000 events (&lt; 1 second)</li>
+<li>✅ Search on 5000 events (&lt; 1.5 seconds)</li>
+<li>✅ Category filter on 5000 events (&lt; 1 second)</li>
+<li>✅ Update 100 events (&lt; 5 seconds)</li>
+</ul>
+<p><strong>Memory Test:</strong></p>
+<ul>
+<li>✅ Load 5000 events in memory (&lt; 100 MB with AsNoTracking)</li>
+</ul>
+<p><strong>Concurrency Test:</strong></p>
+<ul>
+<li>✅ 20 simultaneous read operations (&lt; 5 seconds)</li>
+</ul>
+<p><strong>Bulk Operations:</strong></p>
+<ul>
+<li>✅ Delete 500 events (&lt; 3 seconds)</li>
+</ul>
+<h2 id="performance-benchmarks" class="anchored">Performance Benchmarks<a class="heading-anchor" href="#performance-benchmarks" aria-label="Link to this section">#</a></h2>
+<p>The values below are the <strong>assertion thresholds</strong> encoded in <code>PerformanceTests</code> (i.e. the upper bounds each test asserts against on a SQLite file DB). They are budgets the tests enforce, <strong>not</strong> measured/verified results — actual timings vary by machine and are written to test output via <code>ITestOutputHelper</code>.</p>
+<div class="table-wrap"><table><thead><tr>
+<th>Operation</th>
+<th>Asserted upper bound</th>
+</tr>
+</thead><tbody><tr>
+<td>Create 5000 events</td>
+<td>&lt; 10s</td>
+</tr>
+<tr>
+<td>Query all 5000 events</td>
+<td>&lt; 2s</td>
+</tr>
+<tr>
+<td>Paginated query (page 1, size 50)</td>
+<td>&lt; 500ms</td>
+</tr>
+<tr>
+<td>Date range query (5000 events)</td>
+<td>&lt; 1s</td>
+</tr>
+<tr>
+<td>Search (5000 events)</td>
+<td>&lt; 1.5s</td>
+</tr>
+<tr>
+<td>Category filter (5000 events)</td>
+<td>&lt; 1s</td>
+</tr>
+<tr>
+<td>Update 100 events</td>
+<td>&lt; 5s</td>
+</tr>
+<tr>
+<td>Memory for 5000 events (AsNoTracking)</td>
+<td>&lt; 100 MB</td>
+</tr>
+<tr>
+<td>20 concurrent reads</td>
+<td>&lt; 5s</td>
+</tr>
+<tr>
+<td>Delete 500 events</td>
+<td>&lt; 3s</td>
+</tr>
+</tbody></table></div>
+<h3 id="database-optimizations" class="anchored">Database Optimizations<a class="heading-anchor" href="#database-optimizations" aria-label="Link to this section">#</a></h3>
+<ul>
+<li><code>AsNoTracking()</code> on all read-only queries</li>
+<li>Pagination for large datasets</li>
+<li>Indexed columns for common queries</li>
+<li>Connection pooling</li>
+<li>Compiled queries for frequent operations</li>
+</ul>
+<h2 id="test-data-generators" class="anchored">Test Data Generators<a class="heading-anchor" href="#test-data-generators" aria-label="Link to this section">#</a></h2>
+<h3 id="event-generator-performance-tests" class="anchored">Event Generator (Performance Tests)<a class="heading-anchor" href="#event-generator-performance-tests" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="csharp"><div class="codeblock-bar"><span class="codeblock-lang">C#</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-csharp"><span class="tok-type">GenerateTestEvents</span>(<span class="tok-keyword">int</span> count)</code></pre></div>
+<ul>
+<li>Creates realistic test events with varied:<ul>
+<li>Categories (Work, Personal, Education, Health, etc.)</li>
+<li>Date ranges (5 years)</li>
+<li>Locations</li>
+<li>Confidence scores</li>
+</ul>
+</li>
+<li>Fixed seed (42) for reproducibility</li>
+</ul>
+<h3 id="embedding-generator-rag-tests" class="anchored">Embedding Generator (RAG Tests)<a class="heading-anchor" href="#embedding-generator-rag-tests" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="csharp"><div class="codeblock-bar"><span class="codeblock-lang">C#</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-csharp"><span class="tok-type">GenerateMockEmbedding</span>(<span class="tok-keyword">int</span> seed)</code></pre></div>
+<ul>
+<li>Creates 1536-dimension float arrays</li>
+<li>Seeded for consistent test results</li>
+<li>Simulates OpenAI embedding vectors</li>
+</ul>
+<h2 id="continuous-integration" class="anchored">Continuous Integration<a class="heading-anchor" href="#continuous-integration" aria-label="Link to this section">#</a></h2>
+<h3 id="github-actions--githubworkflowswindows-native-buildyml" class="anchored">GitHub Actions — <code>.github/workflows/windows-native-build.yml</code><a class="heading-anchor" href="#github-actions--githubworkflowswindows-native-buildyml" aria-label="Link to this section">#</a></h3>
+<p>The real workflow runs on <strong><code>windows-latest</code></strong> and:</p>
+<ul>
+<li>Installs the <strong>.NET 8 SDK</strong> plus <strong>Visual Studio MSBuild</strong> (<code>microsoft/setup-msbuild</code>).</li>
+<li>Builds the whole solution <strong><code>Release | x64</code></strong> with <strong><code>msbuild MemoryTimeline.sln /t:Restore,Build</code></strong> (not <code>dotnet build</code>).</li>
+<li>Runs tests with <strong><code>dotnet vstest</code></strong> against the built <code>MemoryTimeline.Tests.dll</code> (not <code>dotnet test</code>).</li>
+</ul>
+<h3 id="behavior" class="anchored">Behavior<a class="heading-anchor" href="#behavior" aria-label="Link to this section">#</a></h3>
+<ul>
+<li><strong>Compilation is the gate.</strong> A build failure fails the workflow.</li>
+<li>The headless VSTest run of the self-contained WinUI test assembly is <strong>best-effort</strong> (<code>continue-on-error: true</code>); its <code>.trx</code>/logs are uploaded as artifacts for visibility but do not by themselves fail the run.</li>
+<li>There is currently <strong>no</strong> Codecov upload or long-term benchmark tracking configured.</li>
+</ul>
+<h2 id="writing-new-tests" class="anchored">Writing New Tests<a class="heading-anchor" href="#writing-new-tests" aria-label="Link to this section">#</a></h2>
+<h3 id="unit-test-template" class="anchored">Unit Test Template<a class="heading-anchor" href="#unit-test-template" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="csharp"><div class="codeblock-bar"><span class="codeblock-lang">C#</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-csharp"><span class="tok-keyword">using</span> <span class="tok-type">FluentAssertions</span>;
+<span class="tok-keyword">using</span> <span class="tok-type">Moq</span>;
+<span class="tok-keyword">using</span> <span class="tok-type">Xunit</span>;
+
+<span class="tok-keyword">namespace</span> <span class="tok-type">MemoryTimeline</span>.<span class="tok-type">Tests</span>.<span class="tok-type">UnitTests</span>;
+
+<span class="tok-keyword">public</span> <span class="tok-keyword">class</span> <span class="tok-type">MyServiceTests</span> : <span class="tok-type">IDisposable</span>
+{
+    <span class="tok-keyword">private</span> <span class="tok-keyword">readonly</span> <span class="tok-type">Mock&lt;IDependency&gt;</span> _dependencyMock;
+    <span class="tok-keyword">private</span> <span class="tok-keyword">readonly</span> <span class="tok-type">MyService</span> _service;
+
+    <span class="tok-keyword">public</span> <span class="tok-type">MyServiceTests</span>()
+    {
+        _dependencyMock = <span class="tok-keyword">new</span> <span class="tok-type">Mock&lt;IDependency&gt;</span>();
+        _service = <span class="tok-keyword">new</span> <span class="tok-type">MyService</span>(_dependencyMock.<span class="tok-type">Object</span>);
+    }
+
+    <span class="tok-attribute">[Fact]</span>
+    <span class="tok-keyword">public</span> <span class="tok-keyword">async</span> <span class="tok-type">Task</span> <span class="tok-type">MethodName_Scenario_ExpectedResult</span>()
+    {
+        <span class="tok-comment">// Arrange</span>
+        <span class="tok-keyword">var</span> input = <span class="tok-string">&quot;test&quot;</span>;
+        _dependencyMock.<span class="tok-type">Setup</span>(d =&gt; d.<span class="tok-type">DoSomething</span>(input))
+            .<span class="tok-type">ReturnsAsync</span>(<span class="tok-string">&quot;result&quot;</span>);
+
+        <span class="tok-comment">// Act</span>
+        <span class="tok-keyword">var</span> result = <span class="tok-keyword">await</span> _service.<span class="tok-type">MethodToTest</span>(input);
+
+        <span class="tok-comment">// Assert</span>
+        result.<span class="tok-type">Should</span>().<span class="tok-type">Be</span>(<span class="tok-string">&quot;result&quot;</span>);
+        _dependencyMock.<span class="tok-type">Verify</span>(d =&gt; d.<span class="tok-type">DoSomething</span>(input), <span class="tok-type">Times</span>.<span class="tok-type">Once</span>);
+    }
+
+    <span class="tok-keyword">public</span> <span class="tok-keyword">void</span> <span class="tok-type">Dispose</span>()
+    {
+        <span class="tok-comment">// Cleanup</span>
+    }
+}</code></pre></div>
+<h3 id="integration-test-template" class="anchored">Integration Test Template<a class="heading-anchor" href="#integration-test-template" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="csharp"><div class="codeblock-bar"><span class="codeblock-lang">C#</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-csharp"><span class="tok-keyword">public</span> <span class="tok-keyword">class</span> <span class="tok-type">MyIntegrationTests</span> : <span class="tok-type">IDisposable</span>
+{
+    <span class="tok-keyword">private</span> <span class="tok-keyword">readonly</span> <span class="tok-type">AppDbContext</span> _context;
+    <span class="tok-keyword">private</span> <span class="tok-keyword">readonly</span> <span class="tok-keyword">string</span> _databasePath;
+
+    <span class="tok-keyword">public</span> <span class="tok-type">MyIntegrationTests</span>()
+    {
+        _databasePath = <span class="tok-type">Path</span>.<span class="tok-type">Combine</span>(
+            <span class="tok-type">Path</span>.<span class="tok-type">GetTempPath</span>(),
+            <span class="tok-string">$&quot;IntegrationTest_{Guid.NewGuid()}.db&quot;</span>);
+
+        <span class="tok-keyword">var</span> options = <span class="tok-keyword">new</span> <span class="tok-type">DbContextOptionsBuilder&lt;AppDbContext&gt;</span>()
+            .<span class="tok-type">UseSqlite</span>(<span class="tok-string">$&quot;Data Source={_databasePath}&quot;</span>)
+            .<span class="tok-type">Options</span>;
+
+        _context = <span class="tok-keyword">new</span> <span class="tok-type">AppDbContext</span>(options);
+        _context.<span class="tok-type">Database</span>.<span class="tok-type">EnsureCreated</span>();
+    }
+
+    <span class="tok-attribute">[Fact]</span>
+    <span class="tok-keyword">public</span> <span class="tok-keyword">async</span> <span class="tok-type">Task</span> <span class="tok-type">Integration_Test_Name</span>()
+    {
+        <span class="tok-comment">// Test with real database</span>
+    }
+
+    <span class="tok-keyword">public</span> <span class="tok-keyword">void</span> <span class="tok-type">Dispose</span>()
+    {
+        _context.<span class="tok-type">Database</span>.<span class="tok-type">EnsureDeleted</span>();
+        _context.<span class="tok-type">Dispose</span>();
+        <span class="tok-keyword">if</span> (<span class="tok-type">File</span>.<span class="tok-type">Exists</span>(_databasePath))
+        {
+            <span class="tok-type">File</span>.<span class="tok-type">Delete</span>(_databasePath);
+        }
+    }
+}</code></pre></div>
+<h3 id="performance-test-template" class="anchored">Performance Test Template<a class="heading-anchor" href="#performance-test-template" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="csharp"><div class="codeblock-bar"><span class="codeblock-lang">C#</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-csharp"><span class="tok-keyword">public</span> <span class="tok-keyword">class</span> <span class="tok-type">MyPerformanceTests</span> : <span class="tok-type">IDisposable</span>
+{
+    <span class="tok-keyword">private</span> <span class="tok-keyword">readonly</span> <span class="tok-type">ITestOutputHelper</span> _output;
+    <span class="tok-keyword">private</span> <span class="tok-keyword">readonly</span> <span class="tok-type">Stopwatch</span> _stopwatch;
+
+    <span class="tok-keyword">public</span> <span class="tok-type">MyPerformanceTests</span>(<span class="tok-type">ITestOutputHelper</span> output)
+    {
+        _output = output;
+        _stopwatch = <span class="tok-keyword">new</span> <span class="tok-type">Stopwatch</span>();
+    }
+
+    <span class="tok-attribute">[Fact]</span>
+    <span class="tok-keyword">public</span> <span class="tok-keyword">async</span> <span class="tok-type">Task</span> <span class="tok-type">PerformanceTest_LargeDataset_CompletesQuickly</span>()
+    {
+        <span class="tok-comment">// Arrange</span>
+        <span class="tok-keyword">var</span> largeDataset = <span class="tok-type">GenerateTestData</span>(<span class="tok-number">10000</span>);
+
+        <span class="tok-comment">// Act</span>
+        _stopwatch.<span class="tok-type">Start</span>();
+        <span class="tok-keyword">var</span> result = <span class="tok-keyword">await</span> <span class="tok-type">ProcessLargeDataset</span>(largeDataset);
+        _stopwatch.<span class="tok-type">Stop</span>();
+
+        <span class="tok-comment">// Assert</span>
+        _output.<span class="tok-type">WriteLine</span>(<span class="tok-string">$&quot;Processed {largeDataset.Count} items in {_stopwatch.ElapsedMilliseconds}ms&quot;</span>);
+        _stopwatch.<span class="tok-type">ElapsedMilliseconds</span>.<span class="tok-type">Should</span>().<span class="tok-type">BeLessThan</span>(<span class="tok-number">5000</span>);
+    }
+
+    <span class="tok-keyword">public</span> <span class="tok-keyword">void</span> <span class="tok-type">Dispose</span>()
+    {
+        <span class="tok-comment">// Cleanup</span>
+    }
+}</code></pre></div>
+<h2 id="best-practices" class="anchored">Best Practices<a class="heading-anchor" href="#best-practices" aria-label="Link to this section">#</a></h2>
+<h3 id="test-naming" class="anchored">Test Naming<a class="heading-anchor" href="#test-naming" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>Use pattern: <code>MethodName_Scenario_ExpectedResult</code></li>
+<li>Examples:<ul>
+<li><code>CreateEvent_ValidData_ReturnsEventWithId</code></li>
+<li><code>DeleteEvent_NonExistentId_ThrowsNotFoundException</code></li>
+<li><code>SearchEvents_EmptyQuery_ReturnsAllEvents</code></li>
+</ul>
+</li>
+</ul>
+<h3 id="arrange-act-assert-pattern" class="anchored">Arrange-Act-Assert Pattern<a class="heading-anchor" href="#arrange-act-assert-pattern" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="csharp"><div class="codeblock-bar"><span class="codeblock-lang">C#</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-csharp"><span class="tok-attribute">[Fact]</span>
+<span class="tok-keyword">public</span> <span class="tok-keyword">async</span> <span class="tok-type">Task</span> <span class="tok-type">Example_Test</span>()
+{
+    <span class="tok-comment">// Arrange - Set up test data and mocks</span>
+    <span class="tok-keyword">var</span> input = <span class="tok-string">&quot;test&quot;</span>;
+    _mock.<span class="tok-type">Setup</span>(m =&gt; m.<span class="tok-type">Method</span>(input)).<span class="tok-type">Returns</span>(<span class="tok-string">&quot;result&quot;</span>);
+
+    <span class="tok-comment">// Act - Execute the method under test</span>
+    <span class="tok-keyword">var</span> result = <span class="tok-keyword">await</span> _service.<span class="tok-type">Method</span>(input);
+
+    <span class="tok-comment">// Assert - Verify the results</span>
+    result.<span class="tok-type">Should</span>().<span class="tok-type">Be</span>(<span class="tok-string">&quot;result&quot;</span>);
+    _mock.<span class="tok-type">Verify</span>(m =&gt; m.<span class="tok-type">Method</span>(input), <span class="tok-type">Times</span>.<span class="tok-type">Once</span>);
+}</code></pre></div>
+<h3 id="fluent-assertions" class="anchored">Fluent Assertions<a class="heading-anchor" href="#fluent-assertions" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="csharp"><div class="codeblock-bar"><span class="codeblock-lang">C#</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-csharp"><span class="tok-comment">// Prefer FluentAssertions over xUnit assertions</span>
+result.<span class="tok-type">Should</span>().<span class="tok-type">NotBeNull</span>();
+result.<span class="tok-type">Should</span>().<span class="tok-type">Be</span>(expected);
+result.<span class="tok-type">Should</span>().<span class="tok-type">BeEquivalentTo</span>(expected);
+collection.<span class="tok-type">Should</span>().<span class="tok-type">HaveCount</span>(<span class="tok-number">5</span>);
+collection.<span class="tok-type">Should</span>().<span class="tok-type">Contain</span>(item);
+<span class="tok-keyword">value</span>.<span class="tok-type">Should</span>().<span class="tok-type">BeGreaterThan</span>(<span class="tok-number">10</span>);
+exception.<span class="tok-type">Should</span>().<span class="tok-type">BeOfType&lt;ArgumentException&gt;</span>();</code></pre></div>
+<h3 id="async-tests" class="anchored">Async Tests<a class="heading-anchor" href="#async-tests" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="csharp"><div class="codeblock-bar"><span class="codeblock-lang">C#</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-csharp"><span class="tok-comment">// Always use async/await for async tests</span>
+<span class="tok-attribute">[Fact]</span>
+<span class="tok-keyword">public</span> <span class="tok-keyword">async</span> <span class="tok-type">Task</span> <span class="tok-type">AsyncTest</span>()
+{
+    <span class="tok-keyword">var</span> result = <span class="tok-keyword">await</span> _service.<span class="tok-type">MethodAsync</span>();
+    result.<span class="tok-type">Should</span>().<span class="tok-type">NotBeNull</span>();
+}</code></pre></div>
+<h3 id="test-data-cleanup" class="anchored">Test Data Cleanup<a class="heading-anchor" href="#test-data-cleanup" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="csharp"><div class="codeblock-bar"><span class="codeblock-lang">C#</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-csharp"><span class="tok-keyword">public</span> <span class="tok-keyword">class</span> <span class="tok-type">MyTests</span> : <span class="tok-type">IDisposable</span>
+{
+    <span class="tok-comment">// Use IDisposable for cleanup</span>
+    <span class="tok-keyword">public</span> <span class="tok-keyword">void</span> <span class="tok-type">Dispose</span>()
+    {
+        _context?.<span class="tok-type">Dispose</span>();
+        <span class="tok-type">DeleteTestFiles</span>();
+    }
+}</code></pre></div>
+<h2 id="troubleshooting-tests" class="anchored">Troubleshooting Tests<a class="heading-anchor" href="#troubleshooting-tests" aria-label="Link to this section">#</a></h2>
+<h3 id="tests-fail-intermittently" class="anchored">Tests Fail Intermittently<a class="heading-anchor" href="#tests-fail-intermittently" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>Check for timing issues in async code</li>
+<li>Use <code>Task.Delay()</code> carefully</li>
+<li>Ensure proper disposal of resources</li>
+<li>Check for shared state between tests</li>
+</ul>
+<h3 id="database-lock-issues" class="anchored">Database Lock Issues<a class="heading-anchor" href="#database-lock-issues" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>Ensure each test uses unique database</li>
+<li>Properly dispose DbContext</li>
+<li>Use <code>Database.EnsureDeleted()</code> in Dispose</li>
+</ul>
+<h3 id="performance-tests-failing" class="anchored">Performance Tests Failing<a class="heading-anchor" href="#performance-tests-failing" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>Run on dedicated hardware (not during heavy load)</li>
+<li>Check system resources (CPU, memory, disk)</li>
+<li>Review recent code changes for regressions</li>
+<li>Adjust thresholds if consistently failing</li>
+</ul>
+<h3 id="coverage-not-generating" class="anchored">Coverage Not Generating<a class="heading-anchor" href="#coverage-not-generating" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell"><span class="tok-comment"># Collect coverage against the already-built test assembly (do NOT use `dotnet test`)</span>
+<span class="tok-builtin">dotnet</span> <span class="tok-builtin">vstest</span> <span class="tok-variable">$dll</span> --collect:<span class="tok-string">&quot;Code Coverage&quot;</span> --ResultsDirectory:TestResults
+
+<span class="tok-comment"># Check for coverage files in TestResults/</span>
+dir <span class="tok-flag">-Recurse</span> <span class="tok-flag">-Filter</span> <span class="tok-string">&quot;*.coverage&quot;</span>
+dir <span class="tok-flag">-Recurse</span> <span class="tok-flag">-Filter</span> <span class="tok-string">&quot;*.cobertura.xml&quot;</span></code></pre></div>
+<h2 id="test-statistics" class="anchored">Test Statistics<a class="heading-anchor" href="#test-statistics" aria-label="Link to this section">#</a></h2>
+<p>Approximate current suite (as of Phase 7):</p>
+<ul>
+<li><strong>Service tests</strong> (<code>Services/</code>): EventService, TimelineService, SettingsService</li>
+<li><strong>Unit tests</strong> (<code>UnitTests/</code>): Queue, Export, Import, Rag</li>
+<li><strong>Model tests</strong> (<code>Models/</code>): layout engine, viewport, scale</li>
+<li><strong>Integration tests</strong> (<code>Integration/</code>): ~9 database tests on a real SQLite file DB</li>
+<li><strong>Performance tests</strong> (<code>Performance/</code>): ~10 load/scalability tests</li>
+<li><strong>Coverage</strong>: target &gt; 80% (aspirational, not measured)</li>
+</ul>
+<h3 id="migration-status-of-the-test-project" class="anchored">Migration status of the test project<a class="heading-anchor" href="#migration-status-of-the-test-project" aria-label="Link to this section">#</a></h3>
+<p>All service-backed test classes have been <strong>migrated to the <code>IDbContextFactory&lt;AppDbContext&gt;</code> pattern</strong> and construct services with their <strong>current</strong> signatures — for example <code>new EventService(_repository, _contextFactory, logger)</code>, <code>new ExportService(_contextFactory, logger)</code>, <code>new ImportService(_contextFactory, logger)</code>, and <code>new RagService(embeddingService, eventService, _contextFactory, crossReferenceRepository, logger)</code> (RagService no longer takes an <code>ILlmService</code> or a raw <code>AppDbContext</code>). No test file uses the older <code>(_repository, _context, …)</code> / <code>(_context, …)</code> constructor signatures. As of this writing the <strong>only</strong> build blocker for the solution is the WinUI app&#39;s XAML/PRI resource-generation step failing under the <code>dotnet</code> build engine — the <code>MemoryTimeline.Tests</code> project fails to build <strong>only as a downstream consequence</strong> of the app project failing, not because of stale test code. Building with Visual Studio <code>msbuild.exe</code> (as CI does) is the supported path.</p>
+<hr>
+<p><strong>Last Updated</strong>: 2026-07-10</p>
+
+<nav class="pager" aria-label="Document navigation">
+  <a class="pager-link pager-prev" href="setup-scripts-windows.html">
+      <span class="pager-kind">← Previous</span>
+      <span class="pager-title">PowerShell setup scripts</span>
+    </a>
+  <a class="pager-link pager-next" href="deployment.html">
+      <span class="pager-kind">Next →</span>
+      <span class="pager-title">Deployment guide</span>
+    </a>
+</nav>
+  </article>
+<aside class="toc" aria-label="On this page">
+  <p class="toc-title">On this page</p>
+  <ul class="toc-list">
+<li class="toc-item toc-h2"><a href="#test-structure" data-toc-link>Test Structure</a></li>
+<li class="toc-item toc-h2"><a href="#test-framework-and-tools" data-toc-link>Test Framework and Tools</a></li>
+<li class="toc-item toc-h3"><a href="#dbcontext-factory-pattern-important-for-test-authors" data-toc-link>DbContext factory pattern (important for test authors)</a></li>
+<li class="toc-item toc-h2"><a href="#running-tests" data-toc-link>Running Tests</a></li>
+<li class="toc-item toc-h3"><a href="#build-once-then-run" data-toc-link>Build once, then run</a></li>
+<li class="toc-item toc-h3"><a href="#by-category--class--method" data-toc-link>By Category / Class / Method</a></li>
+<li class="toc-item toc-h2"><a href="#code-coverage" data-toc-link>Code Coverage</a></li>
+<li class="toc-item toc-h3"><a href="#coverage-goals-aspirational-not-measured" data-toc-link>Coverage Goals (aspirational, not measured)</a></li>
+<li class="toc-item toc-h2"><a href="#test-categories-explained" data-toc-link>Test Categories Explained</a></li>
+<li class="toc-item toc-h3"><a href="#1-unit--service-tests" data-toc-link>1. Unit / Service Tests</a></li>
+<li class="toc-item toc-h3"><a href="#2-integration-tests" data-toc-link>2. Integration Tests</a></li>
+<li class="toc-item toc-h3"><a href="#3-performance-tests" data-toc-link>3. Performance Tests</a></li>
+<li class="toc-item toc-h2"><a href="#performance-benchmarks" data-toc-link>Performance Benchmarks</a></li>
+<li class="toc-item toc-h3"><a href="#database-optimizations" data-toc-link>Database Optimizations</a></li>
+<li class="toc-item toc-h2"><a href="#test-data-generators" data-toc-link>Test Data Generators</a></li>
+<li class="toc-item toc-h3"><a href="#event-generator-performance-tests" data-toc-link>Event Generator (Performance Tests)</a></li>
+<li class="toc-item toc-h3"><a href="#embedding-generator-rag-tests" data-toc-link>Embedding Generator (RAG Tests)</a></li>
+<li class="toc-item toc-h2"><a href="#continuous-integration" data-toc-link>Continuous Integration</a></li>
+<li class="toc-item toc-h3"><a href="#github-actions--githubworkflowswindows-native-buildyml" data-toc-link>GitHub Actions — .github/workflows/windows-native-build.yml</a></li>
+<li class="toc-item toc-h3"><a href="#behavior" data-toc-link>Behavior</a></li>
+<li class="toc-item toc-h2"><a href="#writing-new-tests" data-toc-link>Writing New Tests</a></li>
+<li class="toc-item toc-h3"><a href="#unit-test-template" data-toc-link>Unit Test Template</a></li>
+<li class="toc-item toc-h3"><a href="#integration-test-template" data-toc-link>Integration Test Template</a></li>
+<li class="toc-item toc-h3"><a href="#performance-test-template" data-toc-link>Performance Test Template</a></li>
+<li class="toc-item toc-h2"><a href="#best-practices" data-toc-link>Best Practices</a></li>
+<li class="toc-item toc-h3"><a href="#test-naming" data-toc-link>Test Naming</a></li>
+<li class="toc-item toc-h3"><a href="#arrange-act-assert-pattern" data-toc-link>Arrange-Act-Assert Pattern</a></li>
+<li class="toc-item toc-h3"><a href="#fluent-assertions" data-toc-link>Fluent Assertions</a></li>
+<li class="toc-item toc-h3"><a href="#async-tests" data-toc-link>Async Tests</a></li>
+<li class="toc-item toc-h3"><a href="#test-data-cleanup" data-toc-link>Test Data Cleanup</a></li>
+<li class="toc-item toc-h2"><a href="#troubleshooting-tests" data-toc-link>Troubleshooting Tests</a></li>
+<li class="toc-item toc-h3"><a href="#tests-fail-intermittently" data-toc-link>Tests Fail Intermittently</a></li>
+<li class="toc-item toc-h3"><a href="#database-lock-issues" data-toc-link>Database Lock Issues</a></li>
+<li class="toc-item toc-h3"><a href="#performance-tests-failing" data-toc-link>Performance Tests Failing</a></li>
+<li class="toc-item toc-h3"><a href="#coverage-not-generating" data-toc-link>Coverage Not Generating</a></li>
+<li class="toc-item toc-h2"><a href="#test-statistics" data-toc-link>Test Statistics</a></li>
+<li class="toc-item toc-h3"><a href="#migration-status-of-the-test-project" data-toc-link>Migration status of the test project</a></li>
+  </ul>
+  <a class="toc-top" href="#main">↑ Back to top</a>
+</aside>
+</div>
+    <footer class="site-footer">
+      <div>
+        <strong>Memory Timeline</strong> documentation ·
+        19 documents ·
+        generated 2026-08-07
+      </div>
+      <div class="footer-links">
+        <a href="index.html">Home</a>
+        <a href="documentation-map.html">All documentation</a>
+        <a href="https://github.com/ethanbissbort/memory-line" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </div>
+      <div class="footer-note">
+        This site is generated from the markdown in the repository — edit the source files and rebuild.
+      </div>
+    </footer>
+  </main>
+</div>
+
+<div class="search-modal" data-search-modal hidden>
+  <div class="search-backdrop" data-search-close></div>
+  <div class="search-panel" role="dialog" aria-modal="true" aria-label="Search documentation">
+    <div class="search-input-row">
+      <svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><circle cx="9" cy="9" r="5.5" stroke="currentColor" stroke-width="1.7" fill="none"/><path d="M13.2 13.2 17 17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <input type="search" placeholder="Search headings and content…" data-search-input autocomplete="off" spellcheck="false" aria-label="Search query">
+      <button class="icon-btn" type="button" data-search-close aria-label="Close search"><kbd>Esc</kbd></button>
+    </div>
+    <div class="search-results" data-search-results>
+      <p class="search-hint">Start typing to search every document on this site.</p>
+    </div>
+  </div>
+</div>
+
+<script src="assets/search-index.js" defer></script>
+<script src="assets/app.js" defer></script>
+</body>
+</html>

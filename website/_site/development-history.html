@@ -1,0 +1,1020 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Development history · Memory Timeline docs</title>
+<meta name="description" content="Consolidated phase completion reports (Phase 0 through Phase 6) with deliverables, statistics, and architecture achievements.">
+<meta property="og:title" content="Development history · Memory Timeline docs">
+<meta property="og:description" content="Consolidated phase completion reports (Phase 0 through Phase 6) with deliverables, statistics, and architecture achievements.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%227%22%20fill%3D%22%231d1b18%22%2F%3E%3Cpath%20d%3D%22M4%2021h24%22%20stroke%3D%22%238b8175%22%20stroke-width%3D%221.5%22%20stroke-linecap%3D%22round%22%2F%3E%3Ccircle%20cx%3D%229%22%20cy%3D%2221%22%20r%3D%223.1%22%20fill%3D%22%23e0873f%22%2F%3E%3Ccircle%20cx%3D%2217%22%20cy%3D%2214%22%20r%3D%223.6%22%20fill%3D%22%23f0b46e%22%2F%3E%3Ccircle%20cx%3D%2225%22%20cy%3D%2218%22%20r%3D%222.6%22%20fill%3D%22%236ec2b8%22%2F%3E%3Cpath%20d%3D%22M9%2021%2017%2014%2025%2018%22%20stroke%3D%22%238b8175%22%20stroke-width%3D%221.2%22%20fill%3D%22none%22%20stroke-linejoin%3D%22round%22%20opacity%3D%22.8%22%2F%3E%3C%2Fsvg%3E">
+<link rel="stylesheet" href="assets/styles.css">
+<script>(function(){try{var t=localStorage.getItem('mt-theme');if(t==='light'||t==='dark'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();</script>
+</head>
+<body class="page-doc" data-page="development-history">
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="icon-btn nav-toggle" type="button" aria-label="Toggle navigation" aria-expanded="false" data-nav-toggle>
+      <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg>
+    </button>
+    <a class="brand" href="index.html">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="26" height="26"><path d="M3 22h26" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity=".45"/><circle cx="8" cy="22" r="3" fill="currentColor" opacity=".55"/><circle cx="16" cy="14" r="3.8" fill="currentColor"/><circle cx="25" cy="18.5" r="2.6" fill="currentColor" opacity=".7"/></svg>
+      </span>
+      <span class="brand-text">
+        <span class="brand-name">Memory Timeline</span>
+        <span class="brand-sub">Documentation</span>
+      </span>
+    </a>
+
+    <button class="searchbar" type="button" data-search-open aria-label="Search documentation">
+      <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><circle cx="9" cy="9" r="5.5" stroke="currentColor" stroke-width="1.7" fill="none"/><path d="M13.2 13.2 17 17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <span>Search the docs</span>
+      <kbd>/</kbd>
+    </button>
+
+    <div class="topbar-actions">
+      <button class="icon-btn" type="button" data-theme-toggle aria-label="Switch colour theme" title="Switch colour theme">
+        <svg class="icon-sun" viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><circle cx="10" cy="10" r="4" fill="currentColor"/><path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6 16 16M16 4l-1.4 1.4M5.4 14.6 4 16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <svg class="icon-moon" viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><path d="M16.5 12.4A7 7 0 0 1 7.6 3.5a7 7 0 1 0 8.9 8.9Z" fill="currentColor"/></svg>
+      </button>
+      <a class="icon-btn" href="https://github.com/ethanbissbort/memory-line" target="_blank" rel="noopener noreferrer" aria-label="View the repository on GitHub" title="Repository on GitHub">
+        <svg viewBox="0 0 16 16" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38l-.01-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.93-.89-1.18-.89-1.18-.73-.5.05-.49.05-.49.81.06 1.23.83 1.23.83.72 1.23 1.88.87 2.34.67.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48l-.01 2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+      </a>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" data-sidebar>
+    <nav aria-label="Documentation">
+      <ul class="nav">
+        <li class="nav-section">
+          <p class="nav-section-title">Start here</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="index.html">Home</a>
+            </li>
+            <li><a class="nav-link" href="documentation-map.html">All documentation</a>
+            </li>
+            <li><a class="nav-link" href="overview.html">Project overview</a>
+            </li>
+            <li><a class="nav-link" href="developer-guide.html">Developer guide</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Windows Native app</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="windows-native.html">Windows Native app</a>
+            </li>
+            <li><a class="nav-link" href="setup-scripts-windows.html">PowerShell setup scripts</a>
+            </li>
+            <li><a class="nav-link" href="testing.html">Testing guide</a>
+            </li>
+            <li><a class="nav-link" href="deployment.html">Deployment guide</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Status &amp; history</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="development-status.html">Development status</a>
+            </li>
+            <li><a class="nav-link is-active" href="development-history.html" aria-current="page">Development history</a>
+              <ul class="nav-sub">
+                <li><a class="nav-sublink" href="#executive-summary">Executive Summary</a></li>
+                <li><a class="nav-sublink" href="#phase-0-preparation">Phase 0: Preparation</a></li>
+                <li><a class="nav-sublink" href="#phase-1-core-infrastructure">Phase 1: Core Infrastructure</a></li>
+                <li><a class="nav-sublink" href="#phase-2-timeline-visualization">Phase 2: Timeline Visualization</a></li>
+                <li><a class="nav-sublink" href="#phase-3-audio--processing">Phase 3: Audio &amp; Processing</a></li>
+                <li><a class="nav-sublink" href="#phase-4-llm-integration">Phase 4: LLM Integration</a></li>
+                <li><a class="nav-sublink" href="#phase-5-rag--embeddings">Phase 5: RAG &amp; Embeddings</a></li>
+                <li><a class="nav-sublink" href="#phase-6-polish--windows-integration">Phase 6: Polish &amp; Windows Integration</a></li>
+                <li><a class="nav-sublink" href="#technology-stack-summary">Technology Stack Summary</a></li>
+                <li><a class="nav-sublink" href="#code-statistics-summary">Code Statistics Summary</a></li>
+                <li><a class="nav-sublink" href="#architecture-achievements">Architecture Achievements</a></li>
+                <li><a class="nav-sublink" href="#known-limitations">Known Limitations</a></li>
+                <li><a class="nav-sublink" href="#phase-7-testing--deployment-pending">Phase 7: Testing &amp; Deployment (Pending)</a></li>
+                <li><a class="nav-sublink" href="#post-phase-6-hardening--feature-audit--fix-pass-2026-07">Post-Phase-6 Hardening — Feature Audit &amp; Fix Pass (2026-07)</a></li>
+                <li><a class="nav-sublink" href="#references">References</a></li>
+              </ul>
+            </li>
+            <li><a class="nav-link" href="migration-to-native-windows.html">Migration to native Windows</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Audits &amp; reviews</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="feature-audit.html">Feature audit (2026-07)</a>
+            </li>
+            <li><a class="nav-link" href="hardening-followups.html">Hardening follow-ups</a>
+            </li>
+            <li><a class="nav-link" href="repo-audit-2026-07.html">Exhaustive repo audit</a>
+            </li>
+            <li><a class="nav-link" href="multi-agent-code-review.html">Multi-agent code review</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Design notes</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="people-feature-contracts.html">People feature contracts</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Legacy Electron build</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="electron-deployment.html">Electron deployment &amp; install</a>
+            </li>
+            <li><a class="nav-link" href="electron-setup-scripts.html">Electron setup scripts</a>
+            </li>
+            <li><a class="nav-link" href="electron-setup-logs.html">Setup script logs</a>
+            </li>
+            <li><a class="nav-link" href="electron-tests.html">Electron test suite</a>
+            </li>
+            <li><a class="nav-link" href="electron-test-databases.html">Test databases</a>
+            </li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+  </aside>
+  <div class="sidebar-scrim" data-nav-close hidden></div>
+
+  <main class="main" id="main">
+
+<header class="doc-header">
+  <nav class="breadcrumb" aria-label="Breadcrumb">
+    <a href="index.html">Docs</a>
+    <span aria-hidden="true">/</span>
+    <span>Status &amp; history</span>
+  </nav>
+  <h1>Development history</h1>
+  <p class="doc-lede">Consolidated phase completion reports (Phase 0 through Phase 6) with deliverables, statistics, and architecture achievements.</p>
+  <div class="doc-meta">
+    <span class="doc-meta-item"><b>For</b> Everyone</span>
+    <span class="doc-meta-item"><b>2,198</b> words</span>
+    <span class="doc-meta-item"><b>10</b> min read</span>
+    <a class="doc-meta-item doc-source" href="https://github.com/ethanbissbort/memory-line/blob/main/windows-native/DEVELOPMENT-HISTORY.md" target="_blank" rel="noopener noreferrer">
+      windows-native/DEVELOPMENT-HISTORY.md ↗
+    </a>
+  </div>
+  <div class="tags"><span class="tag">history</span><span class="tag">phases</span></div>
+</header>
+<div class="doc-grid">
+  <article class="prose">
+<p><strong>Document Type:</strong> Consolidated Development History<br><strong>Last Updated:</strong> 2026-07-10<br><strong>Overall Progress:</strong> Phases 0-6 complete; Phase 7 (Testing &amp; Deployment) in progress  </p>
+<hr>
+<h2 id="executive-summary" class="anchored">Executive Summary<a class="heading-anchor" href="#executive-summary" aria-label="Link to this section">#</a></h2>
+<p>This document consolidates all phase completion reports and verification summaries for the Memory Timeline Windows native application. The project has successfully completed <strong>Phases 0-6</strong> and is ready for <strong>Phase 7 (Testing &amp; Deployment)</strong>.</p>
+<h3 id="progress-overview" class="anchored">Progress Overview<a class="heading-anchor" href="#progress-overview" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap"><table><thead><tr>
+<th>Phase</th>
+<th>Status</th>
+<th>Completion Date</th>
+<th>Key Deliverables</th>
+</tr>
+</thead><tbody><tr>
+<td><strong>Phase 0: Preparation</strong></td>
+<td><span class="chip chip-ok">✅ Complete</span></td>
+<td>2025-11-21</td>
+<td>Development environment, WinUI 3 skeleton, SQLite demo</td>
+</tr>
+<tr>
+<td><strong>Phase 1: Core Infrastructure</strong></td>
+<td><span class="chip chip-ok">✅ Complete</span></td>
+<td>2025-11-21</td>
+<td>Database (EF Core), Settings, Navigation, Repository Pattern</td>
+</tr>
+<tr>
+<td><strong>Phase 2: Timeline Visualization</strong></td>
+<td><span class="chip chip-ok">✅ Complete</span></td>
+<td>2025-11-22</td>
+<td>Timeline canvas, Zoom/pan, Touch support, TimelinePage UI</td>
+</tr>
+<tr>
+<td><strong>Phase 3: Audio &amp; Processing</strong></td>
+<td><span class="chip chip-ok">✅ Complete</span></td>
+<td>2025-11-22</td>
+<td>Audio recording, Queue system, Windows STT, QueuePage UI</td>
+</tr>
+<tr>
+<td><strong>Phase 4: LLM Integration</strong></td>
+<td><span class="chip chip-ok">✅ Complete</span></td>
+<td>2025-11-23</td>
+<td>Claude API, Event extraction, ReviewPage, PendingEvent workflow</td>
+</tr>
+<tr>
+<td><strong>Phase 5: RAG &amp; Embeddings</strong></td>
+<td><span class="chip chip-ok">✅ Complete</span></td>
+<td>2025-11-24</td>
+<td>Embedding service, ConnectionsPage UI, embedding workflow</td>
+</tr>
+<tr>
+<td><strong>Phase 6: Polish &amp; Integration</strong></td>
+<td><span class="chip chip-ok">✅ Complete</span></td>
+<td>2025-11-25</td>
+<td>Export/Import, Windows notifications, JumpList, Timeline</td>
+</tr>
+<tr>
+<td><strong>Phase 7: Testing &amp; Deployment</strong></td>
+<td><span class="chip chip-active">🔄 In Progress</span></td>
+<td>2026-07 →</td>
+<td>Post-audit hardening (CI build green); runtime validation, MSIX, Store pending</td>
+</tr>
+</tbody></table></div>
+<hr>
+<h2 id="phase-0-preparation" class="anchored">Phase 0: Preparation<a class="heading-anchor" href="#phase-0-preparation" aria-label="Link to this section">#</a></h2>
+<h3 id="summary" class="anchored">Summary<a class="heading-anchor" href="#summary" aria-label="Link to this section">#</a></h3>
+<p>Established complete project structure, solution configuration, and foundational architecture for the Windows native application.</p>
+<h3 id="deliverables" class="anchored">Deliverables<a class="heading-anchor" href="#deliverables" aria-label="Link to this section">#</a></h3>
+<p><strong>Project Structure Created:</strong></p>
+<ul>
+<li><code>windows-native</code> directory with organized structure</li>
+<li>Solution with 4 projects configured for clean architecture</li>
+<li>NuGet package references configured</li>
+</ul>
+<p><strong>Solution &amp; Project Files:</strong></p>
+<ul>
+<li><code>MemoryTimeline.sln</code> - Main solution file</li>
+<li><code>MemoryTimeline.csproj</code> - WinUI 3 application project</li>
+<li><code>MemoryTimeline.Core.csproj</code> - Business logic project</li>
+<li><code>MemoryTimeline.Data.csproj</code> - Data access project</li>
+<li><code>MemoryTimeline.Tests.csproj</code> - Test project</li>
+</ul>
+<p><strong>NuGet Packages Configured:</strong></p>
+<ul>
+<li>Microsoft.WindowsAppSDK 1.5+</li>
+<li>CommunityToolkit.Mvvm 8.2.2</li>
+<li>EF Core 8 with SQLite</li>
+<li>xUnit testing framework</li>
+<li>Moq + FluentAssertions</li>
+<li>Anthropic SDK</li>
+<li>ONNX Runtime with DirectML</li>
+</ul>
+<p><strong>Database Layer:</strong></p>
+<ul>
+<li>13 data models (Event, Era, Tag, Person, Location, etc.)</li>
+<li>AppDbContext with EF Core configuration</li>
+<li>Repository pattern with generic and specialized interfaces</li>
+<li>Initial migrations created</li>
+<li>Schema compatibility with Electron version verified</li>
+</ul>
+<p><strong>WinUI 3 Application Shell:</strong></p>
+<ul>
+<li>App.xaml / App.xaml.cs with DI setup</li>
+<li>MainWindow.xaml with NavigationView</li>
+<li>Package.appxmanifest configured</li>
+<li>DPI awareness configured</li>
+</ul>
+<h3 id="statistics" class="anchored">Statistics<a class="heading-anchor" href="#statistics" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>~80 files created</li>
+<li>~4,000 lines of code</li>
+<li>10 integration tests for SQLite connectivity</li>
+</ul>
+<hr>
+<h2 id="phase-1-core-infrastructure" class="anchored">Phase 1: Core Infrastructure<a class="heading-anchor" href="#phase-1-core-infrastructure" aria-label="Link to this section">#</a></h2>
+<h3 id="summary-1" class="anchored">Summary<a class="heading-anchor" href="#summary-1" aria-label="Link to this section">#</a></h3>
+<p>Implemented complete database layer, settings system, navigation framework, and dependency injection infrastructure.</p>
+<h3 id="deliverables-1" class="anchored">Deliverables<a class="heading-anchor" href="#deliverables-1" aria-label="Link to this section">#</a></h3>
+<p><strong>Database Layer (EF Core):</strong></p>
+<ul>
+<li>All entity models with relationships configured</li>
+<li>EventRepository with specialized queries</li>
+<li>EraRepository, TagRepository, PeopleRepository, LocationRepository</li>
+<li>RecordingQueueRepository, PendingEventRepository</li>
+<li>EventEmbeddingRepository, CrossReferenceRepository</li>
+<li>Unit of Work pattern</li>
+<li>Timestamp auto-updates</li>
+<li>Soft delete support</li>
+</ul>
+<p><strong>Settings System:</strong></p>
+<ul>
+<li>SettingsService with Windows.Storage integration</li>
+<li>Strongly-typed settings models</li>
+<li>API key secure storage (Windows Credential Manager)</li>
+<li>Theme settings (Light/Dark)</li>
+<li>LLM configuration settings</li>
+<li>Audio quality settings</li>
+</ul>
+<p><strong>App Shell &amp; Navigation:</strong></p>
+<ul>
+<li>MainWindow with NavigationView</li>
+<li>Frame-based navigation service</li>
+<li>Navigation menu items</li>
+<li>Page transition animations</li>
+<li>Title bar customization</li>
+<li>Theme switching (Light/Dark/System)</li>
+</ul>
+<p><strong>Dependency Injection:</strong></p>
+<ul>
+<li>Full DI container setup (Microsoft.Extensions.DependencyInjection)</li>
+<li>All services registered (Singleton, Scoped, Transient)</li>
+<li>All repositories registered</li>
+<li>All ViewModels registered</li>
+<li>All Pages registered</li>
+</ul>
+<h3 id="statistics-1" class="anchored">Statistics<a class="heading-anchor" href="#statistics-1" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>~2,500 lines of code added</li>
+<li>22 unit tests covering services and repositories</li>
+</ul>
+<h3 id="electron-vs-windows-native-comparison" class="anchored">Electron vs Windows Native Comparison<a class="heading-anchor" href="#electron-vs-windows-native-comparison" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap"><table><thead><tr>
+<th>Component</th>
+<th>Electron</th>
+<th>Windows Native</th>
+</tr>
+</thead><tbody><tr>
+<td>Database</td>
+<td>better-sqlite3</td>
+<td>EF Core 8 + SQLite</td>
+</tr>
+<tr>
+<td>State</td>
+<td>Zustand</td>
+<td>CommunityToolkit.Mvvm</td>
+</tr>
+<tr>
+<td>Settings</td>
+<td>app_settings table</td>
+<td>Windows.Storage + DB</td>
+</tr>
+<tr>
+<td>Navigation</td>
+<td>React Router-style</td>
+<td>Frame-based navigation</td>
+</tr>
+<tr>
+<td>Theme</td>
+<td>CSS variables</td>
+<td>WinUI 3 ThemeResource</td>
+</tr>
+</tbody></table></div>
+<hr>
+<h2 id="phase-2-timeline-visualization" class="anchored">Phase 2: Timeline Visualization<a class="heading-anchor" href="#phase-2-timeline-visualization" aria-label="Link to this section">#</a></h2>
+<h3 id="summary-2" class="anchored">Summary<a class="heading-anchor" href="#summary-2" aria-label="Link to this section">#</a></h3>
+<p>Built high-performance timeline rendering with zoom/pan controls, touch support, and smooth 60 FPS performance.</p>
+<h3 id="deliverables-2" class="anchored">Deliverables<a class="heading-anchor" href="#deliverables-2" aria-label="Link to this section">#</a></h3>
+<p><strong>Timeline Canvas:</strong></p>
+<ul>
+<li>Custom TimelineControl with XAML</li>
+<li>Virtualization for 5000+ events</li>
+<li>Hardware-accelerated rendering</li>
+<li>Viewport management with lazy loading</li>
+<li>Memory-efficient caching</li>
+</ul>
+<p><strong>Event Rendering:</strong></p>
+<ul>
+<li>Event bubbles with category colors</li>
+<li>Category icons (XAML Geometry)</li>
+<li>Era gradient backgrounds</li>
+<li>Duration event bars</li>
+<li>Tooltip on hover</li>
+<li>Responsive sizing</li>
+</ul>
+<p><strong>Zoom &amp; Pan Controls:</strong></p>
+<ul>
+<li>4 zoom levels: Year, Month, Week, Day</li>
+<li>Smooth zoom transitions with animations</li>
+<li>Pan with touch/mouse drag</li>
+<li>Keyboard navigation (←/→ arrows, +/- zoom)</li>
+<li>&quot;Today&quot; quick navigation (T key)</li>
+</ul>
+<p><strong>Touch &amp; Pen Support:</strong></p>
+<ul>
+<li>Touch gestures (pinch-to-zoom, drag-to-pan)</li>
+<li>Windows Ink integration (ready for annotations)</li>
+<li>High-DPI support</li>
+<li>Per-monitor DPI awareness</li>
+</ul>
+<p><strong>TimelinePage UI:</strong></p>
+<ul>
+<li>Command bar with zoom controls</li>
+<li>Date range display</li>
+<li>Event details panel</li>
+<li>Filter controls</li>
+<li>Loading indicators</li>
+</ul>
+<h3 id="statistics-2" class="anchored">Statistics<a class="heading-anchor" href="#statistics-2" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>2,000+ lines of code added</li>
+<li>60 FPS target achieved</li>
+</ul>
+<hr>
+<h2 id="phase-3-audio--processing" class="anchored">Phase 3: Audio &amp; Processing<a class="heading-anchor" href="#phase-3-audio--processing" aria-label="Link to this section">#</a></h2>
+<h3 id="summary-3" class="anchored">Summary<a class="heading-anchor" href="#summary-3" aria-label="Link to this section">#</a></h3>
+<p>Implemented audio recording, queue management, and speech-to-text integration using Windows APIs.</p>
+<h3 id="deliverables-3" class="anchored">Deliverables<a class="heading-anchor" href="#deliverables-3" aria-label="Link to this section">#</a></h3>
+<p><strong>Audio Recording:</strong></p>
+<ul>
+<li>MediaCapture API integration</li>
+<li>Audio device selection</li>
+<li>Format: 16kHz, 16-bit WAV</li>
+<li>Pause/resume/cancel controls</li>
+<li>Real-time waveform preview</li>
+<li>File management (ApplicationData folder)</li>
+</ul>
+<p><strong>Queue System:</strong></p>
+<ul>
+<li>RecordingQueue database table</li>
+<li>QueueService with background processing</li>
+<li>Status tracking (pending, processing, completed, failed)</li>
+<li>Retry logic with exponential backoff</li>
+<li>Progress reporting</li>
+<li>Error handling and logging</li>
+</ul>
+<p><strong>Speech-to-Text:</strong></p>
+<ul>
+<li>ISpeechToTextService interface</li>
+<li>Windows Speech Recognition implementation</li>
+<li>Mock STT service for testing</li>
+<li>Transcription progress reporting</li>
+<li>Confidence scoring</li>
+<li>Multi-engine support (ready for cloud STT)</li>
+</ul>
+<p><strong>QueuePage UI:</strong></p>
+<ul>
+<li>Recording controls (Start, Pause, Cancel)</li>
+<li>ListView with queue items</li>
+<li>Play/remove buttons for queue items</li>
+<li>Progress bars for processing</li>
+<li>Status indicators with icons</li>
+<li>File metadata display (duration, size, timestamp)</li>
+</ul>
+<h3 id="statistics-3" class="anchored">Statistics<a class="heading-anchor" href="#statistics-3" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>1,800+ lines of code added</li>
+</ul>
+<hr>
+<h2 id="phase-4-llm-integration" class="anchored">Phase 4: LLM Integration<a class="heading-anchor" href="#phase-4-llm-integration" aria-label="Link to this section">#</a></h2>
+<h3 id="summary-4" class="anchored">Summary<a class="heading-anchor" href="#summary-4" aria-label="Link to this section">#</a></h3>
+<p>Integrated Anthropic Claude API for intelligent event extraction from transcripts with review workflow.</p>
+<h3 id="deliverables-4" class="anchored">Deliverables<a class="heading-anchor" href="#deliverables-4" aria-label="Link to this section">#</a></h3>
+<p><strong>LLM Service:</strong></p>
+<ul>
+<li>ILlmService interface</li>
+<li>AnthropicService implementation</li>
+<li>Claude 3.5 Sonnet integration</li>
+<li>Structured prompt engineering</li>
+<li>JSON response parsing</li>
+<li>Retry logic with Polly library</li>
+<li>Error handling</li>
+</ul>
+<p><strong>Event Extraction:</strong></p>
+<ul>
+<li>EventExtractionService</li>
+<li>Extract title, dates, description, category</li>
+<li>Extract tags, people, locations</li>
+<li>Confidence scoring per field</li>
+<li>Relative date parsing</li>
+<li>Category classification (9 categories)</li>
+<li>Batch processing support</li>
+</ul>
+<p><strong>Review Workflow:</strong></p>
+<ul>
+<li>PendingEvent entity and repository</li>
+<li>ReviewPage UI with pending events list</li>
+<li>Event edit dialog for modifications</li>
+<li>Approve/Edit/Reject actions</li>
+<li>Bulk operations (Approve All, Reject All)</li>
+<li>Confidence indicators with color coding</li>
+<li>Integration with timeline (approved events)</li>
+</ul>
+<p><strong>ReviewPage UI:</strong></p>
+<ul>
+<li>Pending events ListView</li>
+<li>Event details cards</li>
+<li>Edit dialog with all fields</li>
+<li>Confidence score displays</li>
+<li>Command bar with bulk actions</li>
+<li>Empty state handling</li>
+</ul>
+<h3 id="statistics-4" class="anchored">Statistics<a class="heading-anchor" href="#statistics-4" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>2,200+ lines of code added</li>
+</ul>
+<hr>
+<h2 id="phase-5-rag--embeddings" class="anchored">Phase 5: RAG &amp; Embeddings<a class="heading-anchor" href="#phase-5-rag--embeddings" aria-label="Link to this section">#</a></h2>
+<h3 id="summary-5" class="anchored">Summary<a class="heading-anchor" href="#summary-5" aria-label="Link to this section">#</a></h3>
+<p>Implemented RAG (Retrieval-Augmented Generation) capabilities with vector embeddings, similarity search, cross-reference detection, and pattern analysis.</p>
+<h3 id="deliverables-5" class="anchored">Deliverables<a class="heading-anchor" href="#deliverables-5" aria-label="Link to this section">#</a></h3>
+<p><strong>Embedding Service:</strong></p>
+<ul>
+<li>IEmbeddingService interface</li>
+<li>OpenAIEmbeddingService implementation</li>
+<li>text-embedding-3-small model (1536 dimensions)</li>
+<li>Batch embedding generation</li>
+<li>Cosine similarity calculation</li>
+<li>K-nearest neighbors search</li>
+<li>Threshold-based filtering</li>
+</ul>
+<p><strong>RAG Service:</strong></p>
+<ul>
+<li>IRagService interface</li>
+<li>RagService implementation</li>
+<li>Similarity search (find similar events)</li>
+<li>Cross-reference detection (6 relationship types)</li>
+<li>Pattern detection (categories, clusters, transitions)</li>
+<li>Tag suggestions based on similarity</li>
+<li>LLM-powered relationship analysis</li>
+</ul>
+<p><strong>Data Layer:</strong></p>
+<ul>
+<li>EventEmbedding entity</li>
+<li>CrossReference entity</li>
+<li>EventEmbeddingRepository</li>
+<li>CrossReferenceRepository</li>
+<li>Vector storage as JSON</li>
+</ul>
+<p><strong>ConnectionsPage UI:</strong></p>
+<ul>
+<li>ConnectionsViewModel with observable collections</li>
+<li>Three-section layout (Similar Events, Cross-References, Tag Suggestions)</li>
+<li>Similar events list with similarity scores</li>
+<li>Cross-references with relationship type icons</li>
+<li>Tag suggestions with confidence</li>
+<li>Refresh command</li>
+<li>Generate Embeddings batch workflow</li>
+<li>Navigate to event command</li>
+</ul>
+<p><strong>Embedding Generation Workflow:</strong></p>
+<ul>
+<li>Automatic embedding on event creation (fire-and-forget)</li>
+<li>Manual embedding generation per event</li>
+<li>Batch embedding generation for all events</li>
+<li>Progress reporting</li>
+</ul>
+<p><strong>Navigation Integration:</strong></p>
+<ul>
+<li>ConnectionsPage registered in navigation</li>
+<li>Navigation menu item with icon</li>
+<li>Deep linking with eventId parameter</li>
+<li>ViewModel and Page registered in DI</li>
+</ul>
+<h3 id="statistics-5" class="anchored">Statistics<a class="heading-anchor" href="#statistics-5" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>2,000+ lines of code added</li>
+</ul>
+<hr>
+<h2 id="phase-6-polish--windows-integration" class="anchored">Phase 6: Polish &amp; Windows Integration<a class="heading-anchor" href="#phase-6-polish--windows-integration" aria-label="Link to this section">#</a></h2>
+<h3 id="summary-6" class="anchored">Summary<a class="heading-anchor" href="#summary-6" aria-label="Link to this section">#</a></h3>
+<p>Added export/import functionality, Windows 11 integration features (notifications, JumpList, Timeline), and comprehensive UI polish.</p>
+<h3 id="deliverables-6" class="anchored">Deliverables<a class="heading-anchor" href="#deliverables-6" aria-label="Link to this section">#</a></h3>
+<p><strong>Export Service:</strong></p>
+<ul>
+<li>IExportService interface</li>
+<li>ExportService implementation</li>
+<li>Export to JSON (with date filtering)</li>
+<li>Export to CSV (with proper escaping)</li>
+<li>Export to Markdown (grouped by year)</li>
+<li>Full database export</li>
+<li>Progress reporting (IProgress<int>)</li>
+</ul>
+<p><strong>Import Service:</strong></p>
+<ul>
+<li>IImportService interface</li>
+<li>ImportService implementation</li>
+<li>Import from JSON (with validation)</li>
+<li>Duplicate detection (by title + date)</li>
+<li>Conflict resolution options</li>
+<li>Automatic backup creation</li>
+<li>ImportResult with detailed statistics</li>
+<li>ValidationResult for file validation</li>
+<li>Progress reporting with messages</li>
+</ul>
+<p><strong>Windows Notification Service:</strong></p>
+<ul>
+<li>INotificationService interface</li>
+<li>NotificationService implementation</li>
+<li>Toast notifications (simple)</li>
+<li>Action notifications with callbacks</li>
+<li>Success/Error styled notifications</li>
+<li>Processing complete notifications</li>
+<li>AppNotificationManager integration</li>
+</ul>
+<p><strong>Windows JumpList Service:</strong></p>
+<ul>
+<li>IJumpListService interface</li>
+<li>JumpListService implementation</li>
+<li>Recent events (last 10 accessed)</li>
+<li>Quick actions (New Event, Start Recording, View Timeline, Search)</li>
+<li>Deep linking with arguments</li>
+<li>Group-based organization</li>
+<li>Duplicate prevention</li>
+</ul>
+<p><strong>Windows Timeline Service:</strong></p>
+<ul>
+<li>IWindowsTimelineService interface</li>
+<li>WindowsTimelineService implementation</li>
+<li>Publish events to Windows Timeline</li>
+<li>User Activity API integration</li>
+<li>Adaptive Card visualization</li>
+<li>Deep link support (memory-timeline://event/{id})</li>
+<li>Activity update and removal</li>
+<li>Protocol handler registration</li>
+</ul>
+<p><strong>Settings UI Enhancement:</strong></p>
+<ul>
+<li>Export/Import section added to SettingsPage</li>
+<li>Export buttons (JSON, CSV, Markdown)</li>
+<li>Import button with file picker</li>
+<li>Progress indicators (ProgressBar, ProgressRing)</li>
+<li>Status message displays</li>
+<li>FileSavePicker/FileOpenPicker integration</li>
+<li>Button state management during operations</li>
+</ul>
+<p><strong>SettingsViewModel Enhancement:</strong></p>
+<ul>
+<li>ExportToJsonCommand</li>
+<li>ExportToCsvCommand</li>
+<li>ExportToMarkdownCommand</li>
+<li>ImportFromJsonCommand</li>
+<li>Progress properties (IsExporting, IsImporting, ExportProgress)</li>
+<li>Status message properties</li>
+<li>Window handle initialization for pickers</li>
+</ul>
+<h3 id="statistics-6" class="anchored">Statistics<a class="heading-anchor" href="#statistics-6" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>2,500+ lines of code added</li>
+</ul>
+<hr>
+<h2 id="technology-stack-summary" class="anchored">Technology Stack Summary<a class="heading-anchor" href="#technology-stack-summary" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap"><table><thead><tr>
+<th>Component</th>
+<th>Technology</th>
+<th>Version</th>
+</tr>
+</thead><tbody><tr>
+<td><strong>UI Framework</strong></td>
+<td>WinUI 3 + XAML</td>
+<td>Windows App SDK 1.5+</td>
+</tr>
+<tr>
+<td><strong>Runtime</strong></td>
+<td>.NET 8</td>
+<td>8.0</td>
+</tr>
+<tr>
+<td><strong>Database</strong></td>
+<td>SQLite + EF Core</td>
+<td>EF Core 8.0</td>
+</tr>
+<tr>
+<td><strong>MVVM</strong></td>
+<td>CommunityToolkit.Mvvm</td>
+<td>8.2.2</td>
+</tr>
+<tr>
+<td><strong>Audio</strong></td>
+<td>Windows.Media.Capture</td>
+<td>Windows SDK</td>
+</tr>
+<tr>
+<td><strong>STT</strong></td>
+<td>Windows.Media.SpeechRecognition</td>
+<td>Windows SDK</td>
+</tr>
+<tr>
+<td><strong>LLM</strong></td>
+<td>Anthropic Claude API</td>
+<td>claude-sonnet-4-20250514</td>
+</tr>
+<tr>
+<td><strong>Embeddings</strong></td>
+<td>OpenAI API</td>
+<td>text-embedding-3-small</td>
+</tr>
+<tr>
+<td><strong>Navigation</strong></td>
+<td>Frame-based</td>
+<td>WinUI 3</td>
+</tr>
+<tr>
+<td><strong>Theming</strong></td>
+<td>Light/Dark mode</td>
+<td>WinUI 3</td>
+</tr>
+<tr>
+<td><strong>Notifications</strong></td>
+<td>AppNotifications</td>
+<td>Windows App SDK</td>
+</tr>
+<tr>
+<td><strong>JumpList</strong></td>
+<td>Windows.UI.StartScreen</td>
+<td>UWP API</td>
+</tr>
+<tr>
+<td><strong>Timeline</strong></td>
+<td>UserActivities</td>
+<td>UWP API</td>
+</tr>
+</tbody></table></div>
+<hr>
+<h2 id="code-statistics-summary" class="anchored">Code Statistics Summary<a class="heading-anchor" href="#code-statistics-summary" aria-label="Link to this section">#</a></h2>
+<h3 id="overall-project" class="anchored">Overall Project<a class="heading-anchor" href="#overall-project" aria-label="Link to this section">#</a></h3>
+<ul>
+<li><strong>Total Projects:</strong> 4 (Main App, Core, Data, Tests)</li>
+<li><strong>Total Code Files:</strong> 100+</li>
+<li><strong>Total Lines of Code:</strong> ~15,000+</li>
+<li><strong>Data Models:</strong> 13</li>
+<li><strong>Service Interfaces:</strong> 12</li>
+<li><strong>Service Implementations:</strong> 12</li>
+<li><strong>Repositories:</strong> 9</li>
+<li><strong>ViewModels:</strong> 7</li>
+<li><strong>Views (XAML Pages):</strong> 6</li>
+</ul>
+<h3 id="by-phase" class="anchored">By Phase<a class="heading-anchor" href="#by-phase" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap"><table><thead><tr>
+<th>Phase</th>
+<th>Lines of Code</th>
+<th>Focus Area</th>
+</tr>
+</thead><tbody><tr>
+<td>Phase 0</td>
+<td>~1,500</td>
+<td>Scaffolding, configuration</td>
+</tr>
+<tr>
+<td>Phase 1</td>
+<td>~2,500</td>
+<td>Database, services, DI</td>
+</tr>
+<tr>
+<td>Phase 2</td>
+<td>~2,000</td>
+<td>Timeline UI, controls</td>
+</tr>
+<tr>
+<td>Phase 3</td>
+<td>~1,800</td>
+<td>Audio, queue, STT</td>
+</tr>
+<tr>
+<td>Phase 4</td>
+<td>~2,200</td>
+<td>LLM, extraction, review</td>
+</tr>
+<tr>
+<td>Phase 5</td>
+<td>~2,000</td>
+<td>RAG, embeddings, connections</td>
+</tr>
+<tr>
+<td>Phase 6</td>
+<td>~2,500</td>
+<td>Export, import, Windows integration</td>
+</tr>
+</tbody></table></div>
+<hr>
+<h2 id="architecture-achievements" class="anchored">Architecture Achievements<a class="heading-anchor" href="#architecture-achievements" aria-label="Link to this section">#</a></h2>
+<h3 id="clean-architecture" class="anchored">Clean Architecture<a class="heading-anchor" href="#clean-architecture" aria-label="Link to this section">#</a></h3>
+<ul>
+<li><strong>Presentation Layer:</strong> WinUI 3 + XAML</li>
+<li><strong>Application Layer:</strong> Services + ViewModels</li>
+<li><strong>Domain Layer:</strong> Models + Interfaces</li>
+<li><strong>Infrastructure Layer:</strong> Repositories + External APIs</li>
+</ul>
+<h3 id="mvvm-pattern" class="anchored">MVVM Pattern<a class="heading-anchor" href="#mvvm-pattern" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>ObservableObject base with CommunityToolkit.Mvvm</li>
+<li>IRelayCommand for all user actions</li>
+<li>x:Bind for performance</li>
+<li>Proper separation of concerns</li>
+</ul>
+<h3 id="dependency-injection" class="anchored">Dependency Injection<a class="heading-anchor" href="#dependency-injection" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>Full DI container setup with Microsoft.Extensions.DependencyInjection</li>
+<li>Scoped, Singleton, and Transient lifetimes appropriately used</li>
+<li>All services, repositories, ViewModels, and Pages registered</li>
+</ul>
+<hr>
+<h2 id="known-limitations" class="anchored">Known Limitations<a class="heading-anchor" href="#known-limitations" aria-label="Link to this section">#</a></h2>
+<p>Current limitations pending Phase 7:</p>
+<ol>
+<li><strong>Testing:</strong> Comprehensive automated tests not yet implemented</li>
+<li><strong>Performance:</strong> Not yet validated with 5000+ events at scale</li>
+<li><strong>MSIX Package:</strong> Not created yet</li>
+<li><strong>Store Submission:</strong> Not submitted yet</li>
+<li><strong>NPU Acceleration:</strong> Stubs in place, not implemented (future enhancement)</li>
+<li><strong>Local Embeddings:</strong> Only cloud-based (OpenAI) currently</li>
+<li><strong>PDF Export:</strong> Interface defined but not implemented</li>
+</ol>
+<hr>
+<h2 id="phase-7-testing--deployment-pending" class="anchored">Phase 7: Testing &amp; Deployment (Pending)<a class="heading-anchor" href="#phase-7-testing--deployment-pending" aria-label="Link to this section">#</a></h2>
+<h3 id="objectives" class="anchored">Objectives<a class="heading-anchor" href="#objectives" aria-label="Link to this section">#</a></h3>
+<ol>
+<li>Comprehensive testing (unit, integration, UI, performance)</li>
+<li>Performance validation (60 FPS with 5000+ events)</li>
+<li>MSIX packaging and code signing</li>
+<li>Microsoft Store submission</li>
+</ol>
+<h3 id="testing-requirements" class="anchored">Testing Requirements<a class="heading-anchor" href="#testing-requirements" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>Unit tests for all services (&gt; 80% coverage)</li>
+<li>Integration tests for database operations</li>
+<li>UI tests with WinAppDriver</li>
+<li>Performance tests with large datasets</li>
+</ul>
+<h3 id="packaging-requirements" class="anchored">Packaging Requirements<a class="heading-anchor" href="#packaging-requirements" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>Package manifest configuration</li>
+<li>App icons and assets (all sizes)</li>
+<li>Code signing with EV certificate</li>
+<li>Dependencies bundling</li>
+</ul>
+<h3 id="store-submission-requirements" class="anchored">Store Submission Requirements<a class="heading-anchor" href="#store-submission-requirements" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>Partner Center account</li>
+<li>Store listing preparation</li>
+<li>Screenshots and descriptions</li>
+<li>Privacy policy</li>
+<li>Age ratings</li>
+</ul>
+<hr>
+<h2 id="post-phase-6-hardening--feature-audit--fix-pass-2026-07" class="anchored">Post-Phase-6 Hardening — Feature Audit &amp; Fix Pass (2026-07)<a class="heading-anchor" href="#post-phase-6-hardening--feature-audit--fix-pass-2026-07" aria-label="Link to this section">#</a></h2>
+<p>After the Phase 6 &quot;feature-complete&quot; milestone, and before formal Phase 7 testing,
+three live user-reported bugs triggered a multi-agent feature audit and fix pass.
+This section records what happened; the detailed findings live in
+<a href="feature-audit.html"><code>FEATURE-AUDIT.md</code></a> and the deferred work in
+<a href="hardening-followups.html"><code>HARDENING-FOLLOWUPS.md</code></a>.</p>
+<h3 id="1-reported-bugs-that-triggered-the-pass" class="anchored">1. Reported bugs that triggered the pass<a class="heading-anchor" href="#1-reported-bugs-that-triggered-the-pass" aria-label="Link to this section">#</a></h3>
+<ul>
+<li><strong>Save did nothing</strong> — pressing Save on the Add Event dialog produced no event.</li>
+<li><strong>Search error</strong> — searching for the just-added event showed a generic &quot;search error&quot;.</li>
+<li><strong>Refresh showed nothing</strong> — the timeline Refresh button did not surface the new event.</li>
+</ul>
+<h3 id="2-root-causes-found-five-specialized-agents-end-to-end-traces" class="anchored">2. Root causes found (five specialized agents, end-to-end traces)<a class="heading-anchor" href="#2-root-causes-found-five-specialized-agents-end-to-end-traces" aria-label="Link to this section">#</a></h3>
+<ul>
+<li><strong>Category-casing save bug + swallowed errors</strong> — the Add Event dialog fell back to
+<code>&quot;Other&quot;</code> (capital O) while validation checked case-sensitively against lowercase
+categories, throwing before any DB write; the exception was reduced to a status-text
+log line while the dialog had already closed. This produced &quot;Save does nothing&quot; and,
+because no row was inserted, &quot;Refresh shows nothing&quot;.</li>
+<li><strong>App-wide shared <code>AppDbContext</code> (concurrency)</strong> — every page resolved its ViewModel
+from the root provider, so one Scoped, never-disposed context served the whole app.
+Overlapping operations (a fire-and-forget embedding <code>Task.Run</code> racing un-debounced
+per-keystroke search queries) threw &quot;a second operation was started on this context&quot;,
+surfaced as the &quot;search error&quot;.</li>
+<li><strong>Mic-based STT that ignored the recorded file</strong> — the speech-to-text path loaded the
+recorded WAV into an unused variable and then transcribed the live microphone, so the
+core audio ingestion loop never processed the actual recording.</li>
+</ul>
+<h3 id="3-fixes-shipped" class="anchored">3. Fixes shipped<a class="heading-anchor" href="#3-fixes-shipped" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>Category-casing fallback normalized; <code>ValidateEvent</code> made case-insensitive; Add Event
+dialog now takes a deferral and surfaces errors in-dialog instead of silently closing.</li>
+<li>Data access converted to <strong>per-operation contexts</strong> via <code>IDbContextFactory&lt;AppDbContext&gt;</code>;
+the shared-context embedding <code>Task.Run</code> removed/rescoped; search input debounced and
+cancellable; <code>Tag.Name</code> → <code>TagName</code> in queries.</li>
+<li>Startup switched to <code>SchemaUpgrader.EnsureSchemaAsync</code> (EnsureCreated + idempotent drift
+repair); stale EF migrations deleted (a real migration baseline is a follow-up).</li>
+<li>STT replaced with <strong>local Whisper</strong> (Whisper.net, ggml base model, offline after first
+model download), transcribing the recorded file instead of the live mic.</li>
+<li>Atomic approve (event + tags/people/locations in one transaction) with timeline
+auto-refresh; settings key writer/reader unified under a <code>SettingKeys</code> constants class;
+embeddings settings-key + provider/dimension wiring; RAG mapped-column queries +
+persistence + <code>IsAvailable</code>; export <code>Include</code> fix; unified <code>INotificationService</code>;
+navigation param overload; dead <code>AnthropicClaudeService</code> / <code>IAudioService</code> deleted.</li>
+</ul>
+<h3 id="4-ci-windows-build-workflow-added" class="anchored">4. CI Windows-build workflow added<a class="heading-anchor" href="#4-ci-windows-build-workflow-added" aria-label="Link to this section">#</a></h3>
+<ul>
+<li><code>.github/workflows/windows-native-build.yml</code> builds <code>Release|x64</code> on <code>windows-latest</code>
+and runs the test suite. Build realities pinned down in the process: the solution is
+<strong>x64-only</strong> (no AnyCPU); WinUI 3 PRI generation needs Visual Studio <code>msbuild.exe</code>
+(<code>dotnet build</code> fails MSB4062); <code>global.json</code> pins the <strong>.NET 8 SDK</strong> with
+<code>rollForward: &quot;major&quot;</code>. The solution builds green in CI.</li>
+</ul>
+<h3 id="5-outcome" class="anchored">5. Outcome<a class="heading-anchor" href="#5-outcome" aria-label="Link to this section">#</a></h3>
+<p>The three reported bugs were resolved at the code level and the shared-context foundation
+defect beneath them removed. The solution builds green in CI, but <strong>end-to-end runtime
+validation is ongoing</strong> — this work is part of Phase 7 and the app is <strong>not yet production
+ready</strong>. Deferred items (runtime validation, DPAPI key encryption, regenerated EF migration
+baseline, Whisper model/language options, analytics export, MSIX + Store, updating tests to
+the context factory) are tracked in <a href="hardening-followups.html"><code>HARDENING-FOLLOWUPS.md</code></a>.</p>
+<hr>
+<h2 id="references" class="anchored">References<a class="heading-anchor" href="#references" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><strong>Main README:</strong> <code>README.md</code></li>
+<li><strong>Development Status:</strong> <code>DEVELOPMENT-STATUS.md</code></li>
+<li><strong>Testing Guide:</strong> <code>TESTING.md</code></li>
+<li><strong>Deployment Guide:</strong> <code>DEPLOYMENT.md</code></li>
+<li><strong>Scripts Documentation:</strong> <code>scripts/README.md</code></li>
+</ul>
+<hr>
+<p><strong>Document Owner:</strong> Development Team<br><strong>Version:</strong> 1.0.0<br><strong>Created:</strong> 2026-01-17  </p>
+
+<nav class="pager" aria-label="Document navigation">
+  <a class="pager-link pager-prev" href="development-status.html">
+      <span class="pager-kind">← Previous</span>
+      <span class="pager-title">Development status</span>
+    </a>
+  <a class="pager-link pager-next" href="migration-to-native-windows.html">
+      <span class="pager-kind">Next →</span>
+      <span class="pager-title">Migration to native Windows</span>
+    </a>
+</nav>
+  </article>
+<aside class="toc" aria-label="On this page">
+  <p class="toc-title">On this page</p>
+  <ul class="toc-list">
+<li class="toc-item toc-h2"><a href="#executive-summary" data-toc-link>Executive Summary</a></li>
+<li class="toc-item toc-h3"><a href="#progress-overview" data-toc-link>Progress Overview</a></li>
+<li class="toc-item toc-h2"><a href="#phase-0-preparation" data-toc-link>Phase 0: Preparation</a></li>
+<li class="toc-item toc-h3"><a href="#summary" data-toc-link>Summary</a></li>
+<li class="toc-item toc-h3"><a href="#deliverables" data-toc-link>Deliverables</a></li>
+<li class="toc-item toc-h3"><a href="#statistics" data-toc-link>Statistics</a></li>
+<li class="toc-item toc-h2"><a href="#phase-1-core-infrastructure" data-toc-link>Phase 1: Core Infrastructure</a></li>
+<li class="toc-item toc-h3"><a href="#summary-1" data-toc-link>Summary</a></li>
+<li class="toc-item toc-h3"><a href="#deliverables-1" data-toc-link>Deliverables</a></li>
+<li class="toc-item toc-h3"><a href="#statistics-1" data-toc-link>Statistics</a></li>
+<li class="toc-item toc-h3"><a href="#electron-vs-windows-native-comparison" data-toc-link>Electron vs Windows Native Comparison</a></li>
+<li class="toc-item toc-h2"><a href="#phase-2-timeline-visualization" data-toc-link>Phase 2: Timeline Visualization</a></li>
+<li class="toc-item toc-h3"><a href="#summary-2" data-toc-link>Summary</a></li>
+<li class="toc-item toc-h3"><a href="#deliverables-2" data-toc-link>Deliverables</a></li>
+<li class="toc-item toc-h3"><a href="#statistics-2" data-toc-link>Statistics</a></li>
+<li class="toc-item toc-h2"><a href="#phase-3-audio--processing" data-toc-link>Phase 3: Audio &amp; Processing</a></li>
+<li class="toc-item toc-h3"><a href="#summary-3" data-toc-link>Summary</a></li>
+<li class="toc-item toc-h3"><a href="#deliverables-3" data-toc-link>Deliverables</a></li>
+<li class="toc-item toc-h3"><a href="#statistics-3" data-toc-link>Statistics</a></li>
+<li class="toc-item toc-h2"><a href="#phase-4-llm-integration" data-toc-link>Phase 4: LLM Integration</a></li>
+<li class="toc-item toc-h3"><a href="#summary-4" data-toc-link>Summary</a></li>
+<li class="toc-item toc-h3"><a href="#deliverables-4" data-toc-link>Deliverables</a></li>
+<li class="toc-item toc-h3"><a href="#statistics-4" data-toc-link>Statistics</a></li>
+<li class="toc-item toc-h2"><a href="#phase-5-rag--embeddings" data-toc-link>Phase 5: RAG &amp; Embeddings</a></li>
+<li class="toc-item toc-h3"><a href="#summary-5" data-toc-link>Summary</a></li>
+<li class="toc-item toc-h3"><a href="#deliverables-5" data-toc-link>Deliverables</a></li>
+<li class="toc-item toc-h3"><a href="#statistics-5" data-toc-link>Statistics</a></li>
+<li class="toc-item toc-h2"><a href="#phase-6-polish--windows-integration" data-toc-link>Phase 6: Polish &amp; Windows Integration</a></li>
+<li class="toc-item toc-h3"><a href="#summary-6" data-toc-link>Summary</a></li>
+<li class="toc-item toc-h3"><a href="#deliverables-6" data-toc-link>Deliverables</a></li>
+<li class="toc-item toc-h3"><a href="#statistics-6" data-toc-link>Statistics</a></li>
+<li class="toc-item toc-h2"><a href="#technology-stack-summary" data-toc-link>Technology Stack Summary</a></li>
+<li class="toc-item toc-h2"><a href="#code-statistics-summary" data-toc-link>Code Statistics Summary</a></li>
+<li class="toc-item toc-h3"><a href="#overall-project" data-toc-link>Overall Project</a></li>
+<li class="toc-item toc-h3"><a href="#by-phase" data-toc-link>By Phase</a></li>
+<li class="toc-item toc-h2"><a href="#architecture-achievements" data-toc-link>Architecture Achievements</a></li>
+<li class="toc-item toc-h3"><a href="#clean-architecture" data-toc-link>Clean Architecture</a></li>
+<li class="toc-item toc-h3"><a href="#mvvm-pattern" data-toc-link>MVVM Pattern</a></li>
+<li class="toc-item toc-h3"><a href="#dependency-injection" data-toc-link>Dependency Injection</a></li>
+<li class="toc-item toc-h2"><a href="#known-limitations" data-toc-link>Known Limitations</a></li>
+<li class="toc-item toc-h2"><a href="#phase-7-testing--deployment-pending" data-toc-link>Phase 7: Testing &amp; Deployment (Pending)</a></li>
+<li class="toc-item toc-h3"><a href="#objectives" data-toc-link>Objectives</a></li>
+<li class="toc-item toc-h3"><a href="#testing-requirements" data-toc-link>Testing Requirements</a></li>
+<li class="toc-item toc-h3"><a href="#packaging-requirements" data-toc-link>Packaging Requirements</a></li>
+<li class="toc-item toc-h3"><a href="#store-submission-requirements" data-toc-link>Store Submission Requirements</a></li>
+<li class="toc-item toc-h2"><a href="#post-phase-6-hardening--feature-audit--fix-pass-2026-07" data-toc-link>Post-Phase-6 Hardening — Feature Audit &amp; Fix Pass (2026-07)</a></li>
+<li class="toc-item toc-h3"><a href="#1-reported-bugs-that-triggered-the-pass" data-toc-link>1. Reported bugs that triggered the pass</a></li>
+<li class="toc-item toc-h3"><a href="#2-root-causes-found-five-specialized-agents-end-to-end-traces" data-toc-link>2. Root causes found (five specialized agents, end-to-end traces)</a></li>
+<li class="toc-item toc-h3"><a href="#3-fixes-shipped" data-toc-link>3. Fixes shipped</a></li>
+<li class="toc-item toc-h3"><a href="#4-ci-windows-build-workflow-added" data-toc-link>4. CI Windows-build workflow added</a></li>
+<li class="toc-item toc-h3"><a href="#5-outcome" data-toc-link>5. Outcome</a></li>
+<li class="toc-item toc-h2"><a href="#references" data-toc-link>References</a></li>
+  </ul>
+  <a class="toc-top" href="#main">↑ Back to top</a>
+</aside>
+</div>
+    <footer class="site-footer">
+      <div>
+        <strong>Memory Timeline</strong> documentation ·
+        19 documents ·
+        generated 2026-08-07
+      </div>
+      <div class="footer-links">
+        <a href="index.html">Home</a>
+        <a href="documentation-map.html">All documentation</a>
+        <a href="https://github.com/ethanbissbort/memory-line" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </div>
+      <div class="footer-note">
+        This site is generated from the markdown in the repository — edit the source files and rebuild.
+      </div>
+    </footer>
+  </main>
+</div>
+
+<div class="search-modal" data-search-modal hidden>
+  <div class="search-backdrop" data-search-close></div>
+  <div class="search-panel" role="dialog" aria-modal="true" aria-label="Search documentation">
+    <div class="search-input-row">
+      <svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><circle cx="9" cy="9" r="5.5" stroke="currentColor" stroke-width="1.7" fill="none"/><path d="M13.2 13.2 17 17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <input type="search" placeholder="Search headings and content…" data-search-input autocomplete="off" spellcheck="false" aria-label="Search query">
+      <button class="icon-btn" type="button" data-search-close aria-label="Close search"><kbd>Esc</kbd></button>
+    </div>
+    <div class="search-results" data-search-results>
+      <p class="search-hint">Start typing to search every document on this site.</p>
+    </div>
+  </div>
+</div>
+
+<script src="assets/search-index.js" defer></script>
+<script src="assets/app.js" defer></script>
+</body>
+</html>

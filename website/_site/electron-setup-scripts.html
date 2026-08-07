@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Electron setup scripts · Memory Timeline docs</title>
+<meta name="description" content="setup-windows.ps1 and setup-ubuntu.sh — cross-platform dependency installation, common issues, manual steps, and verification.">
+<meta property="og:title" content="Electron setup scripts · Memory Timeline docs">
+<meta property="og:description" content="setup-windows.ps1 and setup-ubuntu.sh — cross-platform dependency installation, common issues, manual steps, and verification.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%227%22%20fill%3D%22%231d1b18%22%2F%3E%3Cpath%20d%3D%22M4%2021h24%22%20stroke%3D%22%238b8175%22%20stroke-width%3D%221.5%22%20stroke-linecap%3D%22round%22%2F%3E%3Ccircle%20cx%3D%229%22%20cy%3D%2221%22%20r%3D%223.1%22%20fill%3D%22%23e0873f%22%2F%3E%3Ccircle%20cx%3D%2217%22%20cy%3D%2214%22%20r%3D%223.6%22%20fill%3D%22%23f0b46e%22%2F%3E%3Ccircle%20cx%3D%2225%22%20cy%3D%2218%22%20r%3D%222.6%22%20fill%3D%22%236ec2b8%22%2F%3E%3Cpath%20d%3D%22M9%2021%2017%2014%2025%2018%22%20stroke%3D%22%238b8175%22%20stroke-width%3D%221.2%22%20fill%3D%22none%22%20stroke-linejoin%3D%22round%22%20opacity%3D%22.8%22%2F%3E%3C%2Fsvg%3E">
+<link rel="stylesheet" href="assets/styles.css">
+<script>(function(){try{var t=localStorage.getItem('mt-theme');if(t==='light'||t==='dark'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();</script>
+</head>
+<body class="page-doc" data-page="electron-setup-scripts">
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="icon-btn nav-toggle" type="button" aria-label="Toggle navigation" aria-expanded="false" data-nav-toggle>
+      <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg>
+    </button>
+    <a class="brand" href="index.html">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="26" height="26"><path d="M3 22h26" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity=".45"/><circle cx="8" cy="22" r="3" fill="currentColor" opacity=".55"/><circle cx="16" cy="14" r="3.8" fill="currentColor"/><circle cx="25" cy="18.5" r="2.6" fill="currentColor" opacity=".7"/></svg>
+      </span>
+      <span class="brand-text">
+        <span class="brand-name">Memory Timeline</span>
+        <span class="brand-sub">Documentation</span>
+      </span>
+    </a>
+
+    <button class="searchbar" type="button" data-search-open aria-label="Search documentation">
+      <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><circle cx="9" cy="9" r="5.5" stroke="currentColor" stroke-width="1.7" fill="none"/><path d="M13.2 13.2 17 17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <span>Search the docs</span>
+      <kbd>/</kbd>
+    </button>
+
+    <div class="topbar-actions">
+      <button class="icon-btn" type="button" data-theme-toggle aria-label="Switch colour theme" title="Switch colour theme">
+        <svg class="icon-sun" viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><circle cx="10" cy="10" r="4" fill="currentColor"/><path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6 16 16M16 4l-1.4 1.4M5.4 14.6 4 16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <svg class="icon-moon" viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><path d="M16.5 12.4A7 7 0 0 1 7.6 3.5a7 7 0 1 0 8.9 8.9Z" fill="currentColor"/></svg>
+      </button>
+      <a class="icon-btn" href="https://github.com/ethanbissbort/memory-line" target="_blank" rel="noopener noreferrer" aria-label="View the repository on GitHub" title="Repository on GitHub">
+        <svg viewBox="0 0 16 16" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38l-.01-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.93-.89-1.18-.89-1.18-.73-.5.05-.49.05-.49.81.06 1.23.83 1.23.83.72 1.23 1.88.87 2.34.67.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48l-.01 2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+      </a>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" data-sidebar>
+    <nav aria-label="Documentation">
+      <ul class="nav">
+        <li class="nav-section">
+          <p class="nav-section-title">Start here</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="index.html">Home</a>
+            </li>
+            <li><a class="nav-link" href="documentation-map.html">All documentation</a>
+            </li>
+            <li><a class="nav-link" href="overview.html">Project overview</a>
+            </li>
+            <li><a class="nav-link" href="developer-guide.html">Developer guide</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Windows Native app</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="windows-native.html">Windows Native app</a>
+            </li>
+            <li><a class="nav-link" href="setup-scripts-windows.html">PowerShell setup scripts</a>
+            </li>
+            <li><a class="nav-link" href="testing.html">Testing guide</a>
+            </li>
+            <li><a class="nav-link" href="deployment.html">Deployment guide</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Status &amp; history</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="development-status.html">Development status</a>
+            </li>
+            <li><a class="nav-link" href="development-history.html">Development history</a>
+            </li>
+            <li><a class="nav-link" href="migration-to-native-windows.html">Migration to native Windows</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Audits &amp; reviews</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="feature-audit.html">Feature audit (2026-07)</a>
+            </li>
+            <li><a class="nav-link" href="hardening-followups.html">Hardening follow-ups</a>
+            </li>
+            <li><a class="nav-link" href="repo-audit-2026-07.html">Exhaustive repo audit</a>
+            </li>
+            <li><a class="nav-link" href="multi-agent-code-review.html">Multi-agent code review</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Design notes</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="people-feature-contracts.html">People feature contracts</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Legacy Electron build</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="electron-deployment.html">Electron deployment &amp; install</a>
+            </li>
+            <li><a class="nav-link is-active" href="electron-setup-scripts.html" aria-current="page">Electron setup scripts</a>
+              <ul class="nav-sub">
+                <li><a class="nav-sublink" href="#-legacy--electron-implementation-status-as-of-2026-07-10">⚠️ LEGACY — Electron implementation (status as of 2026-07-10)</a></li>
+                <li><a class="nav-sublink" href="#available-scripts-electronnodejs-version">Available Scripts (Electron/Node.js Version)</a></li>
+                <li><a class="nav-sublink" href="#common-issues--solutions">Common Issues &amp; Solutions</a></li>
+                <li><a class="nav-sublink" href="#manual-installation">Manual Installation</a></li>
+                <li><a class="nav-sublink" href="#verifying-installation">Verifying Installation</a></li>
+                <li><a class="nav-sublink" href="#next-steps">Next Steps</a></li>
+                <li><a class="nav-sublink" href="#support">Support</a></li>
+              </ul>
+            </li>
+            <li><a class="nav-link" href="electron-setup-logs.html">Setup script logs</a>
+            </li>
+            <li><a class="nav-link" href="electron-tests.html">Electron test suite</a>
+            </li>
+            <li><a class="nav-link" href="electron-test-databases.html">Test databases</a>
+            </li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+  </aside>
+  <div class="sidebar-scrim" data-nav-close hidden></div>
+
+  <main class="main" id="main">
+
+<header class="doc-header">
+  <nav class="breadcrumb" aria-label="Breadcrumb">
+    <a href="index.html">Docs</a>
+    <span aria-hidden="true">/</span>
+    <span>Legacy Electron build</span>
+  </nav>
+  <h1>Electron setup scripts</h1>
+  <p class="doc-lede">setup-windows.ps1 and setup-ubuntu.sh — cross-platform dependency installation, common issues, manual steps, and verification.</p>
+  <div class="doc-meta">
+    <span class="doc-meta-item"><b>For</b> Developers</span>
+    <span class="doc-meta-item"><b>956</b> words</span>
+    <span class="doc-meta-item"><b>4</b> min read</span>
+    <a class="doc-meta-item doc-source" href="https://github.com/ethanbissbort/memory-line/blob/main/scripts/README.md" target="_blank" rel="noopener noreferrer">
+      scripts/README.md ↗
+    </a>
+  </div>
+  <div class="tags"><span class="tag">Electron</span><span class="tag">setup</span><span class="tag">scripts</span></div>
+</header>
+<div class="doc-grid">
+  <article class="prose">
+<div class="callout callout-feature"><div class="callout-body"><h2 id="-legacy--electron-implementation-status-as-of-2026-07-10" class="anchored">⚠️ LEGACY — Electron implementation (status as of 2026-07-10)<a class="heading-anchor" href="#-legacy--electron-implementation-status-as-of-2026-07-10" aria-label="Link to this section">#</a></h2>
+<p>This directory belongs to the <strong>legacy Electron/Node.js</strong> version of Memory Timeline.
+The <strong>primary, actively developed product is now the Windows Native app (.NET 8 / WinUI 3)</strong> under <a href="https://github.com/ethanbissbort/memory-line/tree/main/windows-native" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>windows-native/</code></a>.</p>
+<ul>
+<li>New setup/build docs: <a href="setup-scripts-windows.html"><code>windows-native/scripts/README.md</code></a></li>
+<li>Primary test suite: <a href="testing.html"><code>windows-native/TESTING.md</code></a></li>
+</ul>
+<p>The content below remains valid for the Electron app but is no longer the main focus of development.</p>
+</div></div>
+<p>This directory contains automated dependency verification and installation scripts for the Memory Timeline Application.</p>
+<div class="callout callout-warning"><div class="callout-body"><p><strong>IMPORTANT NOTE:</strong> This directory contains setup scripts for the <strong>legacy Electron/Node.js version</strong> of Memory Timeline.</p>
+<p>If you&#39;re working with the <strong>native Windows version</strong> (.NET + WinUI 3), please use the scripts in:</p>
+<ul>
+<li><strong><code>windows-native/scripts/Setup-Dependencies.ps1</code></strong> - For native Windows setup</li>
+<li><strong><code>windows-native/scripts/Verify-Installation.ps1</code></strong> - For verification</li>
+<li>See <a href="setup-scripts-windows.html"><code>windows-native/scripts/README.md</code></a> for detailed documentation</li>
+</ul>
+<p>For migration guidance, see <a href="migration-to-native-windows.html"><code>MIGRATION-TO-NATIVE-WIN.md</code></a></p>
+</div></div>
+<h2 id="available-scripts-electronnodejs-version" class="anchored">Available Scripts (Electron/Node.js Version)<a class="heading-anchor" href="#available-scripts-electronnodejs-version" aria-label="Link to this section">#</a></h2>
+<h3 id="windows-11---setup-windowsps1" class="anchored">Windows 11 - <code>setup-windows.ps1</code><a class="heading-anchor" href="#windows-11---setup-windowsps1" aria-label="Link to this section">#</a></h3>
+<p>PowerShell script to verify and install all required dependencies on Windows 11.</p>
+<p><strong>Prerequisites:</strong></p>
+<ul>
+<li>Windows 11</li>
+<li>PowerShell 5.1 or later</li>
+<li>Administrator privileges (for installing system dependencies)</li>
+</ul>
+<p><strong>Usage:</strong></p>
+<div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell"><span class="tok-comment"># Development mode (installs all dependencies)</span>
+.\scripts\setup-windows.ps1
+
+<span class="tok-comment"># Development mode with auto-install (no prompts)</span>
+.\scripts\setup-windows.ps1 <span class="tok-flag">-Mode</span> dev <span class="tok-flag">-AutoInstall</span>
+
+<span class="tok-comment"># Production mode (runtime dependencies only)</span>
+.\scripts\setup-windows.ps1 <span class="tok-flag">-Mode</span> prod
+
+<span class="tok-comment"># Get help</span>
+<span class="tok-cmdlet">Get-Help</span> .\scripts\setup-windows.ps1 <span class="tok-flag">-Detailed</span></code></pre></div>
+<p><strong>What it checks and installs:</strong></p>
+<ol>
+<li><p><strong>Node.js</strong> (v16+) - JavaScript runtime</p>
+<ul>
+<li>Installed via winget (OpenJS.NodeJS.LTS)</li>
+<li>Fallback to manual download from nodejs.org</li>
+</ul>
+</li>
+<li><p><strong>npm</strong> - Node package manager</p>
+<ul>
+<li>Comes bundled with Node.js</li>
+</ul>
+</li>
+<li><p><strong>Python</strong> (v3.12+) - Required for native module compilation</p>
+<ul>
+<li>Installed via winget (Python.Python.3.12)</li>
+<li>Needed for better-sqlite3 and other native modules</li>
+</ul>
+</li>
+<li><p><strong>Visual Studio Build Tools</strong> - C++ compiler for native modules</p>
+<ul>
+<li>Requires manual installation</li>
+<li>Download: <a href="https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022" target="_blank" rel="noopener noreferrer" class="external-link">VS Build Tools 2022</a></li>
+<li>Required component: &quot;Desktop development with C++&quot;</li>
+</ul>
+</li>
+<li><p><strong>Git</strong> (optional) - Version control</p>
+<ul>
+<li>Installed via winget (Git.Git)</li>
+<li>Recommended for development</li>
+</ul>
+</li>
+</ol>
+<p><strong>Notes:</strong></p>
+<ul>
+<li>You may need to restart your terminal after installing Node.js or Python</li>
+<li>Visual Studio Build Tools requires ~6GB download</li>
+<li>The script will configure npm for better-sqlite3 compilation on Windows</li>
+</ul>
+<hr>
+<h3 id="ubuntu-24x---setup-ubuntush" class="anchored">Ubuntu 24.x - <code>setup-ubuntu.sh</code><a class="heading-anchor" href="#ubuntu-24x---setup-ubuntush" aria-label="Link to this section">#</a></h3>
+<p>Bash script to verify and install all required dependencies on Ubuntu 24.04 LTS.</p>
+<p><strong>Prerequisites:</strong></p>
+<ul>
+<li>Ubuntu 24.04 LTS (or compatible)</li>
+<li>sudo privileges</li>
+<li>Internet connection</li>
+</ul>
+<p><strong>Usage:</strong></p>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-comment"># Make script executable (first time only)</span>
+<span class="tok-builtin">chmod</span> +x ./scripts/setup-ubuntu.sh
+
+<span class="tok-comment"># Development mode (installs all dependencies)</span>
+./scripts/setup-ubuntu.sh
+
+<span class="tok-comment"># Development mode with auto-install (no prompts)</span>
+./scripts/setup-ubuntu.sh dev <span class="tok-flag">--auto</span>
+
+<span class="tok-comment"># Production mode (runtime dependencies only)</span>
+./scripts/setup-ubuntu.sh prod
+
+<span class="tok-comment"># Help</span>
+./scripts/setup-ubuntu.sh <span class="tok-flag">--help</span></code></pre></div>
+<p><strong>What it checks and installs:</strong></p>
+<ol>
+<li><p><strong>Node.js</strong> (v20.x LTS) - JavaScript runtime</p>
+<ul>
+<li>Installed from NodeSource repository</li>
+<li>Latest LTS version</li>
+</ul>
+</li>
+<li><p><strong>npm</strong> - Node package manager</p>
+<ul>
+<li>Comes bundled with Node.js</li>
+</ul>
+</li>
+<li><p><strong>Python 3</strong> - Required for native module compilation</p>
+<ul>
+<li>Usually pre-installed on Ubuntu</li>
+<li>Needed for better-sqlite3 and other native modules</li>
+</ul>
+</li>
+<li><p><strong>build-essential</strong> - GCC, G++, Make</p>
+<ul>
+<li>Required for compiling native C/C++ modules</li>
+<li>Standard development tools</li>
+</ul>
+</li>
+<li><p><strong>Additional dependencies:</strong></p>
+<ul>
+<li><code>pkg-config</code> - Build configuration tool</li>
+<li><code>libsqlite3-dev</code> - SQLite development headers</li>
+</ul>
+</li>
+<li><p><strong>Git</strong> (optional) - Version control</p>
+<ul>
+<li>Recommended for development</li>
+</ul>
+</li>
+</ol>
+<p><strong>Notes:</strong></p>
+<ul>
+<li>The script will update apt package lists before installing</li>
+<li>You may be prompted for your sudo password</li>
+<li>All dependencies are installed via apt-get</li>
+</ul>
+<hr>
+<h2 id="common-issues--solutions" class="anchored">Common Issues &amp; Solutions<a class="heading-anchor" href="#common-issues--solutions" aria-label="Link to this section">#</a></h2>
+<h3 id="windows" class="anchored">Windows<a class="heading-anchor" href="#windows" aria-label="Link to this section">#</a></h3>
+<p><strong>Issue: &quot;winget not found&quot;</strong></p>
+<ul>
+<li>Winget comes with Windows 11 by default</li>
+<li>If missing, install from: <a href="https://aka.ms/getwinget" target="_blank" rel="noopener noreferrer" class="external-link">https://aka.ms/getwinget</a></li>
+<li>Alternative: Install dependencies manually</li>
+</ul>
+<p><strong>Issue: &quot;npm install fails with python error&quot;</strong></p>
+<ul>
+<li>Ensure Python is added to PATH during installation</li>
+<li>Restart terminal after installing Python</li>
+<li>Verify with: <code>python --version</code></li>
+</ul>
+<p><strong>Issue: &quot;Cannot compile native modules&quot;</strong></p>
+<ul>
+<li>Install Visual Studio Build Tools 2022</li>
+<li>Select &quot;Desktop development with C++&quot; workload</li>
+<li>Restart terminal after installation</li>
+</ul>
+<p><strong>Issue: &quot;Access denied&quot;</strong></p>
+<ul>
+<li>Run PowerShell as Administrator</li>
+<li>Right-click PowerShell → &quot;Run as Administrator&quot;</li>
+</ul>
+<p><strong>Issue: &quot;Script execution is disabled&quot;</strong></p>
+<ul>
+<li>Enable script execution: <code>Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser</code></li>
+<li>Or run with: <code>powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1</code></li>
+</ul>
+<h3 id="ubuntu" class="anchored">Ubuntu<a class="heading-anchor" href="#ubuntu" aria-label="Link to this section">#</a></h3>
+<p><strong>Issue: &quot;Package not found&quot;</strong></p>
+<ul>
+<li>Run: <code>sudo apt-get update</code></li>
+<li>Check internet connection</li>
+<li>Verify /etc/apt/sources.list is correct</li>
+</ul>
+<p><strong>Issue: &quot;Permission denied&quot;</strong></p>
+<ul>
+<li>Ensure script is executable: <code>chmod +x scripts/setup-ubuntu.sh</code></li>
+<li>Run with sudo privileges when prompted</li>
+</ul>
+<p><strong>Issue: &quot;npm install fails&quot;</strong></p>
+<ul>
+<li>Check Node.js version: <code>node --version</code> (should be 16+)</li>
+<li>Try with verbose output: <code>npm install --verbose</code></li>
+<li>Clear npm cache: <code>npm cache clean --force</code></li>
+</ul>
+<p><strong>Issue: &quot;better-sqlite3 compilation fails&quot;</strong></p>
+<ul>
+<li>Install build-essential: <code>sudo apt-get install build-essential</code></li>
+<li>Install libsqlite3-dev: <code>sudo apt-get install libsqlite3-dev</code></li>
+<li>Ensure python3 is available: <code>python3 --version</code></li>
+</ul>
+<hr>
+<h2 id="manual-installation" class="anchored">Manual Installation<a class="heading-anchor" href="#manual-installation" aria-label="Link to this section">#</a></h2>
+<p>If automated installation fails, you can install dependencies manually:</p>
+<h3 id="windows-manual-steps" class="anchored">Windows Manual Steps<a class="heading-anchor" href="#windows-manual-steps" aria-label="Link to this section">#</a></h3>
+<ol>
+<li><strong>Node.js</strong>: Download from <a href="https://nodejs.org" target="_blank" rel="noopener noreferrer" class="external-link">https://nodejs.org</a> (LTS version)</li>
+<li><strong>Python</strong>: Download from <a href="https://python.org" target="_blank" rel="noopener noreferrer" class="external-link">https://python.org</a> (3.12+)<ul>
+<li>✓ Add to PATH during installation</li>
+</ul>
+</li>
+<li><strong>Visual Studio Build Tools</strong>: <a href="https://visualstudio.microsoft.com/downloads/" target="_blank" rel="noopener noreferrer" class="external-link">https://visualstudio.microsoft.com/downloads/</a><ul>
+<li>Select &quot;Desktop development with C++&quot;</li>
+</ul>
+</li>
+<li><strong>Git</strong>: Download from <a href="https://git-scm.com/download/win" target="_blank" rel="noopener noreferrer" class="external-link">https://git-scm.com/download/win</a></li>
+</ol>
+<p>After installation:</p>
+<div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell">cd path\to\memory-line
+<span class="tok-builtin">npm</span> install</code></pre></div>
+<h3 id="ubuntu-manual-steps" class="anchored">Ubuntu Manual Steps<a class="heading-anchor" href="#ubuntu-manual-steps" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-comment"># Update package list</span>
+<span class="tok-keyword">sudo</span> <span class="tok-builtin">apt</span>-get update
+
+<span class="tok-comment"># Install Node.js 20.x LTS</span>
+<span class="tok-builtin">curl</span> <span class="tok-flag">-fsSL</span> https://deb.nodesource.com/setup_20.x <span class="tok-operator">|</span> <span class="tok-keyword">sudo</span> <span class="tok-flag">-E</span> bash -
+<span class="tok-keyword">sudo</span> <span class="tok-builtin">apt</span>-get install <span class="tok-flag">-y</span> nodejs
+
+<span class="tok-comment"># Install build tools and dependencies</span>
+<span class="tok-keyword">sudo</span> <span class="tok-builtin">apt</span>-get install <span class="tok-flag">-y</span> build-essential <span class="tok-builtin">python3</span> pkg-config libsqlite3-dev <span class="tok-builtin">git</span>
+
+<span class="tok-comment"># Install npm dependencies</span>
+<span class="tok-builtin">cd</span> /path/to/memory-line
+<span class="tok-builtin">npm</span> install</code></pre></div>
+<hr>
+<h2 id="verifying-installation" class="anchored">Verifying Installation<a class="heading-anchor" href="#verifying-installation" aria-label="Link to this section">#</a></h2>
+<p>After running the setup scripts, verify everything is installed correctly:</p>
+<h3 id="windows-powershell" class="anchored">Windows (PowerShell)<a class="heading-anchor" href="#windows-powershell" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell"><span class="tok-comment"># Check versions</span>
+<span class="tok-builtin">node</span> --version    <span class="tok-comment"># Should be v16+</span>
+<span class="tok-builtin">npm</span> --version     <span class="tok-comment"># Should be 7+</span>
+python --version  <span class="tok-comment"># Should be 3.12+</span>
+<span class="tok-builtin">git</span> --version     <span class="tok-comment"># Should show version</span>
+
+<span class="tok-comment"># Test build tools</span>
+<span class="tok-builtin">npm</span> install --dry-run</code></pre></div>
+<h3 id="ubuntu-bash" class="anchored">Ubuntu (Bash)<a class="heading-anchor" href="#ubuntu-bash" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-comment"># Check versions</span>
+<span class="tok-builtin">node</span> <span class="tok-flag">--version</span>    <span class="tok-comment"># Should be v16+</span>
+<span class="tok-builtin">npm</span> <span class="tok-flag">--version</span>     <span class="tok-comment"># Should be 7+</span>
+<span class="tok-builtin">python3</span> <span class="tok-flag">--version</span> <span class="tok-comment"># Should be 3.x</span>
+gcc <span class="tok-flag">--version</span>     <span class="tok-comment"># Should show version</span>
+<span class="tok-builtin">git</span> <span class="tok-flag">--version</span>     <span class="tok-comment"># Should show version</span>
+
+<span class="tok-comment"># Test build tools</span>
+<span class="tok-builtin">npm</span> install <span class="tok-flag">--dry-run</span></code></pre></div>
+<hr>
+<h2 id="next-steps" class="anchored">Next Steps<a class="heading-anchor" href="#next-steps" aria-label="Link to this section">#</a></h2>
+<p>After successful dependency installation:</p>
+<ol>
+<li><p><strong>Configure API Keys</strong> (optional for AI features):</p>
+<ul>
+<li>Get Anthropic API key: <a href="https://console.anthropic.com/" target="_blank" rel="noopener noreferrer" class="external-link">https://console.anthropic.com/</a></li>
+<li>Enter in Settings panel after first run</li>
+</ul>
+</li>
+<li><p><strong>Start Development</strong>:</p>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-builtin">npm</span> run dev</code></pre></div>
+</li>
+<li><p><strong>Run Tests</strong>:</p>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-builtin">npm</span> test</code></pre></div>
+</li>
+<li><p><strong>Build for Production</strong>:</p>
+<div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-builtin">npm</span> run build
+<span class="tok-builtin">npm</span> run package</code></pre></div>
+</li>
+</ol>
+<hr>
+<h2 id="support" class="anchored">Support<a class="heading-anchor" href="#support" aria-label="Link to this section">#</a></h2>
+<p>For issues or questions:</p>
+<ul>
+<li>Check the main <a href="overview.html">README.md</a> in the project root</li>
+<li>Review error messages carefully</li>
+<li>Ensure you&#39;re running the latest version of the scripts</li>
+<li>Open an issue on GitHub with error details</li>
+</ul>
+<hr>
+<p><strong>Last Updated</strong>: 2025-11-24
+<strong>Compatible With</strong>: Windows 11, Ubuntu 24.04 LTS (Electron/Node.js version)</p>
+
+<nav class="pager" aria-label="Document navigation">
+  <a class="pager-link pager-prev" href="electron-deployment.html">
+      <span class="pager-kind">← Previous</span>
+      <span class="pager-title">Electron deployment &amp; install</span>
+    </a>
+  <a class="pager-link pager-next" href="electron-setup-logs.html">
+      <span class="pager-kind">Next →</span>
+      <span class="pager-title">Setup script logs</span>
+    </a>
+</nav>
+  </article>
+<aside class="toc" aria-label="On this page">
+  <p class="toc-title">On this page</p>
+  <ul class="toc-list">
+<li class="toc-item toc-h2"><a href="#-legacy--electron-implementation-status-as-of-2026-07-10" data-toc-link>⚠️ LEGACY — Electron implementation (status as of 2026-07-10)</a></li>
+<li class="toc-item toc-h2"><a href="#available-scripts-electronnodejs-version" data-toc-link>Available Scripts (Electron/Node.js Version)</a></li>
+<li class="toc-item toc-h3"><a href="#windows-11---setup-windowsps1" data-toc-link>Windows 11 - setup-windows.ps1</a></li>
+<li class="toc-item toc-h3"><a href="#ubuntu-24x---setup-ubuntush" data-toc-link>Ubuntu 24.x - setup-ubuntu.sh</a></li>
+<li class="toc-item toc-h2"><a href="#common-issues--solutions" data-toc-link>Common Issues &amp; Solutions</a></li>
+<li class="toc-item toc-h3"><a href="#windows" data-toc-link>Windows</a></li>
+<li class="toc-item toc-h3"><a href="#ubuntu" data-toc-link>Ubuntu</a></li>
+<li class="toc-item toc-h2"><a href="#manual-installation" data-toc-link>Manual Installation</a></li>
+<li class="toc-item toc-h3"><a href="#windows-manual-steps" data-toc-link>Windows Manual Steps</a></li>
+<li class="toc-item toc-h3"><a href="#ubuntu-manual-steps" data-toc-link>Ubuntu Manual Steps</a></li>
+<li class="toc-item toc-h2"><a href="#verifying-installation" data-toc-link>Verifying Installation</a></li>
+<li class="toc-item toc-h3"><a href="#windows-powershell" data-toc-link>Windows (PowerShell)</a></li>
+<li class="toc-item toc-h3"><a href="#ubuntu-bash" data-toc-link>Ubuntu (Bash)</a></li>
+<li class="toc-item toc-h2"><a href="#next-steps" data-toc-link>Next Steps</a></li>
+<li class="toc-item toc-h2"><a href="#support" data-toc-link>Support</a></li>
+  </ul>
+  <a class="toc-top" href="#main">↑ Back to top</a>
+</aside>
+</div>
+    <footer class="site-footer">
+      <div>
+        <strong>Memory Timeline</strong> documentation ·
+        19 documents ·
+        generated 2026-08-07
+      </div>
+      <div class="footer-links">
+        <a href="index.html">Home</a>
+        <a href="documentation-map.html">All documentation</a>
+        <a href="https://github.com/ethanbissbort/memory-line" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </div>
+      <div class="footer-note">
+        This site is generated from the markdown in the repository — edit the source files and rebuild.
+      </div>
+    </footer>
+  </main>
+</div>
+
+<div class="search-modal" data-search-modal hidden>
+  <div class="search-backdrop" data-search-close></div>
+  <div class="search-panel" role="dialog" aria-modal="true" aria-label="Search documentation">
+    <div class="search-input-row">
+      <svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><circle cx="9" cy="9" r="5.5" stroke="currentColor" stroke-width="1.7" fill="none"/><path d="M13.2 13.2 17 17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <input type="search" placeholder="Search headings and content…" data-search-input autocomplete="off" spellcheck="false" aria-label="Search query">
+      <button class="icon-btn" type="button" data-search-close aria-label="Close search"><kbd>Esc</kbd></button>
+    </div>
+    <div class="search-results" data-search-results>
+      <p class="search-hint">Start typing to search every document on this site.</p>
+    </div>
+  </div>
+</div>
+
+<script src="assets/search-index.js" defer></script>
+<script src="assets/app.js" defer></script>
+</body>
+</html>
