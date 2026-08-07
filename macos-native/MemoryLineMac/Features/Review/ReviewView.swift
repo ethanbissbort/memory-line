@@ -12,11 +12,9 @@ import SwiftUI
 /// transaction over the event and its tags, people and locations, so the
 /// extraction rules stay in exactly one place.
 ///
-/// The verdict actions are not wired yet: sending one needs a durable outbox so
-/// a decision made offline is not lost, and the Swift sync client has no push
-/// surface (it only pulls and acks). Until that lands this shows the queue and
-/// says plainly that deciding happens on Windows, rather than offering buttons
-/// that quietly do nothing.
+/// A verdict is queued to disk before any network call, so closing the lid
+/// mid-pass does not lose it, and each item shows where its decision has got to
+/// rather than pretending the click was the delivery. See `MacReviewCoordinator`.
 struct ReviewView: View {
     @Environment(MacAppEnvironment.self) private var environment
 
@@ -44,12 +42,29 @@ struct ReviewView: View {
                 }
             } else {
                 List(pending, id: \.pendingEventId, selection: $selectedId) { item in
-                    PendingEventRow(item: item)
+                    PendingEventRow(
+                        item: item,
+                        decision: environment.reviews.decisions[item.pendingEventId],
+                        decide: { verdict in
+                            Task { await environment.reviews.decide(
+                                pendingEventId: item.pendingEventId, verdict: verdict) }
+                        })
                 }
                 .listStyle(.inset)
             }
         }
         .navigationTitle("Review")
+        .safeAreaInset(edge: .bottom) {
+            if case .failed(let message) = environment.reviews.state {
+                // Undelivered verdicts are not lost, and saying so is the
+                // difference between a user waiting and a user deciding twice.
+                Label(message, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.regularMaterial)
+            }
+        }
         .toolbar {
             ToolbarItem {
                 Button {
@@ -63,8 +78,16 @@ struct ReviewView: View {
                 .disabled(!environment.sync.canSync || environment.sync.state == .syncing)
             }
         }
-        .task { load() }
-        .onChange(of: environment.sync.lastPulledAt) { _, _ in load() }
+        .task {
+            load()
+            environment.reviews.reload()
+        }
+        .onChange(of: environment.sync.lastPulledAt) { _, _ in
+            // A pull may have brought Windows' confirmation that a decision was
+            // acted on, which is what retires a delivered row.
+            environment.reviews.pruneConfirmed()
+            load()
+        }
     }
 
     private func load() {
@@ -79,6 +102,8 @@ struct ReviewView: View {
 
 private struct PendingEventRow: View {
     let item: PendingEventProjectionPayload
+    let decision: ReviewDecisionRecord?
+    let decide: (ReviewVerdict) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -125,8 +150,69 @@ private struct PendingEventRow: View {
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
+
+            // Actions or status, never both: once a verdict exists the buttons
+            // would only invite a second answer to a question already sent, and
+            // the service drops a decision for a review Windows has resolved.
+            if let decision {
+                DecisionStatus(decision: decision)
+            } else {
+                HStack(spacing: 8) {
+                    Button("Approve") { decide(.approve) }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                    Button("Reject") { decide(.reject) }
+                        .controlSize(.small)
+                }
+                .padding(.top, 2)
+            }
         }
         .padding(.vertical, 4)
+    }
+}
+
+/// Where a queued verdict has got to. Deliberately explicit about the middle
+/// state: a decision that is saved but not yet delivered is the normal case on a
+/// laptop, and showing it as though it were done would be a lie the user
+/// discovers later on Windows.
+private struct DecisionStatus: View {
+    let decision: ReviewDecisionRecord
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: symbol)
+            Text(text)
+            if let error = decision.lastError, decision.state == .failed {
+                Text("— \(error)")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(tint)
+        .padding(.top, 2)
+    }
+
+    private var text: String {
+        switch decision.state {
+        case .pending: return "\(decision.verdict.pastTense) — waiting to send"
+        case .sent: return "\(decision.verdict.pastTense) — waiting for Windows"
+        case .failed: return "\(decision.verdict.pastTense) — could not be sent"
+        }
+    }
+
+    private var symbol: String {
+        switch decision.state {
+        case .pending: return "clock"
+        case .sent: return "paperplane"
+        case .failed: return "exclamationmark.triangle"
+        }
+    }
+
+    private var tint: Color {
+        switch decision.state {
+        case .pending, .sent: return .secondary
+        case .failed: return .orange
+        }
     }
 }
 

@@ -123,6 +123,24 @@ final class SyncAPIClient: SyncAPI {
         return try decode(SyncPullResponse.self, from: data)
     }
 
+    /// `POST /api/v1/sync/push`.
+    ///
+    /// Not a `SyncAPI` requirement, deliberately — see the note on
+    /// `SyncPushRequest`. It is a concrete method on the client so the one app
+    /// that pushes can call it without every fake in both test suites having to
+    /// implement it.
+    ///
+    /// The response is per-entry and a 200 does **not** mean everything was
+    /// accepted: the server reports each entry's outcome in `results`, so the
+    /// caller must inspect them rather than treating the call's success as the
+    /// entries' success.
+    func push(_ request: SyncPushRequest) async throws -> SyncPushResponse {
+        let data = try await authenticated(
+            method: "POST", path: "/sync/push",
+            body: encode(request), contentType: "application/json")
+        return try decode(SyncPushResponse.self, from: data)
+    }
+
     /// `POST /api/v1/sync/ack`.
     func ack(cursor: Int64) async throws {
         _ = try await authenticated(
