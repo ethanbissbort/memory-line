@@ -190,7 +190,7 @@ Each phase is shippable and leaves the app in a usable state.
 | **1b — Upload** | Drain pending uploads | nothing to upload until Phase 2 gives the Mac a recorder; deferred deliberately |
 | **2 — Capture** ✅ | macOS recorder, input device selection, menu-bar quick capture | §4.1 |
 | **3 — Timeline** ✅ | Read-only timeline, eras, people, review queue, fed by the projection feed | see "how phase 3 was actually solved" below |
-| **4 — Review decisions** | Approve/reject a pending event *from* the Mac | contract and Windows side done; needs a Swift push surface and a durable outbox |
+| **4 — Review decisions** ✅ | Approve/reject a pending event *from* the Mac | queued to disk, pushed as `pending_event_decision`, pruned when Windows confirms |
 | **5 — Ask & narrative** | Retrieval + LLM answers with citations | Phase 4 assistant contract exists; no responder is built on either side |
 | **6 — Packaging** | Notarisation, Sparkle or App Store, hardened runtime | entitlements already set |
 
@@ -284,10 +284,25 @@ that renders a platform label — worth doing before the Mac ships, not worth do
   server's `AllowedPlatforms`, and the Swift DTO's default. Until then the Mac is `other`.
 - **Distribution:** Mac App Store (sandbox already assumed) or Developer ID + Sparkle?
   Affects whether the sandbox exceptions in §4 stay viable.
-- **Does the Mac record at all,** or is it review-only with the iPhone as the capture
-  device? Phase 2 is a large chunk of work that a review-only Mac would not need.
 - **Minimum macOS version.** Currently 14.0 (Sonoma), chosen to match the iOS 17 baseline
   and because `ContentUnavailableView` and the `@Observable` macro need it.
 - **Shared UI vocabulary with Windows.** The Windows app has a settled visual language for
   precision-honest dates, era colours, and category glyphs. The Mac should agree with it;
-  nobody has written that down as a cross-platform spec.
+  nobody has written that down as a cross-platform spec. Note that `displayDate` already
+  removes the worst of this risk — the precision-honest string is formatted once, on
+  Windows, and every client renders it verbatim.
+- **An `EraService` in Core.** Eras are the only projected entity with no Core service, so
+  their publish calls live in `ErasViewModel` and `ImportService` writes eras that nothing
+  publishes. This is also why eras have no write-path test: nothing in this repo loads a
+  ViewModel into the test host. See a4bb149.
+- **There is no iOS CI.** `.github/workflows/` builds Windows, macOS, the sync service and
+  the docs site — nothing builds the iOS companion. The macOS job compiles everything under
+  `ios-companion/…/Shared/` into the Mac target, so shared code is covered by accident, but
+  the phone's own `App/` and `Features/` are not built anywhere.
+
+**Answered since this list was written:**
+
+- ~~Does the Mac record at all?~~ Yes — Phase 2 shipped a recorder, input-device selection
+  and menu-bar quick capture.
+- ~~How does the C# business logic reach the Mac?~~ It does not; Windows publishes results
+  as projections instead. See "the decision that gated phases 3–5" in §5.
