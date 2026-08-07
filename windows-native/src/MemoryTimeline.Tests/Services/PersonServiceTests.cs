@@ -468,6 +468,222 @@ public class PersonServiceTests : IDisposable
         bRow.MergedIntoId.Should().BeNull();
     }
 
+    // ---- Sync projections (design §19 Phase 3) ----
+
+    [Fact]
+    public async Task CreatePersonAsync_PublishesPersonUpsert()
+    {
+        // Arrange
+        var upserts = new List<string>();
+        var tombstones = new List<(TimelineProjectionEntity Entity, string EntityId)>();
+        var service = CreatePersonServiceWith(CreateRecordingPublisher(upserts, tombstones).Object);
+
+        // Act
+        var created = await service.CreatePersonAsync(new PersonDto { Name = "Nadia Sync" });
+
+        // Assert - a companion learns about the contact as soon as it exists
+        upserts.Should().Equal(created.PersonId);
+        tombstones.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task UpdatePersonAsync_PublishesPersonUpsert()
+    {
+        // Arrange
+        var upserts = new List<string>();
+        var tombstones = new List<(TimelineProjectionEntity Entity, string EntityId)>();
+        var service = CreatePersonServiceWith(CreateRecordingPublisher(upserts, tombstones).Object);
+        var created = await service.CreatePersonAsync(new PersonDto { Name = "Owen Before" });
+        upserts.Clear(); // the create published too; this test is about the edit
+
+        // Act
+        created.Name = "Owen After";
+        created.Relationship = "colleague";
+        await service.UpdatePersonAsync(created);
+
+        // Assert
+        upserts.Should().Equal(created.PersonId);
+        tombstones.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ToggleFavoriteAsync_PublishesPersonUpsert()
+    {
+        // Arrange
+        var upserts = new List<string>();
+        var tombstones = new List<(TimelineProjectionEntity Entity, string EntityId)>();
+        var service = CreatePersonServiceWith(CreateRecordingPublisher(upserts, tombstones).Object);
+        var person = await service.CreatePersonAsync(new PersonDto { Name = "Pia Starred" });
+        upserts.Clear();
+
+        // Act
+        await service.ToggleFavoriteAsync(person.PersonId);
+
+        // Assert - IsFavorite is carried by the projection, so the flip travels
+        upserts.Should().Equal(person.PersonId);
+        tombstones.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task DeletePersonAsync_PublishesPersonTombstone()
+    {
+        // Arrange
+        var upserts = new List<string>();
+        var tombstones = new List<(TimelineProjectionEntity Entity, string EntityId)>();
+        var service = CreatePersonServiceWith(CreateRecordingPublisher(upserts, tombstones).Object);
+        var person = await service.CreatePersonAsync(new PersonDto { Name = "Quentin Gone" });
+        upserts.Clear();
+
+        // Act
+        await service.DeletePersonAsync(person.PersonId);
+
+        // Assert - a real deletion tombstones, so the phone drops its copy
+        tombstones.Should().Equal((TimelineProjectionEntity.Person, person.PersonId));
+        upserts.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task DeletePersonAsync_AlsoTombstonesTheMergedAwayShellsItRemoves()
+    {
+        // Arrange - A was merged into B, so A survives as a shell pointing at B
+        var upserts = new List<string>();
+        var tombstones = new List<(TimelineProjectionEntity Entity, string EntityId)>();
+        var service = CreatePersonServiceWith(CreateRecordingPublisher(upserts, tombstones).Object);
+        var a = await service.CreatePersonAsync(new PersonDto { Name = "Shell A" });
+        var b = await service.CreatePersonAsync(new PersonDto { Name = "Keeper B" });
+        await service.MergeAsync(a.PersonId, b.PersonId);
+        upserts.Clear();
+
+        // Act - deleting B also removes the now-unresolvable shell A
+        await service.DeletePersonAsync(b.PersonId);
+
+        // Assert - BOTH removed rows are tombstoned. A companion was told about
+        // the shell when it was merged; leaving it un-tombstoned would strand
+        // that companion on a pointer to a person that no longer exists.
+        tombstones.Should().BeEquivalentTo(new[]
+        {
+            (TimelineProjectionEntity.Person, b.PersonId),
+            (TimelineProjectionEntity.Person, a.PersonId)
+        });
+    }
+
+    [Fact]
+    public async Task MergeAsync_PublishesUpsertsForBothPeopleAndNeverTombstonesTheMergedAwaySource()
+    {
+        // Arrange
+        var upserts = new List<string>();
+        var tombstones = new List<(TimelineProjectionEntity Entity, string EntityId)>();
+        var service = CreatePersonServiceWith(CreateRecordingPublisher(upserts, tombstones).Object);
+        var source = await service.CreatePersonAsync(new PersonDto { Name = "Mike Old" });
+        var target = await service.CreatePersonAsync(new PersonDto { Name = "Michael New" });
+        var evt = await SeedEventAsync("Their event", new DateTime(2023, 4, 1));
+        await SeedLinkAsync(evt.EventId, source.PersonId);
+        upserts.Clear();
+
+        // Act
+        await service.MergeAsync(source.PersonId, target.PersonId);
+
+        // Assert - the merged-away source is published as an UPSERT, because its
+        // row survives carrying MergedIntoId and the already-projected event
+        // still lists the old person id. A tombstone here would leave that event
+        // rendering a dangling person on the phone instead of resolving through
+        // the pointer to the survivor.
+        tombstones.Should().BeEmpty(
+            "a merged-away person is a pointer to follow, not a row to drop");
+
+        // Both people changed: the source gained the pointer, the target gained
+        // the source's event link (and therefore a different EventCount).
+        upserts.Should().BeEquivalentTo(new[] { source.PersonId, target.PersonId });
+
+        // ...and the archive agrees the source is a tombstone, not a deletion
+        await using var verifyContext = _contextFactory.CreateDbContext();
+        var sourceRow = await verifyContext.People.AsNoTracking()
+            .SingleAsync(p => p.PersonId == source.PersonId);
+        sourceRow.MergedIntoId.Should().Be(target.PersonId);
+    }
+
+    [Fact]
+    public async Task MergeAsync_AlreadyTombstonedSource_PublishesNothing()
+    {
+        // Arrange - A -> B already happened
+        var upserts = new List<string>();
+        var tombstones = new List<(TimelineProjectionEntity Entity, string EntityId)>();
+        var service = CreatePersonServiceWith(CreateRecordingPublisher(upserts, tombstones).Object);
+        var a = await service.CreatePersonAsync(new PersonDto { Name = "Person A" });
+        var b = await service.CreatePersonAsync(new PersonDto { Name = "Person B" });
+        var c = await service.CreatePersonAsync(new PersonDto { Name = "Person C" });
+        await service.MergeAsync(a.PersonId, b.PersonId);
+        upserts.Clear();
+
+        // Act - the re-merge is a no-op that writes nothing
+        await service.MergeAsync(a.PersonId, c.PersonId);
+
+        // Assert - nothing was written, so nothing is projected
+        upserts.Should().BeEmpty();
+        tombstones.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task CreatePersonAsync_ProjectionPublisherThrows_StillCreatesThePerson()
+    {
+        // Arrange - the sync outbox is unavailable
+        var publisherMock = new Mock<ITimelineProjectionPublisher>();
+        publisherMock
+            .Setup(p => p.PublishPersonAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("sync outbox unavailable"));
+        var service = CreatePersonServiceWith(publisherMock.Object);
+
+        // Act
+        var created = await service.CreatePersonAsync(new PersonDto { Name = "Rita Committed" });
+
+        // Assert - the archive write already committed; a failure to tell the
+        // phone about it must not be reported to the user as a failed save
+        created.PersonId.Should().NotBeNullOrEmpty();
+        (await service.GetPersonAsync(created.PersonId)).Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task MergeAsync_ProjectionPublisherThrows_StillCommitsTheMerge()
+    {
+        // Arrange
+        var publisherMock = new Mock<ITimelineProjectionPublisher>();
+        publisherMock
+            .Setup(p => p.PublishPersonAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("sync outbox unavailable"));
+        var service = CreatePersonServiceWith(publisherMock.Object);
+        var source = await service.CreatePersonAsync(new PersonDto { Name = "Source Row" });
+        var target = await service.CreatePersonAsync(new PersonDto { Name = "Target Row" });
+
+        // Act
+        await service.MergeAsync(source.PersonId, target.PersonId);
+
+        // Assert - publishing happens after the transaction commits, so a
+        // throwing publisher can neither fail nor roll back the merge
+        await using var verifyContext = _contextFactory.CreateDbContext();
+        var sourceRow = await verifyContext.People.AsNoTracking()
+            .SingleAsync(p => p.PersonId == source.PersonId);
+        sourceRow.MergedIntoId.Should().Be(target.PersonId);
+    }
+
+    [Fact]
+    public async Task WithoutProjectionPublisher_EveryMutationStillSucceeds()
+    {
+        // Arrange - _personService uses the two-argument constructor, i.e. the
+        // default null publisher any non-sync host (and every older test) gets.
+        var keeper = await _personService.CreatePersonAsync(new PersonDto { Name = "Unsynced Sam" });
+        var merged = await _personService.CreatePersonAsync(new PersonDto { Name = "Unsynced Sue" });
+
+        // Act
+        await _personService.ToggleFavoriteAsync(keeper.PersonId);
+        await _personService.UpdatePersonAsync(keeper);
+        await _personService.AddAliasAsync(keeper.PersonId, "Sammy");
+        await _personService.MergeAsync(merged.PersonId, keeper.PersonId);
+        await _personService.DeletePersonAsync(keeper.PersonId);
+
+        // Assert - no publisher, no NullReferenceException, no behavior change
+        (await _personService.GetPersonAsync(keeper.PersonId)).Should().BeNull();
+    }
+
     // ---- Aliases ----
 
     [Fact]
@@ -733,6 +949,39 @@ public class PersonServiceTests : IDisposable
     }
 
     // ---- Seed helpers ----
+
+    /// <summary>
+    /// Builds a service wired to a projection publisher. Mirrors the default
+    /// fixture in every other respect, so a projection test differs from the
+    /// plain one by exactly the dependency under test.
+    /// </summary>
+    private PersonService CreatePersonServiceWith(ITimelineProjectionPublisher projectionPublisher) =>
+        new(_contextFactory, _loggerMock.Object, projectionPublisher);
+
+    /// <summary>
+    /// A publisher mock that records WHICH people were projected and whether a
+    /// tombstone was ever published. The payload itself is the Sync layer's
+    /// business (and is covered there); what PersonService owes the feed is the
+    /// right call, for the right id, at the right moment.
+    /// </summary>
+    private static Mock<ITimelineProjectionPublisher> CreateRecordingPublisher(
+        List<string> personUpserts,
+        List<(TimelineProjectionEntity Entity, string EntityId)> tombstones)
+    {
+        var mock = new Mock<ITimelineProjectionPublisher>();
+
+        mock.Setup(p => p.PublishPersonAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<string, CancellationToken>((personId, _) => personUpserts.Add(personId))
+            .Returns(Task.CompletedTask);
+
+        mock.Setup(p => p.PublishDeletedAsync(
+                It.IsAny<TimelineProjectionEntity>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<TimelineProjectionEntity, string, CancellationToken>(
+                (entity, entityId, _) => tombstones.Add((entity, entityId)))
+            .Returns(Task.CompletedTask);
+
+        return mock;
+    }
 
     /// <summary>
     /// Seeds Anna/Ben/Cara directly through a context with explicit created/updated

@@ -247,11 +247,16 @@ public class PersonService : IPersonService
 {
     private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly ILogger<PersonService> _logger;
+    private readonly ITimelineProjectionPublisher? _projectionPublisher;
 
-    public PersonService(IDbContextFactory<AppDbContext> contextFactory, ILogger<PersonService> logger)
+    public PersonService(
+        IDbContextFactory<AppDbContext> contextFactory,
+        ILogger<PersonService> logger,
+        ITimelineProjectionPublisher? projectionPublisher = null)
     {
         _contextFactory = contextFactory;
         _logger = logger;
+        _projectionPublisher = projectionPublisher;
     }
 
     /// <inheritdoc />
@@ -460,6 +465,7 @@ public class PersonService : IPersonService
 
             _logger.LogInformation("Person created: {PersonId} - {Name}", entity.PersonId, entity.Name);
             SendMessage(new PersonCreatedMessage(entity.PersonId));
+            await PublishPersonProjectionAsync(entity.PersonId);
 
             return PersonDto.FromPerson(entity);
         }
@@ -502,6 +508,7 @@ public class PersonService : IPersonService
 
             _logger.LogInformation("Person updated: {PersonId} - {Name}", entity.PersonId, entity.Name);
             SendMessage(new PersonUpdatedMessage(entity.PersonId));
+            await PublishPersonProjectionAsync(entity.PersonId);
 
             var stats = await LoadEventStatsAsync(context, entity.PersonId);
             return ToDto(entity, stats);
@@ -553,6 +560,17 @@ public class PersonService : IPersonService
 
             _logger.LogInformation("Person deleted: {PersonId}", personId);
             SendMessage(new PersonDeletedMessage(personId));
+
+            // Tombstone every row the delete actually removed, not just the id
+            // the caller named. The merged-away shells were each published as
+            // an upsert when they were merged (that is how a companion follows
+            // an old event's person id to the survivor), so a companion still
+            // holds them; leaving them un-tombstoned would strand it on the
+            // same unresolvable chains this method just cleaned up locally.
+            foreach (var removedId in removedIds)
+            {
+                await PublishPersonDeletionAsync(removedId);
+            }
         }
         catch (Exception ex)
         {
@@ -581,6 +599,7 @@ public class PersonService : IPersonService
             _logger.LogInformation(
                 "Person favorite toggled: {PersonId} -> {IsFavorite}", personId, entity.IsFavorite);
             SendMessage(new PersonUpdatedMessage(personId));
+            await PublishPersonProjectionAsync(personId);
 
             return entity.IsFavorite;
         }
@@ -772,6 +791,22 @@ public class PersonService : IPersonService
                 "Persons merged: {SourcePersonId} -> {TargetPersonId} (source tombstoned)",
                 source.PersonId, target.PersonId);
             SendMessage(new PersonsMergedMessage(source.PersonId, target.PersonId));
+
+            // A merge publishes an UPSERT for the merged-away source, never a
+            // deletion — which looks wrong until you notice that the archive
+            // does not delete it either. The source row survives carrying
+            // MergedIntoId, and a projected event that was written before the
+            // merge still lists the old person id on purpose (event payloads
+            // are not rewritten). If the source were tombstoned here, every one
+            // of those events would render a dangling person on the phone;
+            // published as an upsert, the companion resolves the id and follows
+            // the pointer to the survivor exactly as Windows does.
+            //
+            // The target is republished because the merge moved event links and
+            // backfilled contact fields onto it, so the EventCount, nickname and
+            // favorite flag the projection carries have all just changed.
+            await PublishPersonProjectionAsync(source.PersonId);
+            await PublishPersonProjectionAsync(target.PersonId);
         }
         catch (Exception ex)
         {
@@ -1189,6 +1224,7 @@ public class PersonService : IPersonService
 
             _logger.LogInformation("Alias '{Alias}' added for person {PersonId}", trimmed, person.PersonId);
             SendMessage(new PersonUpdatedMessage(person.PersonId));
+            await PublishPersonProjectionAsync(person.PersonId);
         }
         catch (Exception ex)
         {
@@ -1251,6 +1287,7 @@ public class PersonService : IPersonService
 
             _logger.LogInformation("Alias '{Alias}' removed from person {PersonId}", alias, personId);
             SendMessage(new PersonUpdatedMessage(personId));
+            await PublishPersonProjectionAsync(personId);
         }
         catch (Exception ex)
         {
@@ -1466,6 +1503,64 @@ public class PersonService : IPersonService
         }
 
         return previous[b.Length];
+    }
+
+    /// <summary>
+    /// Projects a person onto the sync feed so companion devices see a contact
+    /// the user just changed (design §19 Phase 3).
+    ///
+    /// <para>Every call site runs AFTER the archive write has committed, and a
+    /// publish failure is logged and swallowed: the sync outbox being
+    /// unavailable must never turn a contact that is already saved on disk into
+    /// an error the user sees, or worse, roll one back. The feed self-heals —
+    /// the next mutation of the same person republishes it in full.</para>
+    ///
+    /// <para>Call this after every mutation without judging whether the change
+    /// was worth sending. The publisher drops a projection byte-identical to
+    /// the one it last published for the same person, so an "uninteresting"
+    /// publish costs a comparison; a skipped one costs a phone showing stale
+    /// data until something else happens to touch the row.</para>
+    /// </summary>
+    private async Task PublishPersonProjectionAsync(string personId)
+    {
+        if (_projectionPublisher == null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _projectionPublisher.PublishPersonAsync(personId);
+        }
+        catch (Exception publishEx)
+        {
+            _logger.LogWarning(
+                publishEx, "Failed to publish person projection for {PersonId}", personId);
+        }
+    }
+
+    /// <summary>
+    /// Tombstones a person on the sync feed so companions drop their copy.
+    /// Reserved for real deletions — a merged-away person keeps its row and is
+    /// published through <see cref="PublishPersonProjectionAsync"/> instead.
+    /// Failures are logged and swallowed for the same reason as there.
+    /// </summary>
+    private async Task PublishPersonDeletionAsync(string personId)
+    {
+        if (_projectionPublisher == null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _projectionPublisher.PublishDeletedAsync(TimelineProjectionEntity.Person, personId);
+        }
+        catch (Exception publishEx)
+        {
+            _logger.LogWarning(
+                publishEx, "Failed to publish person deletion for {PersonId}", personId);
+        }
     }
 
     /// <summary>

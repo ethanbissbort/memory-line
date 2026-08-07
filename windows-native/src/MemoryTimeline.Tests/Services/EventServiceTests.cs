@@ -269,6 +269,261 @@ public class EventServiceTests : IDisposable
         count.Should().Be(0);
     }
 
+    #region Timeline projection publishing
+
+    [Fact]
+    public async Task CreateEventAsync_WithProjectionPublisher_PublishesTheNewEvent()
+    {
+        // Arrange
+        var publisher = CreatePublisherMock();
+        var service = CreateServiceWithPublisher(publisher.Object);
+
+        // Act
+        var created = await service.CreateEventAsync(new Event
+        {
+            Title = "First Memory",
+            StartDate = DateTime.UtcNow
+        });
+
+        // Assert
+        publisher.Verify(
+            p => p.PublishEventAsync(created.EventId, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateEventAsync_WithProjectionPublisher_PublishesTheSameEvent()
+    {
+        // Arrange
+        var publisher = CreatePublisherMock();
+        var service = CreateServiceWithPublisher(publisher.Object);
+        var created = await service.CreateEventAsync(new Event
+        {
+            Title = "Original Title",
+            StartDate = DateTime.UtcNow
+        });
+        publisher.Invocations.Clear(); // the create's own publish is not what this asserts
+
+        // Act
+        created.Title = "Updated Title";
+        await service.UpdateEventAsync(created);
+
+        // Assert
+        publisher.Verify(
+            p => p.PublishEventAsync(created.EventId, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task DeleteEventAsync_WithProjectionPublisher_PublishesATombstoneNotAnUpsert()
+    {
+        // Arrange
+        var publisher = CreatePublisherMock();
+        var service = CreateServiceWithPublisher(publisher.Object);
+        var created = await service.CreateEventAsync(new Event
+        {
+            Title = "Delete Me",
+            StartDate = DateTime.UtcNow
+        });
+        publisher.Invocations.Clear();
+
+        // Act
+        await service.DeleteEventAsync(created.EventId);
+
+        // Assert
+        publisher.Verify(
+            p => p.PublishDeletedAsync(
+                TimelineProjectionEntity.Event, created.EventId, It.IsAny<CancellationToken>()),
+            Times.Once);
+
+        // An upsert here would find no row and project nothing, leaving the
+        // companion device showing a memory the user deleted.
+        publisher.Verify(
+            p => p.PublishEventAsync(created.EventId, It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateEventAsync_ProjectionPublisherThrows_StillPersistsTheEvent()
+    {
+        // Arrange - an outbox that is full, locked or misconfigured
+        var publisher = new Mock<ITimelineProjectionPublisher>();
+        publisher
+            .Setup(p => p.PublishEventAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("outbox unavailable"));
+        var service = CreateServiceWithPublisher(publisher.Object);
+
+        // Act - the archive write already committed, so it must survive
+        var created = await service.CreateEventAsync(new Event
+        {
+            Title = "Survives A Failed Publish",
+            StartDate = DateTime.UtcNow
+        });
+
+        // Assert
+        var fetched = await service.GetEventByIdAsync(created.EventId);
+        fetched.Should().NotBeNull();
+        fetched!.Title.Should().Be("Survives A Failed Publish");
+    }
+
+    [Fact]
+    public async Task DeleteEventAsync_ProjectionPublisherThrows_StillDeletesTheEvent()
+    {
+        // Arrange
+        var publisher = CreatePublisherMock();
+        publisher
+            .Setup(p => p.PublishDeletedAsync(
+                It.IsAny<TimelineProjectionEntity>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("outbox unavailable"));
+        var service = CreateServiceWithPublisher(publisher.Object);
+        var created = await service.CreateEventAsync(new Event
+        {
+            Title = "Gone Regardless",
+            StartDate = DateTime.UtcNow
+        });
+
+        // Act
+        await service.DeleteEventAsync(created.EventId);
+
+        // Assert - the failed tombstone must not resurrect the row
+        var fetched = await service.GetEventByIdAsync(created.EventId);
+        fetched.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task AddTagToEventAsync_WithProjectionPublisher_PublishesTheEvent()
+    {
+        // Arrange - tags are denormalised into the event projection, so linking
+        // one changes what a phone renders even though no event column moved
+        var publisher = CreatePublisherMock();
+        var service = CreateServiceWithPublisher(publisher.Object);
+        var created = await service.CreateEventAsync(new Event
+        {
+            Title = "Tagged Event",
+            StartDate = DateTime.UtcNow
+        });
+        var tagId = await SeedTagAsync("holiday");
+        publisher.Invocations.Clear();
+
+        // Act
+        await service.AddTagToEventAsync(created.EventId, tagId);
+
+        // Assert
+        publisher.Verify(
+            p => p.PublishEventAsync(created.EventId, It.IsAny<CancellationToken>()), Times.Once);
+
+        // Re-adding the same tag writes nothing, so there is no new state to
+        // project either.
+        await service.AddTagToEventAsync(created.EventId, tagId);
+        publisher.Verify(
+            p => p.PublishEventAsync(created.EventId, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task RemoveTagFromEventAsync_WithProjectionPublisher_PublishesTheEvent()
+    {
+        // Arrange
+        var publisher = CreatePublisherMock();
+        var service = CreateServiceWithPublisher(publisher.Object);
+        var created = await service.CreateEventAsync(new Event
+        {
+            Title = "Tagged Event",
+            StartDate = DateTime.UtcNow
+        });
+        var tagId = await SeedTagAsync("holiday");
+        await service.AddTagToEventAsync(created.EventId, tagId);
+        publisher.Invocations.Clear();
+
+        // Act
+        await service.RemoveTagFromEventAsync(created.EventId, tagId);
+
+        // Assert
+        publisher.Verify(
+            p => p.PublishEventAsync(created.EventId, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task AddPersonToEventAsync_WithProjectionPublisher_PublishesTheEvent()
+    {
+        // Arrange
+        var publisher = CreatePublisherMock();
+        var service = CreateServiceWithPublisher(publisher.Object);
+        var created = await service.CreateEventAsync(new Event
+        {
+            Title = "Event With People",
+            StartDate = DateTime.UtcNow
+        });
+        var personId = await SeedPersonAsync("Sarah");
+        publisher.Invocations.Clear();
+
+        // Act
+        await service.AddPersonToEventAsync(created.EventId, personId);
+
+        // Assert - who was there is half of what a timeline entry says
+        publisher.Verify(
+            p => p.PublishEventAsync(created.EventId, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task NoProjectionPublisher_CrudAndAssociationsStillWork()
+    {
+        // The fixture's service is built WITHOUT a publisher — the shape every
+        // pre-existing caller uses, and the shape MS DI produces wherever the
+        // sync assembly is not wired up.
+        var created = await _eventService.CreateEventAsync(new Event
+        {
+            Title = "Unpublished",
+            StartDate = DateTime.UtcNow
+        });
+        var tagId = await SeedTagAsync("private");
+
+        await _eventService.AddTagToEventAsync(created.EventId, tagId);
+        created.Title = "Still Unpublished";
+        await _eventService.UpdateEventAsync(created);
+        await _eventService.RemoveTagFromEventAsync(created.EventId, tagId);
+        await _eventService.DeleteEventAsync(created.EventId);
+
+        var fetched = await _eventService.GetEventByIdAsync(created.EventId);
+        fetched.Should().BeNull();
+    }
+
+    /// <summary>
+    /// The fixture's service plus a projection publisher; everything else is
+    /// shared so these tests read against the same in-memory archive.
+    /// </summary>
+    private IEventService CreateServiceWithPublisher(ITimelineProjectionPublisher publisher) =>
+        new EventService(_repository, _contextFactory, _loggerMock.Object, projectionPublisher: publisher);
+
+    private static Mock<ITimelineProjectionPublisher> CreatePublisherMock()
+    {
+        var publisher = new Mock<ITimelineProjectionPublisher>();
+        publisher
+            .Setup(p => p.PublishEventAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        publisher
+            .Setup(p => p.PublishDeletedAsync(
+                It.IsAny<TimelineProjectionEntity>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        return publisher;
+    }
+
+    private async Task<string> SeedTagAsync(string name)
+    {
+        await using var context = _contextFactory.CreateDbContext();
+        var tag = new Tag { TagId = Guid.NewGuid().ToString(), TagName = name, CreatedAt = DateTime.UtcNow };
+        context.Tags.Add(tag);
+        await context.SaveChangesAsync();
+        return tag.TagId;
+    }
+
+    private async Task<string> SeedPersonAsync(string name)
+    {
+        await using var context = _contextFactory.CreateDbContext();
+        var person = new Person { PersonId = Guid.NewGuid().ToString(), Name = name, CreatedAt = DateTime.UtcNow };
+        context.People.Add(person);
+        await context.SaveChangesAsync();
+        return person.PersonId;
+    }
+
+    #endregion
+
     public void Dispose()
     {
         using var context = _contextFactory.CreateDbContext();

@@ -78,6 +78,7 @@ public class EventService : IEventService
     private readonly IEmbeddingService? _embeddingService;
     private readonly IMediaService? _mediaService;
     private readonly EventRevisionWriter? _revisionWriter;
+    private readonly ITimelineProjectionPublisher? _projectionPublisher;
     private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly ILogger<EventService> _logger;
 
@@ -87,7 +88,8 @@ public class EventService : IEventService
         ILogger<EventService> logger,
         IEmbeddingService? embeddingService = null,
         IMediaService? mediaService = null,
-        EventRevisionWriter? revisionWriter = null)
+        EventRevisionWriter? revisionWriter = null,
+        ITimelineProjectionPublisher? projectionPublisher = null)
     {
         _eventRepository = eventRepository;
         _contextFactory = contextFactory;
@@ -95,6 +97,7 @@ public class EventService : IEventService
         _embeddingService = embeddingService;
         _mediaService = mediaService;
         _revisionWriter = revisionWriter;
+        _projectionPublisher = projectionPublisher;
     }
 
     // CRUD operations
@@ -135,6 +138,12 @@ public class EventService : IEventService
             {
                 _logger.LogWarning(messengerEx, "Error publishing EventCreatedMessage for event {EventId}", createdEvent.EventId);
             }
+
+            // Companion devices render a timeline they do not own, so a new
+            // memory has to reach the sync feed as well as the local views
+            // (design §19 Phase 3). Junctions are still empty here; the
+            // association APIs below publish again once they attach.
+            await PublishEventProjectionAsync(createdEvent.EventId);
 
             // Generate embedding asynchronously (fire and forget).
             // The background task creates its own DbContext from the factory.
@@ -240,6 +249,9 @@ public class EventService : IEventService
             }
 
             _logger.LogInformation("Event updated: {EventId} - {Title}", eventData.EventId, eventData.Title);
+
+            await PublishEventProjectionAsync(eventData.EventId);
+
             return eventData;
         }
         catch (Exception ex)
@@ -297,6 +309,11 @@ public class EventService : IEventService
             {
                 _logger.LogWarning(messengerEx, "Error publishing EventDeletedMessage for event {EventId}", eventId);
             }
+
+            // A tombstone, not an upsert: the row is already gone, so
+            // PublishEventAsync would find nothing to project and the companion
+            // would keep showing a memory the user deleted.
+            await PublishEventDeletionAsync(eventId);
         }
         catch (Exception ex)
         {
@@ -443,6 +460,11 @@ public class EventService : IEventService
             await context.SaveChangesAsync();
 
             _logger.LogInformation("Tag {TagId} added to event {EventId}", tagId, eventId);
+
+            // Tags are denormalised into the event projection, so linking one is
+            // an event change as far as a phone is concerned. The already-linked
+            // early return above writes nothing and therefore publishes nothing.
+            await PublishEventProjectionAsync(eventId);
         }
         catch (Exception ex)
         {
@@ -472,6 +494,8 @@ public class EventService : IEventService
                 context.EventTags.Remove(eventTag);
                 await context.SaveChangesAsync();
                 _logger.LogInformation("Tag {TagId} removed from event {EventId}", tagId, eventId);
+
+                await PublishEventProjectionAsync(eventId);
             }
         }
         catch (Exception ex)
@@ -535,6 +559,10 @@ public class EventService : IEventService
             await context.SaveChangesAsync();
 
             _logger.LogInformation("Person {PersonId} added to event {EventId}", personId, eventId);
+
+            // The event projection carries its people inline; who was there is
+            // half of what a timeline entry says.
+            await PublishEventProjectionAsync(eventId);
         }
         catch (Exception ex)
         {
@@ -562,6 +590,8 @@ public class EventService : IEventService
                 context.EventPeople.Remove(eventPerson);
                 await context.SaveChangesAsync();
                 _logger.LogInformation("Person {PersonId} removed from event {EventId}", personId, eventId);
+
+                await PublishEventProjectionAsync(eventId);
             }
         }
         catch (Exception ex)
@@ -625,6 +655,10 @@ public class EventService : IEventService
             await context.SaveChangesAsync();
 
             _logger.LogInformation("Location {LocationId} added to event {EventId}", locationId, eventId);
+
+            // Locations supply both the place names and the event's single map
+            // pin, so a link change can move where a companion draws the memory.
+            await PublishEventProjectionAsync(eventId);
         }
         catch (Exception ex)
         {
@@ -652,6 +686,8 @@ public class EventService : IEventService
                 context.EventLocations.Remove(eventLocation);
                 await context.SaveChangesAsync();
                 _logger.LogInformation("Location {LocationId} removed from event {EventId}", locationId, eventId);
+
+                await PublishEventProjectionAsync(eventId);
             }
         }
         catch (Exception ex)
@@ -754,6 +790,59 @@ public class EventService : IEventService
 
         return EventCategory.AllCategories.FirstOrDefault(
             c => string.Equals(c, category, StringComparison.OrdinalIgnoreCase)) ?? category;
+    }
+
+    /// <summary>
+    /// Projects the event onto the sync feed so a companion device sees the
+    /// change it just missed (design §19 Phase 3). Every caller invokes this
+    /// AFTER its archive write has committed, for two reasons: the publisher
+    /// re-reads the event to build the payload, so it must see the new state;
+    /// and a projection is a convenience while the archive is the memory itself
+    /// — an outbox that is full, locked or misconfigured must never turn a
+    /// successful save into a failed one, hence the swallow-and-warn.
+    ///
+    /// No caller-side "is this worth publishing?" test: the publisher already
+    /// drops a projection identical to the last one it sent for the event, and
+    /// that comparison is far more reliable than a guess made from the outside.
+    /// </summary>
+    private async Task PublishEventProjectionAsync(string eventId)
+    {
+        if (_projectionPublisher == null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _projectionPublisher.PublishEventAsync(eventId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to publish the timeline projection for event {EventId}", eventId);
+        }
+    }
+
+    /// <summary>
+    /// Tombstones a deleted event on the sync feed. Separate from
+    /// <see cref="PublishEventProjectionAsync"/> because the row is gone by the
+    /// time we know to publish: only the id survives, and only a delete
+    /// operation makes a companion drop its copy.
+    /// </summary>
+    private async Task PublishEventDeletionAsync(string eventId)
+    {
+        if (_projectionPublisher == null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _projectionPublisher.PublishDeletedAsync(TimelineProjectionEntity.Event, eventId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to publish the timeline deletion for event {EventId}", eventId);
+        }
     }
 
     /// <summary>

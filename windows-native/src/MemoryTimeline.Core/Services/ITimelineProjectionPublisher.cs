@@ -48,6 +48,36 @@ public enum TimelineProjectionEntity
 /// timeline — titles, dates, categories, names — and never transcript bodies,
 /// audio, file paths, or contact details. Text that can be arbitrarily long is
 /// bounded by the publisher.</para>
+///
+/// <para><b>Known write paths that do not publish yet.</b> A projection is only
+/// as good as its call sites, and a missing one is invisible from here: the
+/// companion simply shows something stale, with nothing logged on either side.
+/// The list below is what an audit of the writers found, kept here because this
+/// is the file someone reads before adding a publish call.
+/// <list type="bullet">
+/// <item><description><c>MediaService</c> attach/remove changes the media count
+/// an event projection carries, so a companion's photo badge goes stale until
+/// something else touches that event. The largest remaining gap.</description></item>
+/// <item><description><c>ImportService</c> writes events, eras and their tag
+/// links straight to the context. A CSV or JSON import currently lands nothing
+/// on a companion at all.</description></item>
+/// <item><description><c>RevisionService.RestoreRevisionAsync</c> writes scalar
+/// fields through its own context to avoid double-recording a revision, so a
+/// restore that changes only scalars publishes nothing. Its junction
+/// reconciliation goes through <c>IEventService</c> and does publish.</description></item>
+/// <item><description>A person's <c>EventCount</c> is derived from the
+/// <c>event_people</c> junction, which <c>IEventService</c> and
+/// <c>EventExtractionService</c> write. Those publish the <i>event</i>; the
+/// linked people's counts stay stale on the companion. Fixing it means
+/// publishing each affected person id alongside the event, which is a
+/// cross-cutting decision nobody has taken yet.</description></item>
+/// <item><description><c>EventExtractionService</c> and <c>RevisionService</c>
+/// both create <c>Person</c> rows outright, and neither publishes them.</description></item>
+/// </list>
+/// None of these are correctness holes in the sync protocol — every one of them
+/// self-corrects the next time the entity is touched through a path that does
+/// publish — but they are all cases where a companion shows something the owner
+/// would not recognise.</para>
 /// </summary>
 public interface ITimelineProjectionPublisher
 {
