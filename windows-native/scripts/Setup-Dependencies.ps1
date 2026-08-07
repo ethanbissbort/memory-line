@@ -39,11 +39,11 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'Continue'
 
 # Minimum version requirements
-$MinWindowsVersion = [Version]'10.0.22000.0' # Windows 11 21H2
-$RecommendedWindowsVersion = [Version]'10.0.22621.0' # Windows 11 22H2
+$MinWindowsVersion = [Version]'10.0.22621.0' # Windows 11 22H2 (TargetPlatformMinVersion)
+$RecommendedWindowsVersion = [Version]'10.0.26100.0' # Windows 11 24H2
 $MinDotNetVersion = [Version]'8.0.0'
 $MinVSVersion = [Version]'17.8.0'
-$MinWindowsSDKVersion = '10.0.22621.0'
+$MinWindowsSDKVersion = '10.0.26100.0'
 $MinWindowsAppSDKVersion = [Version]'1.5.0'
 
 # Color output helpers

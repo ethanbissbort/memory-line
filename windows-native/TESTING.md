@@ -60,7 +60,7 @@ cd windows-native/src
 msbuild MemoryTimeline.sln /t:Restore,Build /p:Configuration=Release /p:Platform=x64 /m
 
 # 2. Run the already-built test assembly (no rebuild).
-$dll = "MemoryTimeline.Tests/bin/x64/Release/net8.0-windows10.0.22621.0/MemoryTimeline.Tests.dll"
+$dll = "MemoryTimeline.Tests/bin/x64/Release/net8.0-windows10.0.26100.0/MemoryTimeline.Tests.dll"
 dotnet vstest $dll --logger:"trx;LogFileName=test.trx" --ResultsDirectory:TestResults
 ```
 

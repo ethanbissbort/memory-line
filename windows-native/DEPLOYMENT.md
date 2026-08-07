@@ -35,7 +35,7 @@ This guide covers building, testing, and deploying the Memory Timeline Windows n
 - **Windows App SDK** 1.5.x (restored as the `Microsoft.WindowsAppSDK` NuGet package)
 
 ### For Packaging / Store Deployment (Phase 7 — in progress)
-- **Windows SDK** (10.0.22621.0 or later)
+- **Windows SDK** (10.0.26100.0 or later)
 - **MSIX Packaging Tool** (from Microsoft Store)
 - **Code Signing Certificate** (EV certificate for Microsoft Store)
 - **Microsoft Partner Center account** (for Store deployment)
@@ -74,7 +74,7 @@ You can also simply open `windows-native/src/MemoryTimeline.sln` in Visual Studi
 ### Build Output
 The compiled application is placed under the platform-specific output folder, for example:
 ```
-windows-native/src/MemoryTimeline/bin/x64/Release/net8.0-windows10.0.22621.0/
+windows-native/src/MemoryTimeline/bin/x64/Release/net8.0-windows10.0.26100.0/
 ```
 Because the app is unpackaged and self-contained, this folder contains `MemoryTimeline.exe` plus the Windows App SDK runtime and can be launched directly.
 
@@ -109,7 +109,7 @@ cd windows-native/src
 msbuild MemoryTimeline.sln /t:Restore,Build /p:Configuration=Release /p:Platform=x64 /m
 
 # 2. Run the compiled test DLL with vstest (no rebuild)
-dotnet vstest MemoryTimeline.Tests/bin/x64/Release/net8.0-windows10.0.22621.0/MemoryTimeline.Tests.dll `
+dotnet vstest MemoryTimeline.Tests/bin/x64/Release/net8.0-windows10.0.26100.0/MemoryTimeline.Tests.dll `
   --logger:"trx;LogFileName=test.trx" --ResultsDirectory:TestResults
 ```
 
