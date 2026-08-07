@@ -2162,9 +2162,10 @@ components:
       type: object
       description: >-
         State of a turn, as any participant sees it. A turn is pending from the
-        moment it is accepted; the service moves it to dispatched once it has
-        been published toward a responder, and the responder moves it onward.
-        completed, failed, and cancelled are terminal.
+        moment it is accepted and stays there while it sits on the feed; only a
+        responder that has actually claimed it moves it onward. completed,
+        failed and cancelled are terminal and absolute — a late answer for a
+        cancelled turn is discarded, never resurrected.
       required:
         - turnId
         - sessionId
@@ -2189,10 +2190,13 @@ components:
           type: string
           enum: [pending, dispatched, answering, completed, failed, cancelled]
           description: >-
-            pending — accepted and durable, not yet routed. dispatched —
-            published toward a responder, awaiting an answer. answering — a
-            responder has claimed it and is producing an answer. completed —
-            result is present. failed — ended without an answer; see the failure
+            pending — accepted, durable and published to the feed, but not
+            yet picked up. Publishing is not delivery: Windows may be asleep for
+            hours, so the service deliberately does not advance the turn on
+            publish rather than reporting a dispatch nothing has read.
+            dispatched — a responder has claimed it; only a responder sets this.
+            answering — a responder is producing an answer. completed — result
+            is present. failed — ended without an answer; see the failure
             fields. cancelled — interrupted by the user.
         requestedResponder:
           type: string

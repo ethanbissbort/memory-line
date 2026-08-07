@@ -54,17 +54,27 @@ public static class AssistantResponder
 
 /// <summary>
 /// Lifecycle of one turn. A turn is <see cref="Pending"/> from the moment it is
-/// accepted; the service moves it to <see cref="Dispatched"/> when it has been
-/// published toward a responder, and the responder moves it onward. Terminal
+/// accepted and stays there while it sits on the feed; only a responder that
+/// has actually claimed it moves it to <see cref="Dispatched"/>. Terminal
 /// states are <see cref="Completed"/>, <see cref="Failed"/> and
-/// <see cref="Cancelled"/>.
+/// <see cref="Cancelled"/>, and they are absolute — a late answer for a
+/// cancelled turn is discarded, never resurrected.
 /// </summary>
 public static class AssistantTurnStatus
 {
-    /// <summary>Accepted and durable, not yet routed.</summary>
+    /// <summary>
+    /// Accepted, durable, and published to the feed — but not yet picked up.
+    /// Publishing a change is not delivery: Windows may be asleep for hours,
+    /// so the service deliberately does NOT advance the turn on publish.
+    /// Reporting a turn as dispatched while nothing has read it would be a
+    /// lie the UI then has to explain.
+    /// </summary>
     public const string Pending = "pending";
 
-    /// <summary>Published toward a responder; awaiting an answer.</summary>
+    /// <summary>
+    /// A responder has claimed the turn and is working on it. Only a responder
+    /// sets this, never the service.
+    /// </summary>
     public const string Dispatched = "dispatched";
 
     /// <summary>A responder has claimed it and is producing an answer.</summary>

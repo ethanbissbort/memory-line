@@ -691,7 +691,7 @@ public sealed class SyncChangeService : ISyncChangeService
 
         if (payload.Result is { } result)
         {
-            turn.Answer = result.Answer;
+            turn.Answer = result.Answer ?? string.Empty;
             turn.Grounding = Normalize(result.Grounding);
             turn.CitationsJson = JsonSerializer.Serialize(result.Citations ?? [], SyncJson.Options);
             turn.Model = result.Model;
@@ -724,12 +724,15 @@ public sealed class SyncChangeService : ISyncChangeService
                 : null;
         }
 
-        if (status == AssistantTurnStatus.Completed && string.IsNullOrEmpty(result.Answer))
+        // Client JSON can null out the non-nullable Answer property, so read it
+        // defensively rather than trusting the DTO's declared type.
+        var answer = result.Answer ?? string.Empty;
+        if (status == AssistantTurnStatus.Completed && answer.Length == 0)
         {
             return "a completed assistant_turn must carry a non-empty result answer.";
         }
 
-        if (result.Answer.Length > AssistantLimits.AnswerMaxChars)
+        if (answer.Length > AssistantLimits.AnswerMaxChars)
         {
             return $"result answer must be at most {AssistantLimits.AnswerMaxChars} characters.";
         }
