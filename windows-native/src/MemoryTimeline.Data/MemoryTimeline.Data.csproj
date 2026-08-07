@@ -21,7 +21,7 @@
     </PackageReference>
 
     <!-- SQLite -->
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
   </ItemGroup>
 
 </Project>
