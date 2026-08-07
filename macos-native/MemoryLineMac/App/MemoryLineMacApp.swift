@@ -15,12 +15,33 @@ struct MemoryLineMacApp: App {
             RootView()
                 .environment(environment)
                 .frame(minWidth: 900, minHeight: 560)
+                // Deliberately here rather than in the environment's init: the
+                // composition root builds the object graph, and starting disk
+                // repair and network loops is a separate act that belongs where
+                // the UI can already show what is happening.
+                .task { await environment.start() }
         }
         .commands {
-            // Placeholder for the menu-bar commands the port plan calls for
-            // (New Capture, Sync Now, Go to Today). Added with the features
-            // they invoke rather than as dead menu items.
-            CommandGroup(replacing: .newItem) {}
+            // Replacing .newItem rather than adding: "New" in a capture app
+            // means starting a recording, and leaving the stock File ▸ New
+            // alongside it would offer two different meanings of the word.
+            CommandGroup(replacing: .newItem) {
+                Button("Sync Now") {
+                    Task { await environment.sync.pullNow() }
+                }
+                .keyboardShortcut("r", modifiers: [.command])
+                .disabled(!environment.sync.canSync)
+            }
+        }
+
+        // Quick capture without bringing the main window forward — the reason
+        // a Mac companion is useful mid-thought. The label carries the
+        // recording state, so the menu bar itself shows whether audio is being
+        // captured even when every window is closed.
+        MenuBarExtra {
+            MenuBarCaptureView(recorder: environment.recorder, settings: environment.settings)
+        } label: {
+            MenuBarCaptureLabel(recorder: environment.recorder)
         }
 
         Settings {
