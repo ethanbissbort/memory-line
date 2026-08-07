@@ -39,6 +39,15 @@ public class SchemaUpgraderSyncSchemaTests : IDisposable
         _databasePath = Path.Combine(Path.GetTempPath(), $"SchemaUpgraderTest_{Guid.NewGuid()}.db");
     }
 
+    /// <summary>
+    /// Raw connections must opt OUT of Microsoft.Data.Sqlite's connection pooling:
+    /// a pooled setup connection keeps its underlying SQLite handle open after
+    /// Dispose, and the schema upgrader's later "PRAGMA journal_mode=WAL" cannot
+    /// convert the journal mode while that handle lives — on Windows it fails with
+    /// "SQLite Error 8: attempt to write a readonly database".
+    /// </summary>
+    private string RawConnectionString => $"Data Source={_databasePath};Pooling=False";
+
     [Fact]
     public async Task EnsureSchemaAsync_FreshDatabase_CreatesSyncTablesColumnsAndUniqueIndex()
     {
@@ -56,7 +65,7 @@ public class SchemaUpgraderSyncSchemaTests : IDisposable
         // ONLY the original recording_queue table, none of the sync schema.
         // EnsureCreated is then a no-op (a table exists), so everything the
         // assertions find must come from the drift repair.
-        await using (var connection = new SqliteConnection($"Data Source={_databasePath}"))
+        await using (var connection = new SqliteConnection(RawConnectionString))
         {
             await connection.OpenAsync();
             using var command = connection.CreateCommand();
@@ -84,7 +93,7 @@ public class SchemaUpgraderSyncSchemaTests : IDisposable
 
         // Assert - the unique index tolerates many legacy NULL rows but rejects
         // a duplicate non-null source_capture_id (idempotent ingestion guarantee).
-        await using (var connection = new SqliteConnection($"Data Source={_databasePath}"))
+        await using (var connection = new SqliteConnection(RawConnectionString))
         {
             await connection.OpenAsync();
 
@@ -139,7 +148,7 @@ public class SchemaUpgraderSyncSchemaTests : IDisposable
     /// </summary>
     private async Task AssertSyncSchemaAsync()
     {
-        await using var connection = new SqliteConnection($"Data Source={_databasePath}");
+        await using var connection = new SqliteConnection(RawConnectionString);
         await connection.OpenAsync();
 
         var tables = await GetTableNamesAsync(connection);
