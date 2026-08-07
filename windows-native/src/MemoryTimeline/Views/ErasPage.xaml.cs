@@ -5,7 +5,9 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
+using MemoryTimeline.Controls;
 using MemoryTimeline.Core.DTOs;
+using MemoryTimeline.Core.Services;
 using MemoryTimeline.Data.Models;
 using MemoryTimeline.ViewModels;
 using Windows.UI;
@@ -25,8 +27,16 @@ public sealed partial class ErasPage : Page
     /// </summary>
     public List<string> ColorPalette => ErasViewModel.ColorPalette;
 
+    private const string DraftParameterPrefix = "draft:";
+
     private Era? _eraToDelete;
     private Milestone? _milestoneToDelete;
+
+    /// <summary>
+    /// Era draft id received via the <c>"draft:&lt;draftId&gt;"</c> navigation
+    /// parameter; consumed (and cleared) once the page has loaded its data.
+    /// </summary>
+    private string? _pendingDraftId;
 
     public ErasPage()
     {
@@ -37,11 +47,73 @@ public sealed partial class ErasPage : Page
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
+
+        if (e.Parameter is string parameter && parameter.StartsWith(DraftParameterPrefix, StringComparison.Ordinal))
+        {
+            // Opening the dialog needs the page in the visual tree and its data
+            // loaded; defer to Page_Loaded (which dispatches after InitializeAsync).
+            _pendingDraftId = parameter[DraftParameterPrefix.Length..];
+        }
     }
 
     private async void Page_Loaded(object sender, RoutedEventArgs e)
     {
         await ViewModel.InitializeAsync();
+
+        if (_pendingDraftId != null)
+        {
+            var draftId = _pendingDraftId;
+            _pendingDraftId = null;
+
+            // Defer via the dispatcher so the dialog opens after the current
+            // layout/load pass has completed.
+            DispatcherQueue.TryEnqueue(async () => await OpenEraDraftAsync(draftId));
+        }
+    }
+
+    /// <summary>
+    /// Loads an era draft into the ViewModel and opens the era dialog
+    /// prefilled from it.
+    /// </summary>
+    private async Task OpenEraDraftAsync(string draftId)
+    {
+        var loaded = await ViewModel.LoadEraDraftAsync(draftId);
+        if (!loaded)
+        {
+            return;
+        }
+
+        PrepareEraDialogFromViewModel();
+        EraDialog.XamlRoot = XamlRoot;
+        await EraDialog.ShowAsync();
+    }
+
+    /// <summary>
+    /// Prepares the era dialog controls from the ViewModel's current edit
+    /// fields (used when resuming a draft, where the ViewModel is the source
+    /// of truth rather than an <see cref="Era"/> entity).
+    /// </summary>
+    private void PrepareEraDialogFromViewModel()
+    {
+        EraDialog.Title = "Resume Era Draft";
+        EraNameBox.Text = ViewModel.EditName;
+        EraSubtitleBox.Text = ViewModel.EditSubtitle;
+        EraStartDatePicker.Date = new DateTimeOffset(ViewModel.EditStartDate);
+        EraEndDatePicker.Date = ViewModel.EditEndDate.HasValue ? new DateTimeOffset(ViewModel.EditEndDate.Value) : null;
+        EraDescriptionBox.Text = ViewModel.EditDescription;
+        EraNotesBox.Text = ViewModel.EditNotes;
+        EraTagBox.Text = string.Empty;
+
+        var category = ViewModel.Categories.FirstOrDefault(c => c.CategoryId == ViewModel.EditCategoryId);
+        EraCategoryComboBox.SelectedItem = category;
+
+        var colorIndex = ColorPalette.IndexOf(ViewModel.EditColorCode);
+        ColorPaletteGrid.SelectedIndex = colorIndex; // -1 clears the selection
+        CustomColorBox.Text = ViewModel.EditColorCode;
+        UpdateColorPreview(ViewModel.EditColorCode);
+
+        ColorOverrideBox.Text = ViewModel.EditColorOverride;
+        UpdateColorOverridePreview(ViewModel.EditColorOverride);
     }
 
     #region Era CRUD Handlers
@@ -79,6 +151,31 @@ public sealed partial class ErasPage : Page
             _eraToDelete = ViewModel.SelectedEra;
             await DeleteConfirmDialog.ShowAsync();
         }
+    }
+
+    /// <summary>
+    /// Opens the narrative-generation dialog scoped to the selected era.
+    /// The dialog owns its own ViewModel, progress, and cancellation state.
+    /// </summary>
+    private async void GenerateEraStory_Click(object sender, RoutedEventArgs e)
+    {
+        var era = ViewModel.SelectedEra;
+        if (era == null)
+        {
+            return;
+        }
+
+        var request = new NarrativeRequest
+        {
+            Scope = NarrativeScope.Era,
+            ScopeId = era.EraId
+        };
+
+        var dialog = new NarrativeDialog(request, era.Name)
+        {
+            XamlRoot = XamlRoot
+        };
+        await dialog.ShowAsync();
     }
 
     /// <summary>
@@ -121,19 +218,7 @@ public sealed partial class ErasPage : Page
             return;
         }
 
-        // Update ViewModel properties from dialog
-        ViewModel.EditName = EraNameBox.Text;
-        ViewModel.EditSubtitle = EraSubtitleBox.Text;
-        ViewModel.EditStartDate = EraStartDatePicker.Date?.DateTime ?? DateTime.Now;
-        ViewModel.EditEndDate = EraEndDatePicker.Date?.DateTime;
-        ViewModel.EditDescription = EraDescriptionBox.Text;
-        ViewModel.EditNotes = EraNotesBox.Text;
-
-        // Category
-        if (EraCategoryComboBox.SelectedItem is EraCategory selectedCategory)
-        {
-            ViewModel.EditCategoryId = selectedCategory.CategoryId;
-        }
+        CollectEraDialogInputs();
 
         var deferral = args.GetDeferral();
         try
@@ -143,6 +228,49 @@ public sealed partial class ErasPage : Page
         finally
         {
             deferral.Complete();
+        }
+    }
+
+    /// <summary>
+    /// Saves the current era editor state as a draft when the "Save as Draft"
+    /// secondary button is clicked. No name validation: the draft service
+    /// titles empty drafts "Untitled era". The dialog closes afterwards.
+    /// </summary>
+    private async void EraDialog_SecondaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
+    {
+        CollectEraDialogInputs();
+
+        var deferral = args.GetDeferral();
+        try
+        {
+            await ViewModel.SaveEraDraftAsync();
+        }
+        finally
+        {
+            deferral.Complete();
+        }
+    }
+
+    /// <summary>
+    /// Copies the era dialog control values into the ViewModel's edit fields.
+    /// (Color code and tags are already synced by their own handlers/bindings.)
+    /// </summary>
+    private void CollectEraDialogInputs()
+    {
+        ViewModel.EditName = EraNameBox.Text;
+        ViewModel.EditSubtitle = EraSubtitleBox.Text;
+        ViewModel.EditStartDate = EraStartDatePicker.Date?.DateTime ?? DateTime.Now;
+        ViewModel.EditEndDate = EraEndDatePicker.Date?.DateTime;
+        ViewModel.EditDescription = EraDescriptionBox.Text;
+        ViewModel.EditNotes = EraNotesBox.Text;
+
+        var overrideText = ColorOverrideBox.Text?.Trim() ?? string.Empty;
+        ViewModel.EditColorOverride = IsValidHexColor(overrideText) ? overrideText : string.Empty;
+
+        // Category
+        if (EraCategoryComboBox.SelectedItem is EraCategory selectedCategory)
+        {
+            ViewModel.EditCategoryId = selectedCategory.CategoryId;
         }
     }
 
@@ -178,6 +306,9 @@ public sealed partial class ErasPage : Page
         EraEndDatePicker.Date = null;
         EraDescriptionBox.Text = string.Empty;
         EraNotesBox.Text = string.Empty;
+        EraTagBox.Text = string.Empty;
+        ColorOverrideBox.Text = string.Empty;
+        UpdateColorOverridePreview(string.Empty);
 
         // Select first category
         EraCategoryComboBox.SelectedIndex = 0;
@@ -201,6 +332,9 @@ public sealed partial class ErasPage : Page
         EraEndDatePicker.Date = era.EndDate.HasValue ? new DateTimeOffset(era.EndDate.Value) : null;
         EraDescriptionBox.Text = era.Description ?? string.Empty;
         EraNotesBox.Text = era.Notes ?? string.Empty;
+        EraTagBox.Text = string.Empty;
+        ColorOverrideBox.Text = era.ColorOverride ?? string.Empty;
+        UpdateColorOverridePreview(era.ColorOverride ?? string.Empty);
 
         // Select category
         var category = ViewModel.Categories.FirstOrDefault(c => c.CategoryId == era.CategoryId);
@@ -219,6 +353,43 @@ public sealed partial class ErasPage : Page
 
         CustomColorBox.Text = era.ColorCode;
         UpdateColorPreview(era.ColorCode);
+    }
+
+    #endregion
+
+    #region Era Tag Handlers
+
+    /// <summary>
+    /// Adds the typed tag when Enter is pressed in the tag box.
+    /// </summary>
+    private void EraTagBox_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key == Windows.System.VirtualKey.Enter)
+        {
+            ViewModel.AddEditTag(EraTagBox.Text);
+            EraTagBox.Text = string.Empty;
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>
+    /// Adds the typed tag via the add button.
+    /// </summary>
+    private void AddEraTag_Click(object sender, RoutedEventArgs e)
+    {
+        ViewModel.AddEditTag(EraTagBox.Text);
+        EraTagBox.Text = string.Empty;
+    }
+
+    /// <summary>
+    /// Removes the clicked tag chip.
+    /// </summary>
+    private void RemoveEraTag_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement element && element.DataContext is string tag)
+        {
+            ViewModel.RemoveEditTag(tag);
+        }
     }
 
     #endregion
@@ -425,6 +596,45 @@ public sealed partial class ErasPage : Page
         catch
         {
             ColorPreview.Fill = new SolidColorBrush(Colors.Gray);
+        }
+    }
+
+    /// <summary>
+    /// Handles color override input, mirroring valid values into the ViewModel.
+    /// </summary>
+    private void ColorOverrideBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        var colorCode = ColorOverrideBox.Text?.Trim() ?? string.Empty;
+        if (colorCode.Length == 0)
+        {
+            ViewModel.EditColorOverride = string.Empty;
+            UpdateColorOverridePreview(string.Empty);
+        }
+        else if (IsValidHexColor(colorCode))
+        {
+            ViewModel.EditColorOverride = colorCode;
+            UpdateColorOverridePreview(colorCode);
+        }
+    }
+
+    /// <summary>
+    /// Updates the color override preview rectangle (transparent when empty).
+    /// </summary>
+    private void UpdateColorOverridePreview(string colorCode)
+    {
+        if (string.IsNullOrEmpty(colorCode))
+        {
+            ColorOverridePreview.Fill = new SolidColorBrush(Colors.Transparent);
+            return;
+        }
+
+        try
+        {
+            ColorOverridePreview.Fill = new SolidColorBrush(ParseHexColor(colorCode));
+        }
+        catch
+        {
+            ColorOverridePreview.Fill = new SolidColorBrush(Colors.Gray);
         }
     }
 

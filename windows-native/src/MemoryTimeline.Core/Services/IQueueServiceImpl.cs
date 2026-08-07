@@ -70,6 +70,63 @@ public class QueueService : IQueueService
     }
 
     /// <summary>
+    /// Enqueues pasted/typed text as a Text source. No audio file exists for
+    /// these rows: AudioFilePath stores string.Empty (NOT NULL column
+    /// convention, see <see cref="RecordingQueue.AudioFilePath"/>) and the
+    /// text itself is persisted in <see cref="RecordingQueue.Transcript"/> so
+    /// processing skips speech-to-text entirely.
+    /// </summary>
+    public async Task<string> EnqueueTextAsync(string text, string? label = null, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            // Clear, user-facing message: callers surface this in an InfoBar.
+            throw new ArgumentException("Text to capture cannot be empty.");
+        }
+
+        try
+        {
+            var trimmedLabel = label?.Trim();
+            if (string.IsNullOrEmpty(trimmedLabel))
+            {
+                trimmedLabel = null;
+            }
+            else if (trimmedLabel.Length > 200)
+            {
+                trimmedLabel = trimmedLabel[..200];
+            }
+
+            var queueItem = new RecordingQueue
+            {
+                QueueId = Guid.NewGuid().ToString(),
+                SourceType = QueueSourceType.Text,
+                SourceLabel = trimmedLabel,
+                Transcript = text,
+                AudioFilePath = string.Empty,
+                Status = QueueStatus.Pending,
+                DurationSeconds = null,
+                FileSizeBytes = System.Text.Encoding.UTF8.GetByteCount(text),
+                CreatedAt = DateTime.UtcNow
+            };
+
+            ct.ThrowIfCancellationRequested();
+
+            var added = await _queueRepository.AddAsync(queueItem);
+
+            _logger.LogInformation("Added text source to queue: {QueueId} ({Bytes} bytes)",
+                added.QueueId, queueItem.FileSizeBytes);
+            RaiseStatusChanged(added.QueueId, "", QueueStatus.Pending);
+
+            return added.QueueId;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error adding text source to queue");
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Gets all recordings in the queue.
     /// </summary>
     public async Task<IEnumerable<AudioRecordingDto>> GetAllQueueItemsAsync()

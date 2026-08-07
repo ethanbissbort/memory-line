@@ -91,7 +91,9 @@ public class AnalyticsService : IAnalyticsService
             analytics.TotalEvents = await dbContext.Events.CountAsync();
             analytics.TotalEras = await dbContext.Eras.CountAsync();
             analytics.TotalTags = await dbContext.Tags.CountAsync();
-            analytics.TotalPeople = await dbContext.People.CountAsync();
+            // Living people only: merged-away tombstones keep their rows but
+            // are not distinct people.
+            analytics.TotalPeople = await dbContext.People.CountAsync(p => p.MergedIntoId == null);
             analytics.TotalLocations = await dbContext.Locations.CountAsync();
 
             analytics.EventsWithAudio = await dbContext.Events

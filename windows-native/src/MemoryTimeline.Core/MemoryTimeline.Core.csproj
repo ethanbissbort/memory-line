@@ -31,6 +31,9 @@
     <!-- Anthropic SDK (unofficial but well-maintained) -->
     <PackageReference Include="Anthropic.SDK" Version="5.8.0" />
 
+    <!-- EXIF/metadata reading for media attachments (MIT, no native deps) -->
+    <PackageReference Include="MetadataExtractor" Version="2.8.1" />
+
     <!-- Windows ML for NPU/GPU acceleration -->
     <PackageReference Include="Microsoft.AI.MachineLearning" Version="1.22.0" />
 

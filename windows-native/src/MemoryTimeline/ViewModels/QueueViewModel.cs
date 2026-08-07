@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
 using MemoryTimeline.Core.DTOs;
 using MemoryTimeline.Core.Services;
+using MemoryTimeline.Data.Models;
 using MemoryTimeline.Services;
 using System.Collections.ObjectModel;
 
@@ -18,7 +19,24 @@ public partial class QueueViewModel : ObservableObject, IDisposable
     private readonly ICaptureIngestionService _captureIngestionService;
     private readonly IAudioRecordingService _recordingService;
     private readonly IAudioPlaybackService _playbackService;
+    private readonly IRecallPromptService _recallPromptService;
     private readonly ILogger<QueueViewModel> _logger;
+
+    /// <summary>
+    /// Active recall prompts in rotation (the card shows the first one).
+    /// Detached entities loaded from IRecallPromptService.
+    /// </summary>
+    private List<RecallPrompt> _recallPrompts = new();
+
+    /// <summary>
+    /// The prompt id the in-flight recording is answering (set by
+    /// RecordRecallAnswer, consumed when the recording stops and its queue
+    /// row exists). Null when the recording is a plain capture.
+    /// KNOWN LIMIT: this is transient-VM state - navigating away mid-recording
+    /// disposes the VM, so a recording stopped after coming back lands in the
+    /// queue as a plain (unlinked) capture rather than a prompt answer.
+    /// </summary>
+    private string? _answeringRecallPromptId;
 
     // Captured on construction (UI thread) so background service-event and timer
     // callbacks can marshal UI/observable mutations back onto the dispatcher.
@@ -76,6 +94,19 @@ public partial class QueueViewModel : ObservableObject, IDisposable
     // Commands for queue operations
     public IRelayCommand ProcessQueueCommand => ProcessAllCommand;
 
+    // Guided recall card (one active prompt at a time)
+    [ObservableProperty]
+    private string? _recallQuestion;
+
+    [ObservableProperty]
+    private string _recallKindGlyph = "\uE787";
+
+    [ObservableProperty]
+    private bool _hasRecallPrompt;
+
+    /// <summary>The prompt currently shown on the recall card, or null.</summary>
+    public string? CurrentRecallPromptId => _recallPrompts.FirstOrDefault()?.PromptId;
+
     // Playback properties
     [ObservableProperty]
     private bool _isPlaying;
@@ -93,12 +124,14 @@ public partial class QueueViewModel : ObservableObject, IDisposable
         ICaptureIngestionService captureIngestionService,
         IAudioRecordingService recordingService,
         IAudioPlaybackService playbackService,
+        IRecallPromptService recallPromptService,
         ILogger<QueueViewModel> logger)
     {
         _queueService = queueService;
         _captureIngestionService = captureIngestionService;
         _recordingService = recordingService;
         _playbackService = playbackService;
+        _recallPromptService = recallPromptService;
         _logger = logger;
 
         // Capture the UI dispatcher while we are still on the UI thread.
@@ -162,6 +195,10 @@ public partial class QueueViewModel : ObservableObject, IDisposable
                 : IsPaused
                     ? "Recording paused"
                     : $"{QueueItems.Count} recordings in queue";
+
+            // Loaded after the status line so a recall failure message (set
+            // inside LoadRecallPromptsAsync) is not immediately overwritten.
+            await LoadRecallPromptsAsync();
         }
         catch (Exception ex)
         {
@@ -252,6 +289,10 @@ public partial class QueueViewModel : ObservableObject, IDisposable
         {
             _logger.LogError(ex, "Error stopping recording");
             StatusText = "Error stopping recording";
+            // A failed stop answers nothing - drop the recall link (mirrors
+            // CancelRecording) so the NEXT successful plain recording is not
+            // stamped as this prompt's answer.
+            _answeringRecallPromptId = null;
         }
     }
 
@@ -320,6 +361,8 @@ public partial class QueueViewModel : ObservableObject, IDisposable
             IsRecording = false;
             IsPaused = false;
             RecordingDuration = 0;
+            // A cancelled recording answers nothing - drop the recall link.
+            _answeringRecallPromptId = null;
             StatusText = "Recording cancelled";
         }
         catch (Exception ex)
@@ -472,6 +515,253 @@ public partial class QueueViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// Enqueues pasted text as a Text source (no audio, no speech-to-text).
+    /// Returns null on success, or a user-facing error message on failure —
+    /// the paste dialog keeps itself open and shows the message in its InfoBar.
+    /// Errors are logged here; the caller only displays them.
+    /// </summary>
+    public async Task<string?> EnqueuePastedTextAsync(string? text, string? label)
+    {
+        try
+        {
+            var queueId = await _queueService.EnqueueTextAsync(text ?? string.Empty, label);
+            await RefreshQueueAsync();
+            StatusText = "Text added to queue";
+
+            _logger.LogInformation("Pasted text enqueued as {QueueId}", queueId);
+            return null;
+        }
+        catch (ArgumentException ex)
+        {
+            // Validation rejection (empty/whitespace text) — expected user error.
+            _logger.LogWarning(ex, "Rejected pasted text");
+            return ex.Message;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error adding pasted text to queue");
+            StatusText = "Error adding text to queue";
+            return $"Could not add text to the queue: {ex.Message}";
+        }
+    }
+
+    #endregion
+
+    #region Guided Recall
+
+    /// <summary>
+    /// Loads (topping up as needed) the active recall prompts and refreshes
+    /// the card. Failures surface on the status bar and are logged; the rest
+    /// of the queue page keeps working.
+    /// </summary>
+    private async Task LoadRecallPromptsAsync()
+    {
+        try
+        {
+            _recallPrompts = await _recallPromptService.GetPromptsAsync(5);
+            RunOnUi(UpdateRecallCard);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading recall prompts");
+            RunOnUi(() => StatusText = "Error loading memory prompts");
+        }
+    }
+
+    /// <summary>Shows the first prompt in rotation on the card.</summary>
+    private void UpdateRecallCard()
+    {
+        var current = _recallPrompts.FirstOrDefault();
+        RecallQuestion = current?.Question;
+        RecallKindGlyph = current == null ? string.Empty : GetRecallKindGlyph(current.Kind);
+        HasRecallPrompt = current != null;
+    }
+
+    private static string GetRecallKindGlyph(RecallPromptKind kind)
+    {
+        return kind switch
+        {
+            RecallPromptKind.DensityGap => "\uE787",        // Calendar
+            RecallPromptKind.DanglingPerson => "\uE77B",    // Contact
+            RecallPromptKind.EraEdge => "\uE81C",           // History (matches Eras nav)
+            RecallPromptKind.ThinEvent => "\uE70B",         // QuickNote
+            RecallPromptKind.AnniversaryAnchor => "\uE735", // FavoriteStar
+            _ => "\uE787"
+        };
+    }
+
+    /// <summary>
+    /// Brings the prompt referenced by a "recall:&lt;promptId&gt;" navigation
+    /// parameter (Home page's Answer button) to the front of the card.
+    /// Called on the UI thread from QueuePage.OnNavigatedTo.
+    /// </summary>
+    public void FocusRecallPrompt(string promptId)
+    {
+        var index = _recallPrompts.FindIndex(p => p.PromptId == promptId);
+        if (index < 0)
+        {
+            // Answered/dismissed elsewhere, or generation reshuffled the pool.
+            _logger.LogWarning("Recall prompt {PromptId} not found to focus", promptId);
+            StatusText = "That memory prompt is no longer available";
+            return;
+        }
+
+        if (index > 0)
+        {
+            var prompt = _recallPrompts[index];
+            _recallPrompts.RemoveAt(index);
+            _recallPrompts.Insert(0, prompt);
+        }
+
+        UpdateRecallCard();
+    }
+
+    /// <summary>
+    /// "Record answer": remembers the active prompt id, then starts the
+    /// normal recording flow. When the recording stops and its queue row is
+    /// created, <see cref="LinkRecallAnswerAsync"/> stamps the row with the
+    /// question and marks the prompt Answered.
+    /// </summary>
+    [RelayCommand]
+    private async Task RecordRecallAnswerAsync()
+    {
+        var promptId = CurrentRecallPromptId;
+        if (promptId == null || !CanStartRecording)
+        {
+            return;
+        }
+
+        _answeringRecallPromptId = promptId;
+        await StartRecordingAsync();
+
+        if (!IsRecording)
+        {
+            // The recording failed to start (StartRecordingAsync already
+            // surfaced the error); there is nothing to link.
+            _answeringRecallPromptId = null;
+        }
+    }
+
+    /// <summary>
+    /// Links a just-created queue row to the recall prompt being answered (if
+    /// any): the service stamps the row's SourceLabel with the question and
+    /// marks the prompt Answered. No-op for plain recordings.
+    /// </summary>
+    private async Task LinkRecallAnswerAsync(string queueId)
+    {
+        var promptId = _answeringRecallPromptId;
+        _answeringRecallPromptId = null;
+        if (promptId == null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _recallPromptService.MarkAnsweredAsync(promptId, queueId);
+            await RemoveRecallPromptFromRotationAsync(promptId);
+            StatusText = "Recording captured as a prompt answer";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error linking recording {QueueId} to recall prompt {PromptId}",
+                queueId, promptId);
+            StatusText = $"Could not link the answer to the prompt: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// "Type answer" submit path: routes the paste dialog's text through
+    /// StartAnsweringAsync (labels the queue row with the question and marks
+    /// the prompt Answered). Returns null on success, or a user-facing error
+    /// message that the dialog shows in its InfoBar.
+    /// </summary>
+    public async Task<string?> EnqueueRecallAnswerAsync(string? text)
+    {
+        var prompt = _recallPrompts.FirstOrDefault();
+        if (prompt == null)
+        {
+            return "The memory prompt is no longer available.";
+        }
+
+        try
+        {
+            var queueId = await _recallPromptService.StartAnsweringAsync(prompt.PromptId, text ?? string.Empty);
+            await RefreshQueueAsync();
+            await RemoveRecallPromptFromRotationAsync(prompt.PromptId);
+            StatusText = "Answer added to queue";
+
+            _logger.LogInformation("Recall prompt {PromptId} answered as queue item {QueueId}",
+                prompt.PromptId, queueId);
+            return null;
+        }
+        catch (ArgumentException ex)
+        {
+            // Validation rejection (empty/whitespace text) - expected user error.
+            _logger.LogWarning(ex, "Rejected recall answer text");
+            return ex.Message;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error answering recall prompt {PromptId}", prompt.PromptId);
+            StatusText = "Error adding the answer to the queue";
+            return $"Could not add the answer to the queue: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// "Skip" flyout: NotInterested/AlreadyCovered permanently retire the
+    /// prompt; Later snoozes it for 14 days. The card then advances.
+    /// </summary>
+    [RelayCommand]
+    private async Task DismissRecallPromptAsync(string? reason)
+    {
+        var prompt = _recallPrompts.FirstOrDefault();
+        if (prompt == null)
+        {
+            return;
+        }
+
+        if (!Enum.TryParse<DismissReason>(reason, out var parsedReason) || parsedReason == DismissReason.None)
+        {
+            _logger.LogWarning("Unknown recall dismiss reason '{Reason}'", reason);
+            StatusText = "Could not skip the prompt: unknown reason";
+            return;
+        }
+
+        try
+        {
+            await _recallPromptService.DismissAsync(prompt.PromptId, parsedReason);
+            await RemoveRecallPromptFromRotationAsync(prompt.PromptId);
+            StatusText = parsedReason == DismissReason.Later
+                ? "Prompt snoozed for two weeks"
+                : "Prompt dismissed";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error dismissing recall prompt {PromptId}", prompt.PromptId);
+            StatusText = $"Could not skip the prompt: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Drops a handled prompt from the local rotation and advances the card,
+    /// reloading (which tops the pool back up) when the rotation runs dry.
+    /// </summary>
+    private async Task RemoveRecallPromptFromRotationAsync(string promptId)
+    {
+        _recallPrompts.RemoveAll(p => p.PromptId == promptId);
+        if (_recallPrompts.Count == 0)
+        {
+            await LoadRecallPromptsAsync();
+        }
+        else
+        {
+            RunOnUi(UpdateRecallCard);
+        }
+    }
+
     #endregion
 
     #region Playback Commands
@@ -479,7 +769,9 @@ public partial class QueueViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task PlayItemAsync(AudioRecordingDto? item)
     {
-        if (item == null) return;
+        // Text sources have no audio file (AudioFilePath is string.Empty by
+        // convention); the play button is hidden for them, but guard anyway.
+        if (item == null || !item.IsAudioSource) return;
 
         try
         {

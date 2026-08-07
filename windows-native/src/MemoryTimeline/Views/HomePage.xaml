@@ -1,0 +1,315 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="MemoryTimeline.Views.HomePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:viewmodels="using:MemoryTimeline.ViewModels"
+    mc:Ignorable="d"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Grid Padding="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header: page title + the date line -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,16">
+            <TextBlock Text="Home"
+                      Style="{StaticResource TitleTextBlockStyle}"/>
+            <TextBlock Text="{x:Bind ViewModel.HeaderDateLine, Mode=OneWay}"
+                      Style="{StaticResource BodyTextBlockStyle}"
+                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                      Margin="0,4,0,0"/>
+
+            <!-- Error surface -->
+            <InfoBar IsOpen="{x:Bind ViewModel.ErrorMessage, Converter={StaticResource NullToFalseConverter}, Mode=OneWay}"
+                    Severity="Error"
+                    Title="Something went wrong"
+                    Message="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
+                    Closed="ErrorBar_Closed"
+                    Margin="0,12,0,0"/>
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <Grid>
+
+                <!-- First-run empty state: a welcoming panel with setup CTAs -->
+                <StackPanel HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           Spacing="12"
+                           MaxWidth="440"
+                           Margin="0,48,0,48"
+                           Visibility="{x:Bind ViewModel.IsArchiveEmpty, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
+                    <FontIcon Glyph="&#xE80F;"
+                             FontSize="48"
+                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                             HorizontalAlignment="Center"/>
+                    <TextBlock Text="Welcome to Memory Timeline"
+                              Style="{StaticResource SubtitleTextBlockStyle}"
+                              HorizontalAlignment="Center"/>
+                    <TextBlock Text="Your archive is empty. Capture a first memory - speak it or paste it - and it will start coming back to you right here."
+                              Style="{StaticResource BodyTextBlockStyle}"
+                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                              TextWrapping="Wrap"
+                              TextAlignment="Center"/>
+                    <Button Content="Record your first memory"
+                           Style="{StaticResource AccentButtonStyle}"
+                           HorizontalAlignment="Center"
+                           Command="{x:Bind ViewModel.RecordFirstMemoryCommand}"/>
+                    <Button Content="Paste some text"
+                           HorizontalAlignment="Center"
+                           Command="{x:Bind ViewModel.PasteTextCommand}"/>
+                    <Button Content="Open Settings"
+                           HorizontalAlignment="Center"
+                           Command="{x:Bind ViewModel.OpenSettingsCommand}"/>
+                </StackPanel>
+
+                <!-- Populated home sections -->
+                <StackPanel Spacing="28"
+                           MaxWidth="1000"
+                           HorizontalAlignment="Stretch"
+                           Visibility="{x:Bind ViewModel.HasContent, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
+
+                    <!-- (a) On This Day -->
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="On This Day"
+                                  Style="{StaticResource SubtitleTextBlockStyle}"/>
+                        <TextBlock Text="No memories match today's date yet - they'll appear here as your archive grows."
+                                  Style="{StaticResource BodyTextBlockStyle}"
+                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                  Visibility="{x:Bind ViewModel.HasOnThisDay, Converter={StaticResource InvertedBoolToVisibilityConverter}, Mode=OneWay}"/>
+                        <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                                     HorizontalScrollMode="Enabled"
+                                     VerticalScrollBarVisibility="Disabled"
+                                     VerticalScrollMode="Disabled"
+                                     Visibility="{x:Bind ViewModel.HasOnThisDay, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
+                            <ItemsControl ItemsSource="{x:Bind ViewModel.OnThisDayMemories}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" Spacing="12"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="viewmodels:HomeMemoryCardDto">
+                                        <Button Command="{x:Bind OpenCommand}"
+                                               Width="260"
+                                               Padding="16"
+                                               VerticalAlignment="Stretch"
+                                               HorizontalContentAlignment="Stretch">
+                                            <StackPanel Spacing="6">
+                                                <TextBlock Text="{x:Bind Subtitle}"
+                                                          Style="{StaticResource CaptionTextBlockStyle}"
+                                                          Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                                                <TextBlock Text="{x:Bind Title}"
+                                                          Style="{StaticResource BodyStrongTextBlockStyle}"
+                                                          TextWrapping="Wrap"
+                                                          MaxLines="2"
+                                                          TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{x:Bind DisplayDate}"
+                                                          Style="{StaticResource CaptionTextBlockStyle}"
+                                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            </StackPanel>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </StackPanel>
+
+                    <!-- (d) Pending review count -->
+                    <Grid Visibility="{x:Bind ViewModel.HasPendingReview, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}"
+                         Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                         BorderThickness="1"
+                         CornerRadius="8"
+                         Padding="16"
+                         ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="4" VerticalAlignment="Center">
+                            <TextBlock Text="Review queue"
+                                      Style="{StaticResource BodyStrongTextBlockStyle}"/>
+                            <TextBlock Text="{x:Bind ViewModel.PendingReviewText, Mode=OneWay}"
+                                      Style="{StaticResource CaptionTextBlockStyle}"
+                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                        <Button Grid.Column="1"
+                               Content="Review now"
+                               Style="{StaticResource AccentButtonStyle}"
+                               VerticalAlignment="Center"
+                               Command="{x:Bind ViewModel.ReviewNowCommand}"/>
+                    </Grid>
+
+                    <!-- Guided recall: one question generated from archive gaps;
+                         Answer opens the Queue page focused on this prompt. -->
+                    <Grid Visibility="{x:Bind ViewModel.HasRecallPrompt, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}"
+                         Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                         BorderThickness="1"
+                         CornerRadius="8"
+                         Padding="16"
+                         ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="4" VerticalAlignment="Center">
+                            <TextBlock Text="Help fill a gap"
+                                      Style="{StaticResource BodyStrongTextBlockStyle}"/>
+                            <TextBlock Text="{x:Bind ViewModel.RecallQuestion, Mode=OneWay}"
+                                      Style="{StaticResource BodyTextBlockStyle}"
+                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                      TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <Button Grid.Column="1"
+                               Content="Answer"
+                               Style="{StaticResource AccentButtonStyle}"
+                               VerticalAlignment="Center"
+                               Command="{x:Bind ViewModel.AnswerRecallPromptCommand}"/>
+                    </Grid>
+
+                    <!-- (b) Random memory -->
+                    <StackPanel Spacing="12">
+                        <Grid>
+                            <TextBlock Text="A memory for you"
+                                      Style="{StaticResource SubtitleTextBlockStyle}"
+                                      VerticalAlignment="Center"/>
+                            <Button Content="Show another"
+                                   HorizontalAlignment="Right"
+                                   Command="{x:Bind ViewModel.ShowAnotherRandomCommand}"/>
+                        </Grid>
+                        <Button Command="{x:Bind ViewModel.RandomMemory.OpenCommand, Mode=OneWay}"
+                               HorizontalAlignment="Stretch"
+                               HorizontalContentAlignment="Stretch"
+                               Padding="16"
+                               Visibility="{x:Bind ViewModel.RandomMemory, Converter={StaticResource NullToVisibilityConverter}, Mode=OneWay}">
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="{x:Bind ViewModel.RandomMemory.Subtitle, Mode=OneWay}"
+                                          Style="{StaticResource CaptionTextBlockStyle}"
+                                          Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                                <TextBlock Text="{x:Bind ViewModel.RandomMemory.Title, Mode=OneWay}"
+                                          Style="{StaticResource BodyStrongTextBlockStyle}"
+                                          TextWrapping="Wrap"/>
+                                <TextBlock Text="{x:Bind ViewModel.RandomMemory.DisplayDate, Mode=OneWay}"
+                                          Style="{StaticResource CaptionTextBlockStyle}"
+                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+
+                    <!-- (c) Recent additions -->
+                    <StackPanel Spacing="12"
+                               Visibility="{x:Bind ViewModel.HasRecentEvents, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
+                        <TextBlock Text="Recently added"
+                                  Style="{StaticResource SubtitleTextBlockStyle}"/>
+                        <ItemsControl ItemsSource="{x:Bind ViewModel.RecentEvents}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="viewmodels:HomeMemoryCardDto">
+                                    <Button Command="{x:Bind OpenCommand}"
+                                           HorizontalAlignment="Stretch"
+                                           HorizontalContentAlignment="Stretch"
+                                           Padding="12"
+                                           Margin="0,0,0,8">
+                                        <Grid ColumnSpacing="12">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0"
+                                                      Text="{x:Bind Title}"
+                                                      TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Grid.Column="1"
+                                                      Text="{x:Bind DisplayDate}"
+                                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            <TextBlock Grid.Column="2"
+                                                      Text="{x:Bind Subtitle}"
+                                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        </Grid>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+
+                    <!-- Weekly digest: this week across the years -->
+                    <Expander Header="This week across the years"
+                             HorizontalAlignment="Stretch"
+                             HorizontalContentAlignment="Stretch"
+                             Visibility="{x:Bind ViewModel.ShowWeeklyDigest, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
+                        <ItemsControl ItemsSource="{x:Bind ViewModel.WeeklyDigestMemories}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="viewmodels:HomeMemoryCardDto">
+                                    <Button Command="{x:Bind OpenCommand}"
+                                           HorizontalAlignment="Stretch"
+                                           HorizontalContentAlignment="Stretch"
+                                           Padding="12"
+                                           Margin="0,0,0,8">
+                                        <Grid ColumnSpacing="12">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0"
+                                                      Text="{x:Bind Title}"
+                                                      TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Grid.Column="1"
+                                                      Text="{x:Bind DisplayDate}"
+                                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            <TextBlock Grid.Column="2"
+                                                      Text="{x:Bind Subtitle}"
+                                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        </Grid>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Expander>
+
+                    <!-- Upcoming anniversaries -->
+                    <StackPanel Spacing="12"
+                               Visibility="{x:Bind ViewModel.HasUpcomingAnniversaries, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
+                        <TextBlock Text="Coming up"
+                                  Style="{StaticResource SubtitleTextBlockStyle}"/>
+                        <ItemsControl ItemsSource="{x:Bind ViewModel.UpcomingAnniversaries}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="viewmodels:HomeAnniversaryDto">
+                                    <Grid ColumnSpacing="12" Padding="4,6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0"
+                                                  Text="{x:Bind DateText}"
+                                                  MinWidth="96"
+                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        <TextBlock Grid.Column="1"
+                                                  Text="{x:Bind Title}"
+                                                  TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2"
+                                                  Text="{x:Bind YearsText}"
+                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Loading indicator -->
+                <ProgressRing IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}"
+                             HorizontalAlignment="Center"
+                             VerticalAlignment="Center"
+                             Width="48"
+                             Height="48"/>
+            </Grid>
+        </ScrollViewer>
+    </Grid>
+</Page>

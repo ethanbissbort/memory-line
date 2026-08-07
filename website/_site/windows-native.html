@@ -1,0 +1,892 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Windows Native app · Memory Timeline docs</title>
+<meta name="description" content="The main reference for the WinUI 3 app: pipeline, features, quick start, project structure, clean-architecture layers, DI composition, database schema, configuration, and troubleshooting.">
+<meta property="og:title" content="Windows Native app · Memory Timeline docs">
+<meta property="og:description" content="The main reference for the WinUI 3 app: pipeline, features, quick start, project structure, clean-architecture layers, DI composition, database schema, configuration, and troubleshooting.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%227%22%20fill%3D%22%231d1b18%22%2F%3E%3Cpath%20d%3D%22M4%2021h24%22%20stroke%3D%22%238b8175%22%20stroke-width%3D%221.5%22%20stroke-linecap%3D%22round%22%2F%3E%3Ccircle%20cx%3D%229%22%20cy%3D%2221%22%20r%3D%223.1%22%20fill%3D%22%23e0873f%22%2F%3E%3Ccircle%20cx%3D%2217%22%20cy%3D%2214%22%20r%3D%223.6%22%20fill%3D%22%23f0b46e%22%2F%3E%3Ccircle%20cx%3D%2225%22%20cy%3D%2218%22%20r%3D%222.6%22%20fill%3D%22%236ec2b8%22%2F%3E%3Cpath%20d%3D%22M9%2021%2017%2014%2025%2018%22%20stroke%3D%22%238b8175%22%20stroke-width%3D%221.2%22%20fill%3D%22none%22%20stroke-linejoin%3D%22round%22%20opacity%3D%22.8%22%2F%3E%3C%2Fsvg%3E">
+<link rel="stylesheet" href="assets/styles.css">
+<script>(function(){try{var t=localStorage.getItem('mt-theme');if(t==='light'||t==='dark'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();</script>
+</head>
+<body class="page-doc" data-page="windows-native">
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="icon-btn nav-toggle" type="button" aria-label="Toggle navigation" aria-expanded="false" data-nav-toggle>
+      <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg>
+    </button>
+    <a class="brand" href="index.html">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="26" height="26"><path d="M3 22h26" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity=".45"/><circle cx="8" cy="22" r="3" fill="currentColor" opacity=".55"/><circle cx="16" cy="14" r="3.8" fill="currentColor"/><circle cx="25" cy="18.5" r="2.6" fill="currentColor" opacity=".7"/></svg>
+      </span>
+      <span class="brand-text">
+        <span class="brand-name">Memory Timeline</span>
+        <span class="brand-sub">Documentation</span>
+      </span>
+    </a>
+
+    <button class="searchbar" type="button" data-search-open aria-label="Search documentation">
+      <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><circle cx="9" cy="9" r="5.5" stroke="currentColor" stroke-width="1.7" fill="none"/><path d="M13.2 13.2 17 17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <span>Search the docs</span>
+      <kbd>/</kbd>
+    </button>
+
+    <div class="topbar-actions">
+      <button class="icon-btn" type="button" data-theme-toggle aria-label="Switch colour theme" title="Switch colour theme">
+        <svg class="icon-sun" viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><circle cx="10" cy="10" r="4" fill="currentColor"/><path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6 16 16M16 4l-1.4 1.4M5.4 14.6 4 16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <svg class="icon-moon" viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><path d="M16.5 12.4A7 7 0 0 1 7.6 3.5a7 7 0 1 0 8.9 8.9Z" fill="currentColor"/></svg>
+      </button>
+      <a class="icon-btn" href="https://github.com/ethanbissbort/memory-line" target="_blank" rel="noopener noreferrer" aria-label="View the repository on GitHub" title="Repository on GitHub">
+        <svg viewBox="0 0 16 16" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38l-.01-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.93-.89-1.18-.89-1.18-.73-.5.05-.49.05-.49.81.06 1.23.83 1.23.83.72 1.23 1.88.87 2.34.67.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48l-.01 2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+      </a>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" data-sidebar>
+    <nav aria-label="Documentation">
+      <ul class="nav">
+        <li class="nav-section">
+          <p class="nav-section-title">Start here</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="index.html">Home</a>
+            </li>
+            <li><a class="nav-link" href="documentation-map.html">All documentation</a>
+            </li>
+            <li><a class="nav-link" href="overview.html">Project overview</a>
+            </li>
+            <li><a class="nav-link" href="developer-guide.html">Developer guide</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Windows Native app</p>
+          <ul class="nav-list">
+            <li><a class="nav-link is-active" href="windows-native.html" aria-current="page">Windows Native app</a>
+              <ul class="nav-sub">
+                <li><a class="nav-sublink" href="#overview">Overview</a></li>
+                <li><a class="nav-sublink" href="#the-memory-pipeline">The memory pipeline</a></li>
+                <li><a class="nav-sublink" href="#features">Features</a></li>
+                <li><a class="nav-sublink" href="#quick-start">Quick Start</a></li>
+                <li><a class="nav-sublink" href="#project-structure">Project Structure</a></li>
+                <li><a class="nav-sublink" href="#architecture">Architecture</a></li>
+                <li><a class="nav-sublink" href="#database">Database</a></li>
+                <li><a class="nav-sublink" href="#api-keys--configuration">API Keys &amp; Configuration</a></li>
+                <li><a class="nav-sublink" href="#recent-hardening">Recent hardening</a></li>
+                <li><a class="nav-sublink" href="#testing">Testing</a></li>
+                <li><a class="nav-sublink" href="#deployment">Deployment</a></li>
+                <li><a class="nav-sublink" href="#performance-targets">Performance Targets</a></li>
+                <li><a class="nav-sublink" href="#development-status">Development Status</a></li>
+                <li><a class="nav-sublink" href="#roadmap--known-follow-ups">Roadmap / known follow-ups</a></li>
+                <li><a class="nav-sublink" href="#troubleshooting">Troubleshooting</a></li>
+                <li><a class="nav-sublink" href="#documentation">Documentation</a></li>
+                <li><a class="nav-sublink" href="#contributing">Contributing</a></li>
+                <li><a class="nav-sublink" href="#license">License</a></li>
+              </ul>
+            </li>
+            <li><a class="nav-link" href="setup-scripts-windows.html">PowerShell setup scripts</a>
+            </li>
+            <li><a class="nav-link" href="testing.html">Testing guide</a>
+            </li>
+            <li><a class="nav-link" href="deployment.html">Deployment guide</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Status &amp; history</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="development-status.html">Development status</a>
+            </li>
+            <li><a class="nav-link" href="development-history.html">Development history</a>
+            </li>
+            <li><a class="nav-link" href="migration-to-native-windows.html">Migration to native Windows</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Audits &amp; reviews</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="feature-audit.html">Feature audit (2026-07)</a>
+            </li>
+            <li><a class="nav-link" href="hardening-followups.html">Hardening follow-ups</a>
+            </li>
+            <li><a class="nav-link" href="repo-audit-2026-07.html">Exhaustive repo audit</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Design notes</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="people-feature-contracts.html">People feature contracts</a>
+            </li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+  </aside>
+  <div class="sidebar-scrim" data-nav-close hidden></div>
+
+  <main class="main" id="main">
+
+<header class="doc-header">
+  <nav class="breadcrumb" aria-label="Breadcrumb">
+    <a href="index.html">Docs</a>
+    <span aria-hidden="true">/</span>
+    <span>Windows Native app</span>
+  </nav>
+  <h1>Windows Native app</h1>
+  <p class="doc-lede">The main reference for the WinUI 3 app: pipeline, features, quick start, project structure, clean-architecture layers, DI composition, database schema, configuration, and troubleshooting.</p>
+  <div class="doc-meta">
+    <span class="doc-meta-item"><b>For</b> Developers</span>
+    <span class="doc-meta-item"><b>3,150</b> words</span>
+    <span class="doc-meta-item"><b>14</b> min read</span>
+    <a class="doc-meta-item doc-source" href="https://github.com/ethanbissbort/memory-line/blob/main/windows-native/README.md" target="_blank" rel="noopener noreferrer">
+      windows-native/README.md ↗
+    </a>
+  </div>
+  <div class="tags"><span class="tag">WinUI 3</span><span class="tag">.NET 8</span><span class="tag">architecture</span><span class="tag">setup</span></div>
+</header>
+<div class="doc-grid">
+  <article class="prose">
+<p>A native Windows 11 implementation of Memory Timeline, featuring local Whisper transcription, AI-powered event extraction with honest date precision, media attachments, ask-your-timeline retrieval, narrative generation, an offline map, backup/revision history, RAG-based cross-referencing (local embeddings by default), and deep Windows integration.</p>
+<p><strong>This is the primary, actively developed product.</strong> The cross-platform Electron build under the repo&#39;s <code>src/</code> directory is now in maintenance only.</p>
+<p><strong>Platform:</strong> Windows 11 (22H2+)<br><strong>Framework:</strong> .NET 8 + WinUI 3<br><strong>Status:</strong> Active development — Phases 0-6 complete; core pipeline rebuilt and hardened via a multi-agent feature audit (2026-07), followed by a twelve-feature spec implementation (F1–F12, 2026-08). Builds are green in CI; end-to-end runtime validation is ongoing. Phase 7 (testing, MSIX, Microsoft Store) is in progress.  </p>
+<blockquote><p>This is not &quot;production ready&quot; or runtime-verified yet. See <a href="#recent-hardening">Recent hardening</a> and <a href="#development-status">Development Status</a>.</p>
+</blockquote>
+<hr>
+<h2 id="overview" class="anchored">Overview<a class="heading-anchor" href="#overview" aria-label="Link to this section">#</a></h2>
+<p>This is the native Windows implementation of Memory Timeline: a <strong>local-first</strong> desktop app for recording, organizing, and rediscovering personal history. You speak a memory, the app transcribes it <strong>locally with Whisper</strong>, a <strong>Claude</strong> model extracts a structured event, you review and approve it, and it lands on an interactive timeline. Optional embeddings surface connections between related memories.</p>
+<p>It is designed to provide strong performance and to leverage Windows-specific features such as native touch/pen support (Windows Ink), toast notifications, JumpList, and Windows Timeline integration.</p>
+<h3 id="advantages-over-the-electron-version" class="anchored">Advantages Over the Electron Version<a class="heading-anchor" href="#advantages-over-the-electron-version" aria-label="Link to this section">#</a></h3>
+<p>Native WinUI 3 replaces a Chromium runtime with the OS&#39;s own UI stack. The intended benefits are lower memory use, faster cold start, smoother timeline rendering, a smaller package, and first-class Windows integration.</p>
+<p>The table below lists <strong>targets</strong>, not measured/verified results — treat them as design goals for the native app while runtime validation is ongoing:</p>
+<div class="table-wrap"><table><thead><tr>
+<th>Aspect</th>
+<th>Electron</th>
+<th>Windows Native (target)</th>
+</tr>
+</thead><tbody><tr>
+<td>Memory (idle)</td>
+<td>~150 MB</td>
+<td>~30 MB</td>
+</tr>
+<tr>
+<td>Memory (5000 events)</td>
+<td>~300 MB</td>
+<td>~100 MB</td>
+</tr>
+<tr>
+<td>Cold start</td>
+<td>3-5 seconds</td>
+<td>&lt; 2 seconds</td>
+</tr>
+<tr>
+<td>Timeline FPS</td>
+<td>30-45 FPS</td>
+<td>60 FPS</td>
+</tr>
+<tr>
+<td>Package size</td>
+<td>~120 MB</td>
+<td>~30 MB</td>
+</tr>
+<tr>
+<td>Touch/Pen</td>
+<td>Limited</td>
+<td>Full Windows Ink</td>
+</tr>
+<tr>
+<td>Windows Integration</td>
+<td>Basic</td>
+<td>Full (JumpList, Timeline, Notifications)</td>
+</tr>
+</tbody></table></div>
+<hr>
+<h2 id="the-memory-pipeline" class="anchored">The memory pipeline<a class="heading-anchor" href="#the-memory-pipeline" aria-label="Link to this section">#</a></h2>
+<p>Every stage persists its state, so a failure is recoverable and visible in the UI rather than silently swallowed:</p>
+<figure class="diagram"><pre aria-label="Diagram">🎙  Record            →  ⏱  Queue           →  📝  Transcribe        →  🤖  Extract
+ Windows MediaCapture     recording_queue       Whisper (local)          Claude → pending_events
+ (16 kHz mono WAV)        (pending → done)      offline, on-device       structured, reviewable
+                                                                                 │
+                                                                                 ▼
+🗓  Timeline          ←  ✅  Approve          ←  👀  Review
+ event appears,          atomic write:            edit / approve / reject
+ auto-refresh            event + tags + people    per pending event
+                         + locations, one txn</pre></figure>
+<ul>
+<li><strong>Record</strong> — <code>Windows.Media.Capture</code> writes a 16 kHz mono WAV under <code>%LOCALAPPDATA%\MemoryTimeline\AudioRecordings</code>.</li>
+<li><strong>Text capture</strong> — pasted/typed text (Ctrl+Shift+V on the Queue page) enters the same <code>recording_queue</code> as a <strong>text source</strong>; the text is stored as the item&#39;s transcript and skips transcription entirely.</li>
+<li><strong>Transcribe</strong> — local Whisper transcribes the recorded file; the transcript is persisted on the queue row and <strong>reused across retries</strong> instead of re-transcribing.</li>
+<li><strong>Extract</strong> — the configured LLM (Claude, or an OpenAI-compatible endpoint) produces a structured event (title, dates <strong>with precision</strong>, description, category, tags/people/locations, alias-aware people matching) into <code>pending_events</code>.</li>
+<li><strong>Approve</strong> — approving writes the event and all its tags/people/locations (plus date precision/uncertainty) in <strong>one transaction</strong>; the timeline auto-refreshes via a <code>WeakReferenceMessenger</code> <code>EventCreatedMessage</code>.</li>
+</ul>
+<hr>
+<h2 id="features" class="anchored">Features<a class="heading-anchor" href="#features" aria-label="Link to this section">#</a></h2>
+<h3 id="core-functionality" class="anchored">Core Functionality<a class="heading-anchor" href="#core-functionality" aria-label="Link to this section">#</a></h3>
+<ul>
+<li><strong>Timeline Visualization</strong> - Interactive timeline with Year/Month/Week/Day zoom, pan, and keyboard navigation; duration <strong>spans</strong>, optional <strong>swimlanes</strong> (collapsible lanes), and <strong>uncertainty bands</strong> for vague dates; scroll reloads are coalesced; new/approved events refresh onto the timeline automatically.</li>
+<li><strong>Honest Date Precision</strong> - Events carry a <code>DatePrecision</code> (Exact/Day/Month/Season/Year/Decade/Unknown) plus an earliest/latest uncertainty window; every display formats dates at their true precision (&quot;Summer 2003&quot;, never an invented day).</li>
+<li><strong>Audio Recording</strong> - Record audio memories with pause/resume/cancel using Windows <code>MediaCapture</code>.</li>
+<li><strong>Text &amp; Paste Capture</strong> - Ctrl+Shift+V (or the Queue-page button) captures typed/pasted text through the same queue; transcripts are persisted and reused across retries.</li>
+<li><strong>Local Speech-to-Text</strong> - Transcribe recordings <strong>on-device</strong> with <strong>Whisper</strong> (<a href="https://github.com/sandrohanea/whisper.net" target="_blank" rel="noopener noreferrer" class="external-link">Whisper.net</a>); no audio leaves the machine.</li>
+<li><strong>LLM Event Extraction</strong> - Extract structured events (with date precision and alias-aware people) from transcripts using Anthropic <strong>Claude</strong> or any <strong>OpenAI-compatible endpoint</strong> (Ollama, LM Studio), held in a review queue with approve / edit / reject.</li>
+<li><strong>Media Attachments</strong> - Photos/video/audio/documents on events: managed copy tree under <code>%LOCALAPPDATA%\MemoryTimeline\Media</code>, EXIF read via <strong>MetadataExtractor</strong>, thumbnail generation, content-hash dedupe, drag-drop, lightbox viewer.</li>
+<li><strong>Home / On This Day</strong> - New default landing page: precision-aware anniversary cards, recall-prompt card, view tracking for neglected-memory bias, optional daily toast, working <code>event:</code> deep links, first-run empty state.</li>
+<li><strong>Ask Your Timeline</strong> - Conversational page with hybrid keyword+semantic retrieval (reciprocal-rank fusion), grounded answers <strong>cited to real events</strong>, honest refusal when nothing relevant exists, and a keyword-only degraded mode when embeddings are unavailable.</li>
+<li><strong>Narrative Generation</strong> - Grounded prose &quot;stories&quot; from a timeline range, era, or person with citation integrity enforced in code; Markdown/HTML export via a story dialog on the Eras, Timeline, and People pages.</li>
+<li><strong>Guided Recall Prompts</strong> - Questions generated from archive gaps (density gaps, dangling people, era edges, thin events, anniversaries), surfaced on Home and Queue; a dismissed/answered prompt is never asked again.</li>
+<li><strong>People Hub</strong> - Contact book plus <strong>aliases</strong>, case-insensitive (NOCASE) identity with a defensive duplicate-merging migration, merge <strong>tombstones</strong>, and per-person profiles.</li>
+<li><strong>Offline Map</strong> - Fully offline canvas map (deliberately no <code>MapControl</code>/Azure Maps): coordinates via photo EXIF GPS backfill or manual pin drop; <strong>opt-in</strong> Nominatim geocoding, off by default.</li>
+<li><strong>RAG Cross-References</strong> - Discover connections between events; the <strong>default embedding provider is local ONNX</strong> (<code>all-MiniLM-L6-v2</code>), so this works with no API key, with OpenAI embeddings as an alternative.</li>
+<li><strong>Backup / Restore / Revisions</strong> - <code>.mtbak</code> backup archives (online SQLite backup + optional media), restore with preview + confirmation, scheduled daily/weekly backups, append-only event revision history with a history dialog, and a real Clear Cache.</li>
+<li><strong>Search &amp; Analytics</strong> - Faceted search across events, tags, people, locations, and eras; category distribution, timeline density, tag cloud, people network.</li>
+<li><strong>Export/Import</strong> - JSON, CSV, and Markdown export with JSON import support.</li>
+</ul>
+<h3 id="windows-11-integration" class="anchored">Windows 11 Integration<a class="heading-anchor" href="#windows-11-integration" aria-label="Link to this section">#</a></h3>
+<ul>
+<li><strong>Toast Notifications</strong> - Processing-complete alerts.</li>
+<li><strong>JumpList</strong> - Quick access to recent events and common actions.</li>
+<li><strong>Windows Timeline</strong> - Events published to Windows Timeline with Adaptive Cards.</li>
+<li><strong>Theme Support</strong> - Light/Dark/System theme switching.</li>
+<li><strong>Touch &amp; Pen</strong> - Gesture support with Windows Ink ready.</li>
+</ul>
+<hr>
+<h2 id="quick-start" class="anchored">Quick Start<a class="heading-anchor" href="#quick-start" aria-label="Link to this section">#</a></h2>
+<h3 id="prerequisites" class="anchored">Prerequisites<a class="heading-anchor" href="#prerequisites" aria-label="Link to this section">#</a></h3>
+<ol>
+<li><p><strong>Windows 11</strong> (Version 22H2 or later)</p>
+<ul>
+<li>Check version: <code>winver</code> in the Run dialog.</li>
+</ul>
+</li>
+<li><p><strong>Visual Studio 2022</strong> (Version 17.8+)</p>
+<ul>
+<li>Download: <a href="https://visualstudio.microsoft.com/" target="_blank" rel="noopener noreferrer" class="external-link">https://visualstudio.microsoft.com/</a></li>
+<li>Required workloads:<ul>
+<li><code>.NET Desktop Development</code></li>
+<li><code>Windows App SDK</code> (Windows App SDK C# templates)</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p><strong>A .NET SDK</strong> — the build is pinned to the <strong>.NET 8</strong> SDK by <code>windows-native/src/global.json</code>
+(<code>&quot;version&quot;: &quot;8.0.100&quot;</code>, <code>&quot;rollForward&quot;: &quot;major&quot;</code>). If you only have a newer major installed
+(e.g. .NET 9), <code>rollForward: &quot;major&quot;</code> lets the build use it — it just won&#39;t select the .NET 10
+SDK, which is incompatible with the Windows App SDK PRI resource build task. So developers with
+only .NET 9 are not blocked.</p>
+</li>
+</ol>
+<h3 id="automated-setup" class="anchored">Automated Setup<a class="heading-anchor" href="#automated-setup" aria-label="Link to this section">#</a></h3>
+<div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell"><span class="tok-comment"># Navigate to scripts directory</span>
+cd windows-native\scripts
+
+<span class="tok-comment"># Run setup (requires Administrator)</span>
+.\<span class="tok-cmdlet">Setup-Dependencies</span>.ps1 <span class="tok-flag">-Mode</span> Development
+
+<span class="tok-comment"># Verify installation</span>
+.\<span class="tok-cmdlet">Verify-Installation</span>.ps1 <span class="tok-flag">-Detailed</span></code></pre></div>
+<p>See <a href="setup-scripts-windows.html"><code>scripts/README.md</code></a> for detailed script documentation.</p>
+<h3 id="build-and-run" class="anchored">Build and Run<a class="heading-anchor" href="#build-and-run" aria-label="Link to this section">#</a></h3>
+<p>The solution defines <strong>x64 / x86 / ARM64</strong> platforms only (<strong>no AnyCPU</strong>), and the app is built
+<strong>unpackaged</strong> (<code>WindowsPackageType=None</code>). Build <strong>Release | x64</strong>.</p>
+<div class="callout callout-warning"><div class="callout-body"><p><strong>Important — build with Visual Studio or <code>msbuild</code>, not <code>dotnet build</code>.</strong>
+WinUI 3 PRI resource generation (<code>MrtCore.PriGen</code> → <code>ExpandPriContent</code>) uses a .NET Framework
+MSBuild task that does <strong>not</strong> load under the <code>dotnet</code> CLI&#39;s build engine. Running
+<code>dotnet build</code> / <code>dotnet run</code> on the WinUI app fails with <strong>error MSB4062</strong>. Build from
+<strong>Visual Studio (F5)</strong> or the Visual Studio <strong><code>msbuild.exe</code></strong> for a full app build. (<code>dotnet build -p:Platform=x64</code> still works fine for the <code>MemoryTimeline.Core</code> / <code>MemoryTimeline.Data</code>
+class libraries in isolation — it&#39;s specifically the WinUI app that needs VS/msbuild.)</p>
+</div></div>
+<div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell"><span class="tok-comment"># Clone and navigate</span>
+<span class="tok-builtin">git</span> clone &lt;repository-url&gt;
+cd memory-line/windows-native/src
+
+<span class="tok-comment"># Full app build (Visual Studio MSBuild), Release | x64:</span>
+<span class="tok-builtin">msbuild</span> MemoryTimeline.sln /t:Restore,Build /p:Configuration=Release /p:Platform=x64
+
+<span class="tok-comment"># Or open MemoryTimeline.sln in Visual Studio 2022 and press F5 (debug) / Ctrl+F5 (run).</span></code></pre></div>
+<h3 id="first-run" class="anchored">First Run<a class="heading-anchor" href="#first-run" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>The app creates its SQLite database at <code>%LOCALAPPDATA%\MemoryTimeline\memory-timeline.db</code> (WAL mode).</li>
+<li>The first transcription downloads the Whisper <code>ggml-base.bin</code> model (~140 MB) to
+<code>%LOCALAPPDATA%\MemoryTimeline\Models\</code> — one time, then fully offline.</li>
+<li>Add your API key(s) in <strong>Settings</strong> before processing the queue (see <a href="#api-keys--configuration">API Keys &amp; Configuration</a>).</li>
+</ul>
+<h3 id="data--model-locations" class="anchored">Data &amp; model locations<a class="heading-anchor" href="#data--model-locations" aria-label="Link to this section">#</a></h3>
+<figure class="diagram"><pre aria-label="Diagram">%LOCALAPPDATA%\MemoryTimeline\
+├── memory-timeline.db          SQLite database (WAL)
+├── AudioRecordings\            recorded 16 kHz mono WAV files
+├── Media\                      managed copies of attached media ({yyyy}\{MM}\{guid}.ext)
+├── Models\ggml-base.bin        Whisper model (downloaded on first use)
+├── Models\all-MiniLM-L6-v2\    local embedding model + vocab (~90 MB, downloaded on
+│                               first local embedding; overridable via local_model_path)
+└── error.log                   startup / diagnostic log</pre></figure>
+<p>Backups (<code>.mtbak</code>) are written to the destination folder chosen in Settings.</p>
+<hr>
+<h2 id="project-structure" class="anchored">Project Structure<a class="heading-anchor" href="#project-structure" aria-label="Link to this section">#</a></h2>
+<figure class="diagram"><pre aria-label="Diagram">windows-native/
+├── src/
+│   ├── MemoryTimeline/              # Main WinUI 3 application
+│   │   ├── Views/                   # XAML pages (nav order):
+│   │   │   ├── HomePage.xaml        #   default landing (On This Day, recall card)
+│   │   │   ├── TimelinePage.xaml
+│   │   │   ├── AskPage.xaml         #   ask-your-timeline Q&amp;A
+│   │   │   ├── QueuePage.xaml
+│   │   │   ├── ReviewPage.xaml
+│   │   │   ├── ContactsPage.xaml    #   People hub
+│   │   │   ├── ConnectionsPage.xaml
+│   │   │   ├── ErasPage.xaml
+│   │   │   ├── MapPage.xaml         #   offline canvas map
+│   │   │   ├── SearchPage.xaml
+│   │   │   ├── AnalyticsPage.xaml
+│   │   │   └── SettingsPage.xaml
+│   │   ├── ViewModels/              # MVVM view models
+│   │   ├── Controls/                # Custom controls &amp; dialogs (TimelineControl,
+│   │   │                            #   EventBubble, EventSpanBar, NarrativeDialog,
+│   │   │                            #   EventHistoryDialog, ...)
+│   │   ├── Services/                # Platform services (audio, Whisper STT, thumbnails,
+│   │   │                            #   notifications, JumpList, navigation, theme)
+│   │   ├── Assets/                  # Images, icons, resources
+│   │   ├── App.xaml(.cs)            # Application entry point &amp; DI composition root
+│   │   └── MainWindow.xaml          # Main window
+│   │
+│   ├── MemoryTimeline.Core/         # Business logic layer
+│   │   ├── Services/                # Service interfaces &amp; implementations
+│   │   │   ├── IEventService.cs / ISettingsService.cs / ITimelineService.cs
+│   │   │   ├── ISpeechToTextService.cs
+│   │   │   ├── ILlmService.cs (RoutingLlmService → AnthropicLlmService |
+│   │   │   │                    OpenAiCompatibleLlmService) / ILlmUsageTracker.cs
+│   │   │   ├── IEventExtractionService.cs
+│   │   │   ├── IEmbeddingService.cs (RoutingEmbeddingService → OnnxEmbeddingService |
+│   │   │   │                    OpenAIEmbeddingService) / IRagService.cs
+│   │   │   ├── IMemoryQueryService.cs   # Ask retrieval + grounded answers
+│   │   │   ├── INarrativeService.cs / IResurfacingService.cs / IRecallPromptService.cs
+│   │   │   ├── IMediaService.cs / IThumbnailGenerator.cs
+│   │   │   ├── IBackupService.cs / IRevisionService.cs
+│   │   │   ├── IGeocodingService.cs (NominatimGeocodingService, opt-in)
+│   │   │   ├── IExportService.cs / IImportService.cs
+│   │   │   ├── INotificationService.cs
+│   │   │   ├── IQueueService.cs
+│   │   │   └── SettingKeys.cs       # unified snake_case setting keys
+│   │   └── Models/                  # Business models / DTOs
+│   │
+│   ├── MemoryTimeline.Data/         # Data access layer
+│   │   ├── Models/                  # EF Core entities
+│   │   ├── Repositories/            # Repository pattern (stateless over the factory)
+│   │   ├── AppDbContext.cs          # EF Core database context
+│   │   └── SchemaUpgrader.cs        # EnsureCreated + idempotent schema-drift repair
+│   │
+│   ├── MemoryTimeline.Tests/        # Unit &amp; integration tests
+│   │   ├── UnitTests/
+│   │   ├── Integration/
+│   │   └── Performance/
+│   │
+│   ├── global.json                  # pins the .NET SDK (8.0.100, rollForward major)
+│   └── MemoryTimeline.sln           # Visual Studio solution file
+│
+├── scripts/                         # PowerShell automation scripts
+├── packaging/                       # MSIX packaging configuration
+├── README.md                        # This file
+├── FEATURE-AUDIT.md                 # Feature-by-feature audit &amp; root causes
+├── HARDENING-FOLLOWUPS.md           # Deferred hardening items
+├── DEVELOPMENT-STATUS.md            # Current development status
+├── DEVELOPMENT-HISTORY.md           # Consolidated phase reports
+├── TESTING.md                       # Testing guide
+└── DEPLOYMENT.md                    # Deployment guide</pre></figure>
+<div class="callout callout-note"><div class="callout-body"><p><strong>Note:</strong> there is intentionally <strong>no</strong> <code>MemoryTimeline.Data/Migrations/</code> folder — the stale EF
+Migrations baseline was deleted, and schema is currently created/repaired by <code>SchemaUpgrader</code>.
+Regenerating a proper EF migration baseline is a tracked follow-up.</p>
+</div></div>
+<hr>
+<h2 id="architecture" class="anchored">Architecture<a class="heading-anchor" href="#architecture" aria-label="Link to this section">#</a></h2>
+<h3 id="clean-architecture-layers" class="anchored">Clean Architecture Layers<a class="heading-anchor" href="#clean-architecture-layers" aria-label="Link to this section">#</a></h3>
+<figure class="diagram"><pre aria-label="Diagram">┌─────────────────────────────────────────┐
+│  Presentation Layer (WinUI 3 + XAML)     │
+│  ┌──────────────────────────────────┐    │
+│  │ Views (XAML)                     │    │
+│  │ ViewModels (CommunityToolkit.Mvvm)│   │
+│  │ Converters, platform services    │    │
+│  └──────────────────────────────────┘    │
+│              ↕  WeakReferenceMessenger    │
+│  ┌──────────────────────────────────┐    │
+│  │ Application / Business Layer      │   │
+│  │ - Services (LLM, STT, RAG, queue)│    │
+│  │ - DTOs &amp; timeline math           │    │
+│  └──────────────────────────────────┘    │
+│              ↕                            │
+│  ┌──────────────────────────────────┐    │
+│  │ Data Access Layer                │    │
+│  │ - EF Core 8 + SQLite (WAL)       │    │
+│  │ - IDbContextFactory per-operation│    │
+│  │ - Repositories + SchemaUpgrader  │    │
+│  └──────────────────────────────────┘    │
+└─────────────────────────────────────────┘</pre></figure>
+<h3 id="key-architectural-decisions" class="anchored">Key architectural decisions<a class="heading-anchor" href="#key-architectural-decisions" aria-label="Link to this section">#</a></h3>
+<ul>
+<li><strong>Per-operation <code>DbContext</code> via <code>IDbContextFactory&lt;AppDbContext&gt;</code>.</strong> A desktop app has no
+request scope, so every repository and service opens a short-lived context per operation
+(<code>await using var ctx = await factory.CreateDbContextAsync()</code>). This replaced a single
+app-lifetime context shared across all features — the root cause of intermittent &quot;second
+operation on this context&quot; failures. Because the factory is stateless and thread-safe,
+repositories and most Core services are registered as <strong>Singletons</strong>.</li>
+<li><strong><code>SchemaUpgrader</code> instead of raw <code>EnsureCreated</code>.</strong> On startup, <code>App.OnLaunched</code> calls
+<code>MemoryTimeline.Data.SchemaUpgrader.EnsureSchemaAsync</code>, which runs <code>EnsureCreated</code> and then
+idempotently repairs schema drift (missing tables/columns) on databases created by older builds
+— a stopgap until a full EF migration baseline is regenerated.</li>
+<li><strong>MVVM with a message bus.</strong> Cross-feature updates (e.g. &quot;event created&quot; → refresh the timeline)
+flow through <code>WeakReferenceMessenger</code> rather than tight coupling between view models.</li>
+<li><strong>Errors are surfaced, not swallowed.</strong> Failures propagate to visible <code>InfoBar</code>/status
+affordances instead of disappearing into logs.</li>
+</ul>
+<h3 id="mvvm-pattern" class="anchored">MVVM Pattern<a class="heading-anchor" href="#mvvm-pattern" aria-label="Link to this section">#</a></h3>
+<p>Using <code>CommunityToolkit.Mvvm</code> for <code>ObservableObject</code>, <code>[RelayCommand]</code>, <code>x:Bind</code> compiled
+bindings, and <code>WeakReferenceMessenger</code>.</p>
+<ul>
+<li><strong>Model</strong>: entities in <code>MemoryTimeline.Data/Models/</code></li>
+<li><strong>View</strong>: XAML pages in <code>MemoryTimeline/Views/</code></li>
+<li><strong>ViewModel</strong>: view logic in <code>MemoryTimeline/ViewModels/</code></li>
+</ul>
+<h3 id="dependency-injection" class="anchored">Dependency Injection<a class="heading-anchor" href="#dependency-injection" aria-label="Link to this section">#</a></h3>
+<p>Services are registered in <code>App.xaml.cs</code> (the composition root). The build uses an
+<code>IDbContextFactory</code> (not a shared scoped <code>AddDbContext</code>), and repositories/services are
+Singletons over that factory:</p>
+<div class="codeblock" data-lang="csharp"><div class="codeblock-bar"><span class="codeblock-lang">C#</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-csharp"><span class="tok-comment">// Per-operation contexts via a factory (no app-wide shared DbContext).</span>
+services.<span class="tok-type">AddDbContextFactory&lt;AppDbContext&gt;</span>();
+
+<span class="tok-comment">// Repositories are stateless over the factory (Singleton-safe).</span>
+services.<span class="tok-type">AddSingleton&lt;IEventRepository, EventRepository&gt;</span>();
+services.<span class="tok-type">AddSingleton&lt;IAppSettingRepository, AppSettingRepository&gt;</span>();
+<span class="tok-comment">// ... other repositories</span>
+
+<span class="tok-comment">// Core services (stateless over the factory/repositories).</span>
+services.<span class="tok-type">AddSingleton&lt;ISettingsService, SettingsService&gt;</span>();
+services.<span class="tok-type">AddSingleton&lt;IEventService, EventService&gt;</span>();
+services.<span class="tok-type">AddSingleton&lt;ITimelineService, TimelineService&gt;</span>();
+
+<span class="tok-comment">// Audio &amp; queue. QueueService is an explicit Singleton.</span>
+services.<span class="tok-type">AddSingleton&lt;IAudioRecordingService, AudioRecordingService&gt;</span>();
+services.<span class="tok-type">AddSingleton&lt;IQueueService, QueueService&gt;</span>();
+
+<span class="tok-comment">// Local Whisper is the registered STT engine. The Windows SpeechRecognizer</span>
+<span class="tok-comment">// stub cannot transcribe files (mic-only) and now fails fast instead.</span>
+services.<span class="tok-type">AddSingleton&lt;ISpeechToTextService, WhisperSpeechToTextService&gt;</span>();
+
+<span class="tok-comment">// LLM: a routing facade re-reads llm_provider on every call and delegates</span>
+<span class="tok-comment">// to Claude or an OpenAI-compatible endpoint (Ollama / LM Studio).</span>
+services.<span class="tok-type">AddSingleton&lt;AnthropicLlmService&gt;</span>();
+services.<span class="tok-type">AddHttpClient&lt;OpenAiCompatibleLlmService&gt;</span>();
+services.<span class="tok-type">AddSingleton&lt;ILlmUsageTracker, LlmUsageTracker&gt;</span>();
+services.<span class="tok-type">AddSingleton&lt;ILlmService, RoutingLlmService&gt;</span>();
+services.<span class="tok-type">AddSingleton&lt;IEventExtractionService, EventExtractionService&gt;</span>();
+
+<span class="tok-comment">// Embeddings: routed between local ONNX (default, keyless) and OpenAI.</span>
+services.<span class="tok-type">AddHttpClient&lt;OpenAIEmbeddingService&gt;</span>();
+services.<span class="tok-type">AddSingleton&lt;OnnxEmbeddingService&gt;</span>();
+services.<span class="tok-type">AddSingleton&lt;IEmbeddingService, RoutingEmbeddingService&gt;</span>();
+services.<span class="tok-type">AddSingleton&lt;IRagService, RagService&gt;</span>();
+
+<span class="tok-comment">// Ask, resurfacing, narrative, recall, media, backup/revisions, geocoding.</span>
+services.<span class="tok-type">AddSingleton&lt;IMemoryQueryService, MemoryQueryService&gt;</span>();
+services.<span class="tok-type">AddSingleton&lt;IResurfacingService, ResurfacingService&gt;</span>();
+services.<span class="tok-type">AddSingleton&lt;INarrativeService, NarrativeService&gt;</span>();
+services.<span class="tok-type">AddSingleton&lt;IRecallPromptService, RecallPromptService&gt;</span>();
+services.<span class="tok-type">AddSingleton&lt;IThumbnailGenerator, WindowsThumbnailGenerator&gt;</span>();
+services.<span class="tok-type">AddSingleton&lt;IMediaService, MediaService&gt;</span>();
+services.<span class="tok-type">AddSingleton&lt;IBackupService, BackupService&gt;</span>();
+services.<span class="tok-type">AddSingleton&lt;IRevisionService, RevisionService&gt;</span>();
+services.<span class="tok-type">AddHttpClient&lt;IGeocodingService, NominatimGeocodingService&gt;</span>();
+
+<span class="tok-comment">// The Core INotificationService is the single registered interface</span>
+<span class="tok-comment">// (the duplicate app-project interface was deleted).</span>
+services.<span class="tok-type">AddSingleton&lt;INotificationService, Services.NotificationService&gt;</span>();</code></pre></div>
+<blockquote><p>Cleanup from the audit: the old <code>AnthropicClaudeService</code> and the <code>IAudioService</code> stub were
+deleted (the real services are <code>AnthropicLlmService</code> and <code>IAudioRecordingService</code> /
+<code>IAudioPlaybackService</code>), and the duplicate app-project <code>INotificationService</code> interface was
+removed in favor of the Core one.</p>
+</blockquote>
+<hr>
+<h2 id="database" class="anchored">Database<a class="heading-anchor" href="#database" aria-label="Link to this section">#</a></h2>
+<h3 id="sqlite-with-entity-framework-core-8" class="anchored">SQLite with Entity Framework Core 8<a class="heading-anchor" href="#sqlite-with-entity-framework-core-8" aria-label="Link to this section">#</a></h3>
+<p><strong>Database location:</strong></p>
+<div class="codeblock" data-lang="text"><div class="codeblock-bar"><span class="codeblock-lang">text</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-text">%LOCALAPPDATA%\MemoryTimeline\memory-timeline.db   (WAL mode)</code></pre></div>
+<p>Access goes through <code>IDbContextFactory&lt;AppDbContext&gt;</code> — a short-lived context per operation.
+Connection configuration lives in <code>AppDbContext.OnConfiguring</code>.</p>
+<h3 id="schema-overview" class="anchored">Schema Overview<a class="heading-anchor" href="#schema-overview" aria-label="Link to this section">#</a></h3>
+<p><strong>Core tables:</strong> <code>events</code> (with <code>date_precision</code>, <code>earliest_possible</code>/<code>latest_possible</code>, <code>last_viewed_at</code>/<code>view_count</code>), <code>eras</code>, <code>era_categories</code>, <code>era_tags</code>, <code>milestones</code>, <code>tags</code>, <code>people</code> (contact fields + <code>merged_into_id</code> merge tombstone), <code>person_aliases</code>, <code>locations</code> (optional <code>latitude</code>/<code>longitude</code>, <code>place_type</code>, <code>canonical_name</code>, <code>geocoded_at</code>)<br><strong>Junction tables:</strong> <code>event_tags</code>, <code>event_people</code>, <code>event_locations</code><br><strong>Processing tables:</strong> <code>recording_queue</code> (audio <em>and text</em> sources — <code>source_type</code>, <code>source_label</code>, persisted <code>transcript</code>), <code>pending_events</code> (extracted events awaiting review, mirroring the precision columns)<br><strong>Attachments &amp; history:</strong> <code>event_media</code> (managed media copies, EXIF, thumbnails, content hash), <code>event_revisions</code> (append-only edit history), <code>recall_prompts</code> (guided-recall questions)<br><strong>RAG tables:</strong> <code>event_embeddings</code> (vector embeddings + per-row <code>embedding_dimension</code>), <code>cross_references</code> (event relationships)<br><strong>UX tables:</strong> <code>drafts</code>, <code>saved_searches</code><br><strong>Settings:</strong> <code>app_settings</code> (key/value; keys defined in <code>SettingKeys</code>; 33 seeded keys kept in three-way parity between the <code>AppDbContext</code> seed, the <code>SchemaUpgrader</code> backfill, and <code>SettingKeys</code>)  </p>
+<p>Name uniqueness on <code>people</code>/<code>tags</code>/<code>locations</code> is <strong>case-insensitive</strong> (<code>COLLATE NOCASE</code> unique indexes); <code>SchemaUpgrader</code> defensively merges case-variant duplicates on older databases (backfilling contact columns) before rebuilding each index.</p>
+<h3 id="schema-creation--drift-repair" class="anchored">Schema creation &amp; drift repair<a class="heading-anchor" href="#schema-creation--drift-repair" aria-label="Link to this section">#</a></h3>
+<p>The schema is created and repaired at startup by <code>SchemaUpgrader.EnsureSchemaAsync</code>
+(<code>EnsureCreated</code> + idempotent DDL repairs). There is <strong>no EF Migrations folder</strong> — regenerating a
+proper EF migration history is a tracked follow-up (see <a href="#roadmap--known-follow-ups">Roadmap</a>).</p>
+<hr>
+<h2 id="api-keys--configuration" class="anchored">API Keys &amp; Configuration<a class="heading-anchor" href="#api-keys--configuration" aria-label="Link to this section">#</a></h2>
+<h3 id="api-keys--ai-providers" class="anchored">API Keys &amp; AI providers<a class="heading-anchor" href="#api-keys--ai-providers" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap"><table><thead><tr>
+<th>Provider</th>
+<th>Purpose</th>
+<th>Required?</th>
+</tr>
+</thead><tbody><tr>
+<td><strong>Anthropic</strong> (<a href="https://console.anthropic.com/" target="_blank" rel="noopener noreferrer" class="external-link">console</a>)</td>
+<td>Claude — extraction, Ask, narratives, recall wording</td>
+<td>Needed for the default (Claude) LLM provider; not needed when an <strong>OpenAI-compatible endpoint</strong> (Ollama / LM Studio, via <code>llm_base_url</code>) is selected instead</td>
+</tr>
+<tr>
+<td><strong>OpenAI</strong> (<a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" class="external-link">keys</a>)</td>
+<td>Embeddings — Connections / Ask similarity</td>
+<td>Optional — the <strong>default embedding provider is local ONNX</strong> (<code>all-MiniLM-L6-v2</code>, no key needed)</td>
+</tr>
+</tbody></table></div>
+<p>LLM and embedding providers are routed <strong>per call</strong> (<code>RoutingLlmService</code> / <code>RoutingEmbeddingService</code>
+re-read the provider settings each time), so switching applies live. Local and OpenAI embeddings
+have different dimensions (384 vs. 1536); a dimension guard refuses to mix them and Settings
+offers a <strong>re-embed all events</strong> flow after a provider switch.</p>
+<h3 id="settings-storage" class="anchored">Settings storage<a class="heading-anchor" href="#settings-storage" aria-label="Link to this section">#</a></h3>
+<p>Settings and API keys are configured from the <strong>Settings</strong> page and persisted to the local
+<strong><code>app_settings</code></strong> database table. Keys are unified behind a <strong><code>SettingKeys</code></strong> constants class
+(snake_case keys) so writers and readers never drift; the LLM client <strong>re-reads configuration
+live</strong>, so provider/model/key changes apply <strong>without a restart</strong>.</p>
+<div class="callout callout-note"><div class="callout-body"><p><strong>Security note:</strong> API keys are stored in the <code>app_settings</code> table <strong>today</strong>. Encrypting them at
+rest with <strong>Windows DPAPI</strong> (<code>ProtectedData</code>) is a tracked hardening follow-up. (They are <strong>not</strong>
+stored in Windows Credential Manager.)</p>
+</div></div>
+<p>The embedding service reports availability via <code>IsAvailableAsync</code>; with the local ONNX default
+Connections/Ask work with no key at all (after a one-time ~90 MB model download), and if the
+local model cannot load (or the OpenAI provider has no key) the Ask page degrades to
+keyword-only retrieval and Connections shows a clear call-to-action instead of failing.
+Geocoding (<code>geocoding_enabled</code>) is <strong>off by default</strong>; when off, no place name is ever sent to
+Nominatim and coordinates come only from photo EXIF or manual pin drops.</p>
+<hr>
+<h2 id="recent-hardening" class="anchored">Recent hardening<a class="heading-anchor" href="#recent-hardening" aria-label="Link to this section">#</a></h2>
+<p><strong>2026-08 — feature-spec implementation (F1–F12).</strong> Twelve features landed on top of the
+hardened base, in dependency-ordered waves with verification fix passes between them: date
+precision/uncertainty, media attachments, text/paste capture, ask-your-timeline, narrative
+generation, guided recall prompts, On This Day + Home page, timeline spans/swimlanes/uncertainty
+rendering with reload coalescing, the people hub (aliases/merge/NOCASE identity), the offline
+map, pluggable AI providers (local ONNX embeddings + OpenAI-compatible LLM endpoints), and
+backup/restore/revision history. New dependencies actually in use: <strong>MetadataExtractor</strong> (EXIF)
+and <strong>Microsoft.ML.OnnxRuntime</strong> (local embeddings; CPU execution provider — the DirectML EP is
+deliberately deferred). All waves are CI-green; runtime validation on a real machine is still
+pending. Per-feature status: <a href="development-status.html"><code>DEVELOPMENT-STATUS.md</code></a>.</p>
+<p><strong>2026-07 — audit and fix pass.</strong> Before that, the core pipeline was rebuilt and hardened
+through a structured, <strong>multi-agent feature audit and fix pass</strong>. Highlights:</p>
+<ul>
+<li><strong>Made the voice pipeline real</strong> — replaced a &quot;speech recognition&quot; path that transcribed the
+<strong>live microphone</strong> (not the recorded file) with local file-based <strong>Whisper</strong>
+(<code>WhisperSpeechToTextService</code>); the old <code>WindowsSpeechRecognitionService</code> now fails fast without
+opening the mic. Fixed the unpackaged storage-path crash, persisted transcripts, and made
+<strong>approve</strong> atomic (event + tags/people/locations in one transaction).</li>
+<li><strong>Fixed DbContext concurrency</strong> — moved from a single app-wide <code>AddDbContext</code> to per-operation
+contexts via <code>IDbContextFactory</code>, resolving intermittent &quot;second operation on this context&quot;
+failures behind add-event and search.</li>
+<li><strong>Unified settings</strong> — a <code>SettingKeys</code> constants class ended the writer/reader key mismatch that
+made settings appear to &quot;revert&quot;; the LLM client re-reads config live.</li>
+<li><strong>DI cleanup</strong> — deleted <code>AnthropicClaudeService</code> and the <code>IAudioService</code> stub, removed the
+duplicate app-project <code>INotificationService</code>, and decoupled <code>RagService</code> from <code>ILlmService</code>.</li>
+<li><strong>Schema resilience</strong> — startup uses <code>SchemaUpgrader</code> (EnsureCreated + drift repair) after the
+stale EF Migrations baseline was deleted.</li>
+</ul>
+<p>Full details: <a href="feature-audit.html"><code>FEATURE-AUDIT.md</code></a> (findings + root causes) and
+<a href="hardening-followups.html"><code>HARDENING-FOLLOWUPS.md</code></a> (deferred items).</p>
+<hr>
+<h2 id="testing" class="anchored">Testing<a class="heading-anchor" href="#testing" aria-label="Link to this section">#</a></h2>
+<p>The test project references the WinUI app, so tests are built and run <strong>Release | x64</strong>.</p>
+<div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell">cd windows-native\src
+
+<span class="tok-comment"># Build the solution first via Visual Studio MSBuild (see Build and Run), then run tests</span>
+<span class="tok-comment"># against the built assembly:</span>
+<span class="tok-builtin">dotnet</span> <span class="tok-builtin">vstest</span> MemoryTimeline.Tests\bin\x64\Release\&lt;tfm&gt;\MemoryTimeline.Tests.dll
+
+<span class="tok-comment"># Filter by category:</span>
+<span class="tok-builtin">dotnet</span> <span class="tok-builtin">vstest</span> ... --TestCaseFilter:<span class="tok-string">&quot;FullyQualifiedName~UnitTests&quot;</span></code></pre></div>
+<p>Tests cover timeline math, services, repository/integration behavior, and performance. See
+<a href="testing.html"><code>TESTING.md</code></a> for comprehensive testing documentation.</p>
+<h3 id="continuous-integration" class="anchored">Continuous Integration<a class="heading-anchor" href="#continuous-integration" aria-label="Link to this section">#</a></h3>
+<p><code>.github/workflows/windows-native-build.yml</code> builds the full solution <strong>Release | x64</strong> on
+<code>windows-latest</code>, driving the build with <strong>Visual Studio MSBuild</strong> (<code>microsoft/setup-msbuild</code>)
+because the WinUI PRI task cannot run under <code>dotnet build</code>. Tests run best-effort via
+<code>dotnet vstest</code>. Builds are currently <strong>green</strong> in CI.</p>
+<hr>
+<h2 id="deployment" class="anchored">Deployment<a class="heading-anchor" href="#deployment" aria-label="Link to this section">#</a></h2>
+<h3 id="msix-package" class="anchored">MSIX Package<a class="heading-anchor" href="#msix-package" aria-label="Link to this section">#</a></h3>
+<p><strong>Visual Studio:</strong></p>
+<ol>
+<li>Right-click the <code>MemoryTimeline</code> project.</li>
+<li>Select <code>Publish &gt; Create App Packages</code>.</li>
+<li>Follow the wizard to create the MSIX.</li>
+</ol>
+<p><strong>Command Line (Visual Studio MSBuild):</strong></p>
+<div class="codeblock" data-lang="powershell"><div class="codeblock-bar"><span class="codeblock-lang">PowerShell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-powershell"><span class="tok-builtin">msbuild</span> MemoryTimeline.sln /t:Publish /p:Configuration=Release /p:Platform=x64</code></pre></div>
+<h3 id="microsoft-store" class="anchored">Microsoft Store<a class="heading-anchor" href="#microsoft-store" aria-label="Link to this section">#</a></h3>
+<p>See <a href="deployment.html"><code>DEPLOYMENT.md</code></a> for complete deployment instructions including MSIX
+packaging, code signing, Microsoft Store submission, and side-loading. Packaging and Store
+submission are part of Phase 7 (in progress).</p>
+<hr>
+<h2 id="performance-targets" class="anchored">Performance Targets<a class="heading-anchor" href="#performance-targets" aria-label="Link to this section">#</a></h2>
+<p>These are <strong>design targets</strong>, not verified/measured results — runtime validation is ongoing:</p>
+<div class="table-wrap"><table><thead><tr>
+<th>Metric</th>
+<th>Target</th>
+</tr>
+</thead><tbody><tr>
+<td>Timeline FPS (5000 events)</td>
+<td>60 FPS</td>
+</tr>
+<tr>
+<td>Memory usage (5000 events)</td>
+<td>&lt; 100 MB</td>
+</tr>
+<tr>
+<td>Cold start time</td>
+<td>&lt; 2 seconds</td>
+</tr>
+<tr>
+<td>Database query time</td>
+<td>&lt; 50 ms</td>
+</tr>
+</tbody></table></div>
+<hr>
+<h2 id="development-status" class="anchored">Development Status<a class="heading-anchor" href="#development-status" aria-label="Link to this section">#</a></h2>
+<p><strong>Current focus:</strong> Phase 7 (Testing, MSIX packaging &amp; Microsoft Store) — in progress. The core
+pipeline was recently rebuilt and hardened; builds are green in CI and end-to-end runtime
+validation is ongoing.</p>
+<div class="table-wrap"><table><thead><tr>
+<th>Phase</th>
+<th>Status</th>
+</tr>
+</thead><tbody><tr>
+<td>Phase 0: Preparation</td>
+<td><span class="chip chip-ok">✅ Complete</span></td>
+</tr>
+<tr>
+<td>Phase 1: Core Infrastructure</td>
+<td><span class="chip chip-ok">✅ Complete</span></td>
+</tr>
+<tr>
+<td>Phase 2: Timeline Visualization</td>
+<td><span class="chip chip-ok">✅ Complete</span></td>
+</tr>
+<tr>
+<td>Phase 3: Audio &amp; Processing</td>
+<td><span class="chip chip-ok">✅ Complete</span></td>
+</tr>
+<tr>
+<td>Phase 4: LLM Integration</td>
+<td><span class="chip chip-ok">✅ Complete</span></td>
+</tr>
+<tr>
+<td>Phase 5: RAG &amp; Embeddings</td>
+<td><span class="chip chip-ok">✅ Complete</span></td>
+</tr>
+<tr>
+<td>Phase 6: Polish &amp; Integration</td>
+<td><span class="chip chip-ok">✅ Complete</span></td>
+</tr>
+<tr>
+<td>Phase 7: Testing &amp; Deployment</td>
+<td><span class="chip chip-active">🔄 In progress</span></td>
+</tr>
+</tbody></table></div>
+<p>See <a href="development-status.html"><code>DEVELOPMENT-STATUS.md</code></a> for detailed status and
+<a href="development-history.html"><code>DEVELOPMENT-HISTORY.md</code></a> for consolidated phase reports.</p>
+<hr>
+<h2 id="roadmap--known-follow-ups" class="anchored">Roadmap / known follow-ups<a class="heading-anchor" href="#roadmap--known-follow-ups" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><strong>End-to-end runtime validation</strong> of the pipeline and the F1–F12 feature wave on Windows.</li>
+<li><strong>Encrypt API keys at rest</strong> (Windows DPAPI / <code>ProtectedData</code>).</li>
+<li><strong>Regenerate EF Core migrations</strong> to replace the <code>SchemaUpgrader</code> stopgap with a proper
+migration history.</li>
+<li><strong>Deferred F1–F12 items</strong> — photo-import wizard, map tile basemaps, timeline location chip,
+LLM token streaming, PDF narrative export, and more; see the deferred list in
+<a href="development-status.html"><code>DEVELOPMENT-STATUS.md</code></a>.</li>
+<li><strong>Whisper model options</strong> (larger models for accuracy; language selection UI).</li>
+<li><strong>MSIX packaging and Microsoft Store submission</strong> (Phase 7).</li>
+</ul>
+<hr>
+<h2 id="troubleshooting" class="anchored">Troubleshooting<a class="heading-anchor" href="#troubleshooting" aria-label="Link to this section">#</a></h2>
+<h3 id="build-errors" class="anchored">Build Errors<a class="heading-anchor" href="#build-errors" aria-label="Link to this section">#</a></h3>
+<p><strong><code>error MSB4062</code> / PRI generation fails under <code>dotnet build</code></strong></p>
+<ul>
+<li>Expected: the WinUI 3 PRI task does not load under the <code>dotnet</code> CLI. Build the app with
+<strong>Visual Studio (F5)</strong> or the Visual Studio <strong><code>msbuild.exe</code></strong> instead.</li>
+</ul>
+<p><strong>&quot;Windows App SDK not found&quot;</strong></p>
+<ul>
+<li>Install the <strong>Windows App SDK</strong> workload, or update Visual Studio to 17.8+.</li>
+</ul>
+<p><strong>&quot;SDK version not found&quot; / wrong SDK selected</strong></p>
+<ul>
+<li>The build is pinned to <strong>.NET 8</strong> (<code>global.json</code>, <code>8.0.100</code>, <code>rollForward: major</code>). Install the
+.NET 8 SDK (<a href="https://dotnet.microsoft.com/download/dotnet/8.0" target="_blank" rel="noopener noreferrer" class="external-link">https://dotnet.microsoft.com/download/dotnet/8.0</a>). .NET 9 works via roll-forward;
+.NET 10 is incompatible with the PRI build task.</li>
+</ul>
+<h3 id="runtime-errors" class="anchored">Runtime Errors<a class="heading-anchor" href="#runtime-errors" aria-label="Link to this section">#</a></h3>
+<p><strong>&quot;Database file not found&quot;</strong></p>
+<ul>
+<li>The first run creates the database automatically. Check <code>%LOCALAPPDATA%\MemoryTimeline\</code> exists;
+see <code>error.log</code> there for startup diagnostics.</li>
+</ul>
+<p><strong>&quot;MediaCapture not available&quot;</strong></p>
+<ul>
+<li>Check microphone permissions in Windows Settings.</li>
+</ul>
+<p><strong>Transcription produces nothing / hangs on first use</strong></p>
+<ul>
+<li>The first transcription downloads <code>ggml-base.bin</code> (~140 MB) to
+<code>%LOCALAPPDATA%\MemoryTimeline\Models\</code>; ensure network access for that one-time download.
+Afterwards Whisper runs fully offline.</li>
+</ul>
+<hr>
+<h2 id="documentation" class="anchored">Documentation<a class="heading-anchor" href="#documentation" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap"><table><thead><tr>
+<th>Document</th>
+<th>Description</th>
+</tr>
+</thead><tbody><tr>
+<td><a href="feature-audit.html"><code>FEATURE-AUDIT.md</code></a></td>
+<td>Feature-by-feature audit &amp; root-cause analysis</td>
+</tr>
+<tr>
+<td><a href="hardening-followups.html"><code>HARDENING-FOLLOWUPS.md</code></a></td>
+<td>Deferred hardening items</td>
+</tr>
+<tr>
+<td><a href="development-status.html"><code>DEVELOPMENT-STATUS.md</code></a></td>
+<td>Current development status and next steps</td>
+</tr>
+<tr>
+<td><a href="development-history.html"><code>DEVELOPMENT-HISTORY.md</code></a></td>
+<td>Consolidated phase completion reports</td>
+</tr>
+<tr>
+<td><a href="testing.html"><code>TESTING.md</code></a></td>
+<td>Testing guide and best practices</td>
+</tr>
+<tr>
+<td><a href="deployment.html"><code>DEPLOYMENT.md</code></a></td>
+<td>Deployment and distribution guide</td>
+</tr>
+<tr>
+<td><a href="setup-scripts-windows.html"><code>scripts/README.md</code></a></td>
+<td>Setup scripts documentation</td>
+</tr>
+<tr>
+<td><a href="overview.html"><code>../README.md</code></a></td>
+<td>Repository overview (root README)</td>
+</tr>
+</tbody></table></div>
+<hr>
+<h2 id="contributing" class="anchored">Contributing<a class="heading-anchor" href="#contributing" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>Branch from the active development branch.</li>
+<li>Follow WinUI 3 design guidelines and use <code>CommunityToolkit.Mvvm</code>.</li>
+<li>Keep <code>DbContext</code> usage <strong>per-operation via the factory</strong>, and surface errors in the UI rather
+than swallowing them.</li>
+<li>Ensure the solution builds (Visual Studio / CI) and update docs as needed.</li>
+</ul>
+<hr>
+<h2 id="license" class="anchored">License<a class="heading-anchor" href="#license" aria-label="Link to this section">#</a></h2>
+<p>MIT License — see the main repository <code>LICENSE</code> file.</p>
+<hr>
+<p><strong>Last Updated:</strong> 2026-08-06<br><strong>Status:</strong> Active development (Windows Native is the primary product)  </p>
+
+<nav class="pager" aria-label="Document navigation">
+  <a class="pager-link pager-prev" href="developer-guide.html">
+      <span class="pager-kind">← Previous</span>
+      <span class="pager-title">Developer guide</span>
+    </a>
+  <a class="pager-link pager-next" href="setup-scripts-windows.html">
+      <span class="pager-kind">Next →</span>
+      <span class="pager-title">PowerShell setup scripts</span>
+    </a>
+</nav>
+  </article>
+<aside class="toc" aria-label="On this page">
+  <p class="toc-title">On this page</p>
+  <ul class="toc-list">
+<li class="toc-item toc-h2"><a href="#overview" data-toc-link>Overview</a></li>
+<li class="toc-item toc-h3"><a href="#advantages-over-the-electron-version" data-toc-link>Advantages Over the Electron Version</a></li>
+<li class="toc-item toc-h2"><a href="#the-memory-pipeline" data-toc-link>The memory pipeline</a></li>
+<li class="toc-item toc-h2"><a href="#features" data-toc-link>Features</a></li>
+<li class="toc-item toc-h3"><a href="#core-functionality" data-toc-link>Core Functionality</a></li>
+<li class="toc-item toc-h3"><a href="#windows-11-integration" data-toc-link>Windows 11 Integration</a></li>
+<li class="toc-item toc-h2"><a href="#quick-start" data-toc-link>Quick Start</a></li>
+<li class="toc-item toc-h3"><a href="#prerequisites" data-toc-link>Prerequisites</a></li>
+<li class="toc-item toc-h3"><a href="#automated-setup" data-toc-link>Automated Setup</a></li>
+<li class="toc-item toc-h3"><a href="#build-and-run" data-toc-link>Build and Run</a></li>
+<li class="toc-item toc-h3"><a href="#first-run" data-toc-link>First Run</a></li>
+<li class="toc-item toc-h3"><a href="#data--model-locations" data-toc-link>Data &amp; model locations</a></li>
+<li class="toc-item toc-h2"><a href="#project-structure" data-toc-link>Project Structure</a></li>
+<li class="toc-item toc-h2"><a href="#architecture" data-toc-link>Architecture</a></li>
+<li class="toc-item toc-h3"><a href="#clean-architecture-layers" data-toc-link>Clean Architecture Layers</a></li>
+<li class="toc-item toc-h3"><a href="#key-architectural-decisions" data-toc-link>Key architectural decisions</a></li>
+<li class="toc-item toc-h3"><a href="#mvvm-pattern" data-toc-link>MVVM Pattern</a></li>
+<li class="toc-item toc-h3"><a href="#dependency-injection" data-toc-link>Dependency Injection</a></li>
+<li class="toc-item toc-h2"><a href="#database" data-toc-link>Database</a></li>
+<li class="toc-item toc-h3"><a href="#sqlite-with-entity-framework-core-8" data-toc-link>SQLite with Entity Framework Core 8</a></li>
+<li class="toc-item toc-h3"><a href="#schema-overview" data-toc-link>Schema Overview</a></li>
+<li class="toc-item toc-h3"><a href="#schema-creation--drift-repair" data-toc-link>Schema creation &amp; drift repair</a></li>
+<li class="toc-item toc-h2"><a href="#api-keys--configuration" data-toc-link>API Keys &amp; Configuration</a></li>
+<li class="toc-item toc-h3"><a href="#api-keys--ai-providers" data-toc-link>API Keys &amp; AI providers</a></li>
+<li class="toc-item toc-h3"><a href="#settings-storage" data-toc-link>Settings storage</a></li>
+<li class="toc-item toc-h2"><a href="#recent-hardening" data-toc-link>Recent hardening</a></li>
+<li class="toc-item toc-h2"><a href="#testing" data-toc-link>Testing</a></li>
+<li class="toc-item toc-h3"><a href="#continuous-integration" data-toc-link>Continuous Integration</a></li>
+<li class="toc-item toc-h2"><a href="#deployment" data-toc-link>Deployment</a></li>
+<li class="toc-item toc-h3"><a href="#msix-package" data-toc-link>MSIX Package</a></li>
+<li class="toc-item toc-h3"><a href="#microsoft-store" data-toc-link>Microsoft Store</a></li>
+<li class="toc-item toc-h2"><a href="#performance-targets" data-toc-link>Performance Targets</a></li>
+<li class="toc-item toc-h2"><a href="#development-status" data-toc-link>Development Status</a></li>
+<li class="toc-item toc-h2"><a href="#roadmap--known-follow-ups" data-toc-link>Roadmap / known follow-ups</a></li>
+<li class="toc-item toc-h2"><a href="#troubleshooting" data-toc-link>Troubleshooting</a></li>
+<li class="toc-item toc-h3"><a href="#build-errors" data-toc-link>Build Errors</a></li>
+<li class="toc-item toc-h3"><a href="#runtime-errors" data-toc-link>Runtime Errors</a></li>
+<li class="toc-item toc-h2"><a href="#documentation" data-toc-link>Documentation</a></li>
+<li class="toc-item toc-h2"><a href="#contributing" data-toc-link>Contributing</a></li>
+<li class="toc-item toc-h2"><a href="#license" data-toc-link>License</a></li>
+  </ul>
+  <a class="toc-top" href="#main">↑ Back to top</a>
+</aside>
+</div>
+    <footer class="site-footer">
+      <div>
+        <strong>Memory Timeline</strong> documentation ·
+        13 documents ·
+        generated 2026-08-07
+      </div>
+      <div class="footer-links">
+        <a href="index.html">Home</a>
+        <a href="documentation-map.html">All documentation</a>
+        <a href="https://github.com/ethanbissbort/memory-line" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </div>
+      <div class="footer-note">
+        This site is generated from the markdown in the repository — edit the source files and rebuild.
+      </div>
+    </footer>
+  </main>
+</div>
+
+<div class="search-modal" data-search-modal hidden>
+  <div class="search-backdrop" data-search-close></div>
+  <div class="search-panel" role="dialog" aria-modal="true" aria-label="Search documentation">
+    <div class="search-input-row">
+      <svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><circle cx="9" cy="9" r="5.5" stroke="currentColor" stroke-width="1.7" fill="none"/><path d="M13.2 13.2 17 17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <input type="search" placeholder="Search headings and content…" data-search-input autocomplete="off" spellcheck="false" aria-label="Search query">
+      <button class="icon-btn" type="button" data-search-close aria-label="Close search"><kbd>Esc</kbd></button>
+    </div>
+    <div class="search-results" data-search-results>
+      <p class="search-hint">Start typing to search every document on this site.</p>
+    </div>
+  </div>
+</div>
+
+<script src="assets/search-index.js" defer></script>
+<script src="assets/app.js" defer></script>
+</body>
+</html>

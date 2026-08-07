@@ -11,6 +11,8 @@
         <Grid.KeyboardAccelerators>
             <!-- Ctrl+R refreshes the current page in place (timeline refresh, not renavigation) -->
             <KeyboardAccelerator Key="R" Modifiers="Control" Invoked="Refresh_Invoked"/>
+            <!-- Ctrl+Shift+V opens the paste-text capture dialog on the Queue page -->
+            <KeyboardAccelerator Key="V" Modifiers="Control,Shift" Invoked="PasteCapture_Invoked"/>
         </Grid.KeyboardAccelerators>
         <NavigationView
             x:Name="NavigationView"
@@ -21,9 +23,24 @@
             SelectionChanged="NavigationView_SelectionChanged">
 
             <NavigationView.MenuItems>
+                <NavigationViewItem Content="Home" Tag="Home">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE80F;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Content="Timeline" Tag="Timeline" Icon="Calendar"/>
+                <NavigationViewItem Content="Ask" Tag="Ask">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE9CE;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Content="Queue" Tag="Queue" Icon="Microphone"/>
                 <NavigationViewItem Content="Review" Tag="Review" Icon="Accept"/>
+                <NavigationViewItem Content="People" Tag="People">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE716;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Content="Connections" Tag="Connections">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE71B;"/>
@@ -32,6 +49,11 @@
                 <NavigationViewItem Content="Eras" Tag="Eras">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE81C;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Map" Tag="Map">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE707;"/>
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <NavigationViewItem Content="Search" Tag="Search" Icon="Find"/>

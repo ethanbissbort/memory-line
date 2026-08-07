@@ -24,6 +24,7 @@ public class OpenAIEmbeddingService : IEmbeddingService
     public int EmbeddingDimension => DefaultDimension;
     public string ModelName => _model;
     public bool RequiresInternet => true;
+    public string ProviderKey => EmbeddingProviderKeys.OpenAi;
 
     public OpenAIEmbeddingService(
         HttpClient httpClient,

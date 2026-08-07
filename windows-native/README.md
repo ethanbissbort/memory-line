@@ -1,12 +1,12 @@
 # Memory Timeline - Windows Native Application
 
-A native Windows 11 implementation of Memory Timeline, featuring local Whisper transcription, AI-powered event extraction, RAG-based cross-referencing, and deep Windows integration.
+A native Windows 11 implementation of Memory Timeline, featuring local Whisper transcription, AI-powered event extraction with honest date precision, media attachments, ask-your-timeline retrieval, narrative generation, an offline map, backup/revision history, RAG-based cross-referencing (local embeddings by default), and deep Windows integration.
 
 **This is the primary, actively developed product.** The cross-platform Electron build under the repo's `src/` directory is now in maintenance only.
 
 **Platform:** Windows 11 (22H2+)
 **Framework:** .NET 8 + WinUI 3
-**Status:** Active development — Phases 0-6 complete; core pipeline recently rebuilt and hardened via a multi-agent feature audit. Builds are green in CI; end-to-end runtime validation is ongoing. Phase 7 (testing, MSIX, Microsoft Store) is in progress.
+**Status:** Active development — Phases 0-6 complete; core pipeline rebuilt and hardened via a multi-agent feature audit (2026-07), followed by a twelve-feature spec implementation (F1–F12, 2026-08). Builds are green in CI; end-to-end runtime validation is ongoing. Phase 7 (testing, MSIX, Microsoft Store) is in progress.
 
 > This is not "production ready" or runtime-verified yet. See [Recent hardening](#recent-hardening) and [Development Status](#development-status).
 
@@ -53,20 +53,31 @@ Every stage persists its state, so a failure is recoverable and visible in the U
 ```
 
 - **Record** — `Windows.Media.Capture` writes a 16 kHz mono WAV under `%LOCALAPPDATA%\MemoryTimeline\AudioRecordings`.
-- **Transcribe** — local Whisper transcribes the recorded file; the transcript is persisted.
-- **Extract** — Claude produces a structured event (title, dates, description, category, tags/people/locations) into `pending_events`.
-- **Approve** — approving writes the event and all its tags/people/locations in **one transaction**; the timeline auto-refreshes via a `WeakReferenceMessenger` `EventCreatedMessage`.
+- **Text capture** — pasted/typed text (Ctrl+Shift+V on the Queue page) enters the same `recording_queue` as a **text source**; the text is stored as the item's transcript and skips transcription entirely.
+- **Transcribe** — local Whisper transcribes the recorded file; the transcript is persisted on the queue row and **reused across retries** instead of re-transcribing.
+- **Extract** — the configured LLM (Claude, or an OpenAI-compatible endpoint) produces a structured event (title, dates **with precision**, description, category, tags/people/locations, alias-aware people matching) into `pending_events`.
+- **Approve** — approving writes the event and all its tags/people/locations (plus date precision/uncertainty) in **one transaction**; the timeline auto-refreshes via a `WeakReferenceMessenger` `EventCreatedMessage`.
 
 ---
 
 ## Features
 
 ### Core Functionality
-- **Timeline Visualization** - Interactive timeline with Year/Month/Week/Day zoom, pan, and keyboard navigation; new/approved events refresh onto the timeline automatically.
+- **Timeline Visualization** - Interactive timeline with Year/Month/Week/Day zoom, pan, and keyboard navigation; duration **spans**, optional **swimlanes** (collapsible lanes), and **uncertainty bands** for vague dates; scroll reloads are coalesced; new/approved events refresh onto the timeline automatically.
+- **Honest Date Precision** - Events carry a `DatePrecision` (Exact/Day/Month/Season/Year/Decade/Unknown) plus an earliest/latest uncertainty window; every display formats dates at their true precision ("Summer 2003", never an invented day).
 - **Audio Recording** - Record audio memories with pause/resume/cancel using Windows `MediaCapture`.
+- **Text & Paste Capture** - Ctrl+Shift+V (or the Queue-page button) captures typed/pasted text through the same queue; transcripts are persisted and reused across retries.
 - **Local Speech-to-Text** - Transcribe recordings **on-device** with **Whisper** ([Whisper.net](https://github.com/sandrohanea/whisper.net)); no audio leaves the machine.
-- **LLM Event Extraction** - Extract structured events from transcripts using Anthropic **Claude**, held in a review queue with approve / edit / reject.
-- **RAG Cross-References** - Discover connections between events using optional OpenAI embeddings; degrades gracefully when no embedding key is configured.
+- **LLM Event Extraction** - Extract structured events (with date precision and alias-aware people) from transcripts using Anthropic **Claude** or any **OpenAI-compatible endpoint** (Ollama, LM Studio), held in a review queue with approve / edit / reject.
+- **Media Attachments** - Photos/video/audio/documents on events: managed copy tree under `%LOCALAPPDATA%\MemoryTimeline\Media`, EXIF read via **MetadataExtractor**, thumbnail generation, content-hash dedupe, drag-drop, lightbox viewer.
+- **Home / On This Day** - New default landing page: precision-aware anniversary cards, recall-prompt card, view tracking for neglected-memory bias, optional daily toast, working `event:` deep links, first-run empty state.
+- **Ask Your Timeline** - Conversational page with hybrid keyword+semantic retrieval (reciprocal-rank fusion), grounded answers **cited to real events**, honest refusal when nothing relevant exists, and a keyword-only degraded mode when embeddings are unavailable.
+- **Narrative Generation** - Grounded prose "stories" from a timeline range, era, or person with citation integrity enforced in code; Markdown/HTML export via a story dialog on the Eras, Timeline, and People pages.
+- **Guided Recall Prompts** - Questions generated from archive gaps (density gaps, dangling people, era edges, thin events, anniversaries), surfaced on Home and Queue; a dismissed/answered prompt is never asked again.
+- **People Hub** - Contact book plus **aliases**, case-insensitive (NOCASE) identity with a defensive duplicate-merging migration, merge **tombstones**, and per-person profiles.
+- **Offline Map** - Fully offline canvas map (deliberately no `MapControl`/Azure Maps): coordinates via photo EXIF GPS backfill or manual pin drop; **opt-in** Nominatim geocoding, off by default.
+- **RAG Cross-References** - Discover connections between events; the **default embedding provider is local ONNX** (`all-MiniLM-L6-v2`), so this works with no API key, with OpenAI embeddings as an alternative.
+- **Backup / Restore / Revisions** - `.mtbak` backup archives (online SQLite backup + optional media), restore with preview + confirmation, scheduled daily/weekly backups, append-only event revision history with a history dialog, and a real Clear Cache.
 - **Search & Analytics** - Faceted search across events, tags, people, locations, and eras; category distribution, timeline density, tag cloud, people network.
 - **Export/Import** - JSON, CSV, and Markdown export with JSON import support.
 
@@ -150,9 +161,14 @@ msbuild MemoryTimeline.sln /t:Restore,Build /p:Configuration=Release /p:Platform
 %LOCALAPPDATA%\MemoryTimeline\
 ├── memory-timeline.db          SQLite database (WAL)
 ├── AudioRecordings\            recorded 16 kHz mono WAV files
+├── Media\                      managed copies of attached media ({yyyy}\{MM}\{guid}.ext)
 ├── Models\ggml-base.bin        Whisper model (downloaded on first use)
+├── Models\all-MiniLM-L6-v2\    local embedding model + vocab (~90 MB, downloaded on
+│                               first local embedding; overridable via local_model_path)
 └── error.log                   startup / diagnostic log
 ```
+
+Backups (`.mtbak`) are written to the destination folder chosen in Settings.
 
 ---
 
@@ -162,15 +178,24 @@ msbuild MemoryTimeline.sln /t:Restore,Build /p:Configuration=Release /p:Platform
 windows-native/
 ├── src/
 │   ├── MemoryTimeline/              # Main WinUI 3 application
-│   │   ├── Views/                   # XAML pages
+│   │   ├── Views/                   # XAML pages (nav order):
+│   │   │   ├── HomePage.xaml        #   default landing (On This Day, recall card)
 │   │   │   ├── TimelinePage.xaml
+│   │   │   ├── AskPage.xaml         #   ask-your-timeline Q&A
 │   │   │   ├── QueuePage.xaml
 │   │   │   ├── ReviewPage.xaml
+│   │   │   ├── ContactsPage.xaml    #   People hub
 │   │   │   ├── ConnectionsPage.xaml
+│   │   │   ├── ErasPage.xaml
+│   │   │   ├── MapPage.xaml         #   offline canvas map
+│   │   │   ├── SearchPage.xaml
+│   │   │   ├── AnalyticsPage.xaml
 │   │   │   └── SettingsPage.xaml
 │   │   ├── ViewModels/              # MVVM view models
-│   │   ├── Controls/                # Custom controls
-│   │   ├── Services/                # Platform services (audio, Whisper STT,
+│   │   ├── Controls/                # Custom controls & dialogs (TimelineControl,
+│   │   │                            #   EventBubble, EventSpanBar, NarrativeDialog,
+│   │   │                            #   EventHistoryDialog, ...)
+│   │   ├── Services/                # Platform services (audio, Whisper STT, thumbnails,
 │   │   │                            #   notifications, JumpList, navigation, theme)
 │   │   ├── Assets/                  # Images, icons, resources
 │   │   ├── App.xaml(.cs)            # Application entry point & DI composition root
@@ -180,8 +205,16 @@ windows-native/
 │   │   ├── Services/                # Service interfaces & implementations
 │   │   │   ├── IEventService.cs / ISettingsService.cs / ITimelineService.cs
 │   │   │   ├── ISpeechToTextService.cs
-│   │   │   ├── ILlmService.cs (AnthropicLlmService) / IEventExtractionService.cs
-│   │   │   ├── IEmbeddingService.cs / IRagService.cs
+│   │   │   ├── ILlmService.cs (RoutingLlmService → AnthropicLlmService |
+│   │   │   │                    OpenAiCompatibleLlmService) / ILlmUsageTracker.cs
+│   │   │   ├── IEventExtractionService.cs
+│   │   │   ├── IEmbeddingService.cs (RoutingEmbeddingService → OnnxEmbeddingService |
+│   │   │   │                    OpenAIEmbeddingService) / IRagService.cs
+│   │   │   ├── IMemoryQueryService.cs   # Ask retrieval + grounded answers
+│   │   │   ├── INarrativeService.cs / IResurfacingService.cs / IRecallPromptService.cs
+│   │   │   ├── IMediaService.cs / IThumbnailGenerator.cs
+│   │   │   ├── IBackupService.cs / IRevisionService.cs
+│   │   │   ├── IGeocodingService.cs (NominatimGeocodingService, opt-in)
 │   │   │   ├── IExportService.cs / IImportService.cs
 │   │   │   ├── INotificationService.cs
 │   │   │   ├── IQueueService.cs
@@ -301,13 +334,30 @@ services.AddSingleton<IQueueService, QueueService>();
 // stub cannot transcribe files (mic-only) and now fails fast instead.
 services.AddSingleton<ISpeechToTextService, WhisperSpeechToTextService>();
 
-// LLM & extraction.
-services.AddSingleton<ILlmService, AnthropicLlmService>();
+// LLM: a routing facade re-reads llm_provider on every call and delegates
+// to Claude or an OpenAI-compatible endpoint (Ollama / LM Studio).
+services.AddSingleton<AnthropicLlmService>();
+services.AddHttpClient<OpenAiCompatibleLlmService>();
+services.AddSingleton<ILlmUsageTracker, LlmUsageTracker>();
+services.AddSingleton<ILlmService, RoutingLlmService>();
 services.AddSingleton<IEventExtractionService, EventExtractionService>();
 
-// RAG & embeddings (RagService no longer depends on ILlmService).
-services.AddHttpClient<IEmbeddingService, OpenAIEmbeddingService>();
+// Embeddings: routed between local ONNX (default, keyless) and OpenAI.
+services.AddHttpClient<OpenAIEmbeddingService>();
+services.AddSingleton<OnnxEmbeddingService>();
+services.AddSingleton<IEmbeddingService, RoutingEmbeddingService>();
 services.AddSingleton<IRagService, RagService>();
+
+// Ask, resurfacing, narrative, recall, media, backup/revisions, geocoding.
+services.AddSingleton<IMemoryQueryService, MemoryQueryService>();
+services.AddSingleton<IResurfacingService, ResurfacingService>();
+services.AddSingleton<INarrativeService, NarrativeService>();
+services.AddSingleton<IRecallPromptService, RecallPromptService>();
+services.AddSingleton<IThumbnailGenerator, WindowsThumbnailGenerator>();
+services.AddSingleton<IMediaService, MediaService>();
+services.AddSingleton<IBackupService, BackupService>();
+services.AddSingleton<IRevisionService, RevisionService>();
+services.AddHttpClient<IGeocodingService, NominatimGeocodingService>();
 
 // The Core INotificationService is the single registered interface
 // (the duplicate app-project interface was deleted).
@@ -335,11 +385,15 @@ Connection configuration lives in `AppDbContext.OnConfiguring`.
 
 ### Schema Overview
 
-**Core tables:** `events`, `eras`, `tags`, `people`, `locations`
+**Core tables:** `events` (with `date_precision`, `earliest_possible`/`latest_possible`, `last_viewed_at`/`view_count`), `eras`, `era_categories`, `era_tags`, `milestones`, `tags`, `people` (contact fields + `merged_into_id` merge tombstone), `person_aliases`, `locations` (optional `latitude`/`longitude`, `place_type`, `canonical_name`, `geocoded_at`)
 **Junction tables:** `event_tags`, `event_people`, `event_locations`
-**Processing tables:** `recording_queue` (audio awaiting processing), `pending_events` (extracted events awaiting review)
-**RAG tables:** `event_embeddings` (vector embeddings), `cross_references` (event relationships)
-**Settings:** `app_settings` (key/value; keys defined in `SettingKeys`)
+**Processing tables:** `recording_queue` (audio *and text* sources — `source_type`, `source_label`, persisted `transcript`), `pending_events` (extracted events awaiting review, mirroring the precision columns)
+**Attachments & history:** `event_media` (managed media copies, EXIF, thumbnails, content hash), `event_revisions` (append-only edit history), `recall_prompts` (guided-recall questions)
+**RAG tables:** `event_embeddings` (vector embeddings + per-row `embedding_dimension`), `cross_references` (event relationships)
+**UX tables:** `drafts`, `saved_searches`
+**Settings:** `app_settings` (key/value; keys defined in `SettingKeys`; 33 seeded keys kept in three-way parity between the `AppDbContext` seed, the `SchemaUpgrader` backfill, and `SettingKeys`)
+
+Name uniqueness on `people`/`tags`/`locations` is **case-insensitive** (`COLLATE NOCASE` unique indexes); `SchemaUpgrader` defensively merges case-variant duplicates on older databases (backfilling contact columns) before rebuilding each index.
 
 ### Schema creation & drift repair
 
@@ -351,12 +405,17 @@ proper EF migration history is a tracked follow-up (see [Roadmap](#roadmap--know
 
 ## API Keys & Configuration
 
-### API Keys
+### API Keys & AI providers
 
 | Provider | Purpose | Required? |
 |----------|---------|-----------|
-| **Anthropic** ([console](https://console.anthropic.com/)) | Claude — event extraction | **Yes**, to process recordings into events |
-| **OpenAI** ([keys](https://platform.openai.com/api-keys)) | Embeddings — Connections / similarity | Optional; Connections degrades gracefully without it |
+| **Anthropic** ([console](https://console.anthropic.com/)) | Claude — extraction, Ask, narratives, recall wording | Needed for the default (Claude) LLM provider; not needed when an **OpenAI-compatible endpoint** (Ollama / LM Studio, via `llm_base_url`) is selected instead |
+| **OpenAI** ([keys](https://platform.openai.com/api-keys)) | Embeddings — Connections / Ask similarity | Optional — the **default embedding provider is local ONNX** (`all-MiniLM-L6-v2`, no key needed) |
+
+LLM and embedding providers are routed **per call** (`RoutingLlmService` / `RoutingEmbeddingService`
+re-read the provider settings each time), so switching applies live. Local and OpenAI embeddings
+have different dimensions (384 vs. 1536); a dimension guard refuses to mix them and Settings
+offers a **re-embed all events** flow after a provider switch.
 
 ### Settings storage
 
@@ -369,16 +428,30 @@ live**, so provider/model/key changes apply **without a restart**.
 > rest with **Windows DPAPI** (`ProtectedData`) is a tracked hardening follow-up. (They are **not**
 > stored in Windows Credential Manager.)
 
-Embeddings (OpenAI) are optional: `RagService` / the embedding service report availability via
-`IsAvailableAsync`, and the Connections feature shows a clear call-to-action instead of failing
-when no embedding key is set.
+The embedding service reports availability via `IsAvailableAsync`; with the local ONNX default
+Connections/Ask work with no key at all (after a one-time ~90 MB model download), and if the
+local model cannot load (or the OpenAI provider has no key) the Ask page degrades to
+keyword-only retrieval and Connections shows a clear call-to-action instead of failing.
+Geocoding (`geocoding_enabled`) is **off by default**; when off, no place name is ever sent to
+Nominatim and coordinates come only from photo EXIF or manual pin drops.
 
 ---
 
 ## Recent hardening
 
-The core pipeline was recently rebuilt and hardened through a structured, **multi-agent feature
-audit and fix pass**. Highlights:
+**2026-08 — feature-spec implementation (F1–F12).** Twelve features landed on top of the
+hardened base, in dependency-ordered waves with verification fix passes between them: date
+precision/uncertainty, media attachments, text/paste capture, ask-your-timeline, narrative
+generation, guided recall prompts, On This Day + Home page, timeline spans/swimlanes/uncertainty
+rendering with reload coalescing, the people hub (aliases/merge/NOCASE identity), the offline
+map, pluggable AI providers (local ONNX embeddings + OpenAI-compatible LLM endpoints), and
+backup/restore/revision history. New dependencies actually in use: **MetadataExtractor** (EXIF)
+and **Microsoft.ML.OnnxRuntime** (local embeddings; CPU execution provider — the DirectML EP is
+deliberately deferred). All waves are CI-green; runtime validation on a real machine is still
+pending. Per-feature status: [`DEVELOPMENT-STATUS.md`](./DEVELOPMENT-STATUS.md).
+
+**2026-07 — audit and fix pass.** Before that, the core pipeline was rebuilt and hardened
+through a structured, **multi-agent feature audit and fix pass**. Highlights:
 
 - **Made the voice pipeline real** — replaced a "speech recognition" path that transcribed the
   **live microphone** (not the recorded file) with local file-based **Whisper**
@@ -486,10 +559,13 @@ See [`DEVELOPMENT-STATUS.md`](./DEVELOPMENT-STATUS.md) for detailed status and
 
 ## Roadmap / known follow-ups
 
-- **End-to-end runtime validation** of the recently reworked pipeline on Windows.
+- **End-to-end runtime validation** of the pipeline and the F1–F12 feature wave on Windows.
 - **Encrypt API keys at rest** (Windows DPAPI / `ProtectedData`).
 - **Regenerate EF Core migrations** to replace the `SchemaUpgrader` stopgap with a proper
   migration history.
+- **Deferred F1–F12 items** — photo-import wizard, map tile basemaps, timeline location chip,
+  LLM token streaming, PDF narrative export, and more; see the deferred list in
+  [`DEVELOPMENT-STATUS.md`](./DEVELOPMENT-STATUS.md).
 - **Whisper model options** (larger models for accuracy; language selection UI).
 - **MSIX packaging and Microsoft Store submission** (Phase 7).
 
@@ -558,5 +634,5 @@ MIT License — see the main repository `LICENSE` file.
 
 ---
 
-**Last Updated:** 2026-07-10
+**Last Updated:** 2026-08-06
 **Status:** Active development (Windows Native is the primary product)
