@@ -17,6 +17,7 @@ on:
       - claude/multi-agent-code-review-bVmNX
       - claude/design-document-ingestion-27bl5z
       - claude/multi-agent-document-exec-597ynm
+      - claude/remove-electron-macos-prep-j9gl75
     paths:
       - 'windows-native/**'
       - 'shared-contracts/dotnet/**'
