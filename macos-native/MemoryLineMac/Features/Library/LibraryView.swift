@@ -42,13 +42,39 @@ struct LibraryView: View {
         .toolbar {
             ToolbarItem {
                 Button {
+                    Task {
+                        await environment.sync.pullNow()
+                        load()
+                    }
+                } label: {
+                    Label("Sync Now", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .disabled(!environment.sync.canSync || environment.sync.state == .syncing)
+                .help(environment.sync.canSync
+                      ? "Pull the latest capture status from the sync server"
+                      : "Pair this Mac in Settings to sync")
+            }
+            ToolbarItem {
+                Button {
                     load()
                 } label: {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
             }
         }
-        .task { load() }
+        .task {
+            load()
+            // Start the loop here rather than at launch so an unpaired Mac
+            // never spins a ticker it cannot use; startPeriodicSync replaces
+            // any existing one, so re-entering the view is harmless.
+            if environment.sync.canSync {
+                environment.sync.startPeriodicSync()
+            }
+        }
+        .onChange(of: environment.sync.lastPulledAt) { _, _ in
+            // A completed pull may have written new status rows.
+            load()
+        }
     }
 
     private func load() {

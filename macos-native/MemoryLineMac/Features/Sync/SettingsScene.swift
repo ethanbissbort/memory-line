@@ -33,6 +33,7 @@ struct PairingSettingsView: View {
                 Section("Paired") {
                     LabeledContent("Server", value: environment.serverURL ?? "unknown")
                     LabeledContent("This Mac", value: MacAppEnvironment.deviceDisplayName)
+                    LabeledContent("Status", value: syncStatusText)
                     Button("Unpair", role: .destructive) { unpair() }
                         .disabled(isWorking)
                 }
@@ -62,6 +63,20 @@ struct PairingSettingsView: View {
         .formStyle(.grouped)
         .overlay {
             if isWorking { ProgressView().controlSize(.small) }
+        }
+    }
+
+    /// One line describing the sync loop. Failure text from the coordinator is
+    /// already display-safe (design §14.5).
+    private var syncStatusText: String {
+        switch environment.sync.state {
+        case .syncing:
+            return "Syncing…"
+        case .failed(let message):
+            return message
+        case .idle:
+            guard let last = environment.sync.lastPulledAt else { return "Not synced yet" }
+            return "Last synced \(last.formatted(date: .omitted, time: .shortened))"
         }
     }
 

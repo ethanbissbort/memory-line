@@ -27,6 +27,7 @@ final class MacAppEnvironment {
     let api: SyncAPIClient
     /// Windows-authored processing status per capture (design §19 Phase 3).
     let statuses: SQLiteCaptureStatusStore
+    let sync: MacSyncCoordinator
 
     private let logger = AppLog.logger(category: "environment")
 
@@ -34,13 +35,15 @@ final class MacAppEnvironment {
         let captures = SQLiteCaptureStore(database: database)
         let settings = SQLiteSettingsStore(database: database)
         let tokens = KeychainTokenStore()
+        let api = SyncAPIClient(settings: settings, tokens: tokens)
 
         self.database = database
         self.captures = captures
         self.settings = settings
         self.tokens = tokens
-        self.api = SyncAPIClient(settings: settings, tokens: tokens)
+        self.api = api
         self.statuses = statuses
+        self.sync = MacSyncCoordinator(settings: settings, api: api, statusStore: statuses)
     }
 
     /// True when this Mac has completed pairing with a sync server.
@@ -85,11 +88,17 @@ final class MacAppEnvironment {
         }
         settings.set(true, for: AppSettingsKey.syncEnabled)
         logger.info("paired as device \(response.deviceId, privacy: .public)")
+        // Pull immediately so the Library fills in without waiting for the
+        // first tick, then keep the periodic loop running.
+        sync.startPeriodicSync()
     }
 
     /// Unpairs from the sync server. Revocation is best-effort (the server may
     /// be unreachable); local credentials are always cleared.
     func unpair() async {
+        // Stop the loop first: a pull racing the credential clear would fail
+        // with a 401 and surface a misleading "no longer paired" error.
+        sync.stopPeriodicSync()
         do {
             try await api.revokeDevice()
             logger.info("device revoked on server")

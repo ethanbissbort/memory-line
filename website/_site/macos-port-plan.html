@@ -134,8 +134,8 @@
   <p class="doc-lede">Bringing Memory Line to macOS as a native SwiftUI app: what the iOS companion already shares, the Keychain and device-platform traps, the phased order of work, and the undecided question of how the C# service layer reaches the Mac.</p>
   <div class="doc-meta">
     <span class="doc-meta-item"><b>For</b> Developers</span>
-    <span class="doc-meta-item"><b>1,859</b> words</span>
-    <span class="doc-meta-item"><b>8</b> min read</span>
+    <span class="doc-meta-item"><b>2,042</b> words</span>
+    <span class="doc-meta-item"><b>9</b> min read</span>
     <a class="doc-meta-item doc-source" href="https://github.com/ethanbissbort/memory-line/blob/main/docs/design/MACOS-PORT-PLAN.md" target="_blank" rel="noopener noreferrer">
       docs/design/MACOS-PORT-PLAN.md ↗
     </a>
@@ -287,21 +287,24 @@ code is the smell that says &quot;extract now&quot;).</p>
 unusual. If Xcode does not resolve it on first open, the group appears empty or red — fix
 by deleting the group and dragging <code>ios-companion/MemoryLineCompanion/Shared</code> back in with
 &quot;create folder reference&quot;. Nothing else in the repository depends on this working.</p>
-<h3 id="32-keychain-the-mac-needs-its-own-item-and-a-modern-keychain" class="anchored">3.2 Keychain: the Mac needs its own item and a modern keychain<a class="heading-anchor" href="#32-keychain-the-mac-needs-its-own-item-and-a-modern-keychain" aria-label="Link to this section">#</a></h3>
-<p><code>KeychainTokenStore</code> hardcodes the service name <strong><code>ca.fluxology.memoryline.ios.tokens</code></strong>
-and passes no <code>kSecUseDataProtectionKeychain</code>. Two consequences on macOS:</p>
+<h3 id="32-keychain-the-mac-needs-its-own-item-and-a-modern-keychain--done" class="anchored">3.2 Keychain: the Mac needs its own item and a modern keychain — <strong>done</strong><a class="heading-anchor" href="#32-keychain-the-mac-needs-its-own-item-and-a-modern-keychain--done" aria-label="Link to this section">#</a></h3>
+<p><code>KeychainTokenStore</code> hardcoded the service name <code>ca.fluxology.memoryline.ios.tokens</code> and
+passed no <code>kSecUseDataProtectionKeychain</code>. Both are fixed:</p>
 <ol>
-<li><strong>The service name is wrong for the Mac.</strong> It is also arguably <em>right</em> to keep the two
-separate: each device pairs independently and holds its own device-bound tokens, so a
-Mac writing to the iOS service name would be confusing at best. Make the service name
-derive from the bundle identifier rather than being a literal.</li>
-<li><strong>Without <code>kSecUseDataProtectionKeychain: true</code>, macOS uses the legacy file-based
-keychain</strong>, where <code>kSecAttrAccessibleAfterFirstUnlock</code> is not honoured the way it is on
-iOS. The Mac app should opt into the data-protection keychain, which requires the
-<code>keychain-access-groups</code> entitlement already declared in
+<li><strong>Service name now derives from <code>Bundle.main.bundleIdentifier</code>.</strong> On iOS that evaluates
+to <code>ca.fluxology.memoryline.ios.tokens</code> — byte for byte the literal it replaced — so
+existing installs keep reading their stored tokens and <strong>no migration is needed</strong>. The
+Mac gets <code>ca.fluxology.memoryline.mac.tokens</code> and therefore its own credentials, which
+is correct: each device pairs independently and holds its own device-bound token pair.</li>
+<li><strong><code>kSecUseDataProtectionKeychain</code> is set on macOS only.</strong> Without it, <code>SecItem*</code> calls
+land in the legacy file-based keychain where <code>kSecAttrAccessible</code> is not honoured the
+way it is on iOS. It is <code>#if os(macOS)</code>-guarded rather than unconditional: the key is
+documented as ignored on iOS, but this store holds the credentials a paired phone needs
+and a lookup that silently stopped matching would unpair every existing install — not
+worth the risk for a flag that does nothing there. It requires the
+<code>keychain-access-groups</code> entitlement, already declared in
 <code>macos-native/Config/MemoryLineMac.entitlements</code>.</li>
 </ol>
-<p>Both are small changes to a shared file and are the first thing to do in Phase 1.</p>
 <h3 id="33-the-c-business-layer-does-not-come-to-macos--but-it-stayed-portable-anyway" class="anchored">3.3 The C# business layer does not come to macOS — but it stayed portable anyway<a class="heading-anchor" href="#33-the-c-business-layer-does-not-come-to-macos--but-it-stayed-portable-anyway" aria-label="Link to this section">#</a></h3>
 <p><code>MemoryTimeline.Core</code>, <code>.Data</code> and <code>.Sync</code> were decoupled from WinUI and retargeted from
 <code>net10.0-windows10.0.26100.0</code> to plain <code>net10.0</code>. That work is <strong>done and in the tree</strong>.</p>
@@ -331,11 +334,21 @@ on macOS</strong>. The Mac needs its own recorder on <code>AVAudioEngine</code> 
 UI with no iOS counterpart.</li>
 <li>No background-audio equivalent: on macOS the app is simply running or not.</li>
 </ul>
-<h3 id="42-upload-and-status-sync" class="anchored">4.2 Upload and status sync<a class="heading-anchor" href="#42-upload-and-status-sync" aria-label="Link to this section">#</a></h3>
-<p>iOS <code>UploadCoordinator</code> and <code>StatusSyncCoordinator</code> are built on <code>BGTaskScheduler</code>. macOS
-has no such API. The Mac equivalent is far simpler — a foreground task loop plus a
-<code>Timer</code>, since the app is either running or not — but it is a rewrite, not a port. The
-<code>SyncAPIClient</code> calls underneath are shared unchanged.</p>
+<h3 id="42-upload-and-status-sync--pull-side-done" class="anchored">4.2 Upload and status sync — pull side <strong>done</strong><a class="heading-anchor" href="#42-upload-and-status-sync--pull-side-done" aria-label="Link to this section">#</a></h3>
+<p>iOS <code>UploadCoordinator</code> and <code>StatusSyncCoordinator</code> are built on <code>BGTaskScheduler</code>, which
+macOS does not have. <code>MacSyncCoordinator</code> is the Mac equivalent for the <strong>pull</strong> side: a
+foreground <code>Task</code> loop on a 120s interval plus an explicit <em>Sync Now</em>, since the app is
+either running or not. The <code>SyncAPIClient</code> calls underneath are shared unchanged.</p>
+<p>It is a reimplementation, not a shared type, for two reasons: the iOS coordinator depends
+on <code>BackgroundTasks</code>, and it reconciles remote status against capture records the <em>phone</em>
+created, which the Mac does not have yet. The parts that are a contract with the server
+rather than a local choice are mirrored exactly and covered by tests — page until
+<code>hasMore</code>, persist the cursor <em>before</em> acking, hold the cursor when applying fails so the
+page replays, never ack a cursor that did not advance, and last-write-wins on the
+Windows-authored <code>updatedAtUtc</code> when a page is redelivered.</p>
+<p><strong>Known gap:</strong> the Mac applies <code>capture_status</code> changes but ignores <code>capture</code> and
+<code>capture_artifact</code> ones, so the Library shows status for captures it does not yet hold.
+Materialising capture rows from the feed (or recording its own) is Phase 2.</p>
 <h3 id="43-storage-locations" class="anchored">4.3 Storage locations<a class="heading-anchor" href="#43-storage-locations" aria-label="Link to this section">#</a></h3>
 <p>Shared <code>AppDatabase.defaultURL()</code> uses <code>.applicationSupportDirectory</code>, which is correct on
 both platforms. Under the App Sandbox this resolves inside the container; that is intended.</p>
@@ -358,12 +371,17 @@ menu-bar item for quick capture.</p>
 </thead><tbody><tr>
 <td><strong>0 — Skeleton</strong> ✅</td>
 <td>Xcode project, composition root, pairing, capture library</td>
-<td>in the tree now</td>
+<td>in the tree</td>
 </tr>
 <tr>
-<td><strong>1 — Keychain + sync loop</strong></td>
-<td>Fix §3.2; port upload/status coordinators to a foreground loop</td>
-<td>makes the Mac a real sync peer</td>
+<td><strong>1 — Keychain + sync pull</strong> ✅</td>
+<td>§3.2 fixed; <code>MacSyncCoordinator</code> pulls/applies/acks the change feed on a foreground timer</td>
+<td>in the tree</td>
+</tr>
+<tr>
+<td><strong>1b — Upload</strong></td>
+<td>Drain pending uploads</td>
+<td>nothing to upload until Phase 2 gives the Mac a recorder; deferred deliberately</td>
 </tr>
 <tr>
 <td><strong>2 — Capture</strong></td>
@@ -480,11 +498,11 @@ nobody has written that down as a cross-platform spec.</li>
 <li class="toc-item toc-h3"><a href="#21-the-shared-swift-layer-file-by-file" data-toc-link>2.1 The shared Swift layer, file by file</a></li>
 <li class="toc-item toc-h2"><a href="#3-decisions-and-their-consequences" data-toc-link>3. Decisions and their consequences</a></li>
 <li class="toc-item toc-h3"><a href="#31-code-sharing-synchronized-folder-not-a-swift-package" data-toc-link>3.1 Code sharing: synchronized folder, not a Swift package</a></li>
-<li class="toc-item toc-h3"><a href="#32-keychain-the-mac-needs-its-own-item-and-a-modern-keychain" data-toc-link>3.2 Keychain: the Mac needs its own item and a modern keychain</a></li>
+<li class="toc-item toc-h3"><a href="#32-keychain-the-mac-needs-its-own-item-and-a-modern-keychain--done" data-toc-link>3.2 Keychain: the Mac needs its own item and a modern keychain — done</a></li>
 <li class="toc-item toc-h3"><a href="#33-the-c-business-layer-does-not-come-to-macos--but-it-stayed-portable-anyway" data-toc-link>3.3 The C# business layer does not come to macOS — but it stayed portable anyway</a></li>
 <li class="toc-item toc-h2"><a href="#4-platform-capabilities-the-mac-needs" data-toc-link>4. Platform capabilities the Mac needs</a></li>
 <li class="toc-item toc-h3"><a href="#41-capture-recording" data-toc-link>4.1 Capture (recording)</a></li>
-<li class="toc-item toc-h3"><a href="#42-upload-and-status-sync" data-toc-link>4.2 Upload and status sync</a></li>
+<li class="toc-item toc-h3"><a href="#42-upload-and-status-sync--pull-side-done" data-toc-link>4.2 Upload and status sync — pull side done</a></li>
 <li class="toc-item toc-h3"><a href="#43-storage-locations" data-toc-link>4.3 Storage locations</a></li>
 <li class="toc-item toc-h3"><a href="#44-windows-only-integrations-with-no-macos-analogue" data-toc-link>4.4 Windows-only integrations with no macOS analogue</a></li>
 <li class="toc-item toc-h2"><a href="#5-phasing" data-toc-link>5. Phasing</a></li>
