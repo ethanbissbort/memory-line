@@ -20,7 +20,10 @@
     "test:seed": "node tests/fixtures/databaseSeeder.js",
     "test:generate-data": "node tests/fixtures/generateSampleData.js",
     "test:all": "npm run lint && npm run test:coverage",
-    "test:performance": "node tests/performance/performanceTest.js"
+    "test:performance": "node tests/performance/performanceTest.js",
+    "docs:install": "npm --prefix website install",
+    "docs:build": "npm --prefix website run build",
+    "docs:serve": "npm --prefix website run serve"
   },
   "keywords": [
     "timeline",

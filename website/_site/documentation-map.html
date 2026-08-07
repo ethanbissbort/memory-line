@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>All documentation · Memory Timeline</title>
+<meta name="description" content="Every Memory Timeline Windows Native document, with size, reading time and section previews.">
+<meta property="og:title" content="All documentation · Memory Timeline">
+<meta property="og:description" content="Every Memory Timeline Windows Native document, with size, reading time and section previews.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%227%22%20fill%3D%22%231d1b18%22%2F%3E%3Cpath%20d%3D%22M4%2021h24%22%20stroke%3D%22%238b8175%22%20stroke-width%3D%221.5%22%20stroke-linecap%3D%22round%22%2F%3E%3Ccircle%20cx%3D%229%22%20cy%3D%2221%22%20r%3D%223.1%22%20fill%3D%22%23e0873f%22%2F%3E%3Ccircle%20cx%3D%2217%22%20cy%3D%2214%22%20r%3D%223.6%22%20fill%3D%22%23f0b46e%22%2F%3E%3Ccircle%20cx%3D%2225%22%20cy%3D%2218%22%20r%3D%222.6%22%20fill%3D%22%236ec2b8%22%2F%3E%3Cpath%20d%3D%22M9%2021%2017%2014%2025%2018%22%20stroke%3D%22%238b8175%22%20stroke-width%3D%221.2%22%20fill%3D%22none%22%20stroke-linejoin%3D%22round%22%20opacity%3D%22.8%22%2F%3E%3C%2Fsvg%3E">
+<link rel="stylesheet" href="assets/styles.css">
+<script>(function(){try{var t=localStorage.getItem('mt-theme');if(t==='light'||t==='dark'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();</script>
+</head>
+<body class="page-map" data-page="documentation-map">
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="icon-btn nav-toggle" type="button" aria-label="Toggle navigation" aria-expanded="false" data-nav-toggle>
+      <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg>
+    </button>
+    <a class="brand" href="index.html">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="26" height="26"><path d="M3 22h26" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity=".45"/><circle cx="8" cy="22" r="3" fill="currentColor" opacity=".55"/><circle cx="16" cy="14" r="3.8" fill="currentColor"/><circle cx="25" cy="18.5" r="2.6" fill="currentColor" opacity=".7"/></svg>
+      </span>
+      <span class="brand-text">
+        <span class="brand-name">Memory Timeline</span>
+        <span class="brand-sub">Documentation</span>
+      </span>
+    </a>
+
+    <button class="searchbar" type="button" data-search-open aria-label="Search documentation">
+      <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><circle cx="9" cy="9" r="5.5" stroke="currentColor" stroke-width="1.7" fill="none"/><path d="M13.2 13.2 17 17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <span>Search the docs</span>
+      <kbd>/</kbd>
+    </button>
+
+    <div class="topbar-actions">
+      <button class="icon-btn" type="button" data-theme-toggle aria-label="Switch colour theme" title="Switch colour theme">
+        <svg class="icon-sun" viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><circle cx="10" cy="10" r="4" fill="currentColor"/><path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6 16 16M16 4l-1.4 1.4M5.4 14.6 4 16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <svg class="icon-moon" viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><path d="M16.5 12.4A7 7 0 0 1 7.6 3.5a7 7 0 1 0 8.9 8.9Z" fill="currentColor"/></svg>
+      </button>
+      <a class="icon-btn" href="https://github.com/ethanbissbort/memory-line" target="_blank" rel="noopener noreferrer" aria-label="View the repository on GitHub" title="Repository on GitHub">
+        <svg viewBox="0 0 16 16" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38l-.01-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.93-.89-1.18-.89-1.18-.73-.5.05-.49.05-.49.81.06 1.23.83 1.23.83.72 1.23 1.88.87 2.34.67.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48l-.01 2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+      </a>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" data-sidebar>
+    <nav aria-label="Documentation">
+      <ul class="nav">
+        <li class="nav-section">
+          <p class="nav-section-title">Start here</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="index.html">Home</a>
+            </li>
+            <li><a class="nav-link is-active" href="documentation-map.html" aria-current="page">All documentation</a>
+            </li>
+            <li><a class="nav-link" href="overview.html">Project overview</a>
+            </li>
+            <li><a class="nav-link" href="developer-guide.html">Developer guide</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Windows Native app</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="windows-native.html">Windows Native app</a>
+            </li>
+            <li><a class="nav-link" href="setup-scripts-windows.html">PowerShell setup scripts</a>
+            </li>
+            <li><a class="nav-link" href="testing.html">Testing guide</a>
+            </li>
+            <li><a class="nav-link" href="deployment.html">Deployment guide</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Status &amp; history</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="development-status.html">Development status</a>
+            </li>
+            <li><a class="nav-link" href="development-history.html">Development history</a>
+            </li>
+            <li><a class="nav-link" href="migration-to-native-windows.html">Migration to native Windows</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Audits &amp; reviews</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="feature-audit.html">Feature audit (2026-07)</a>
+            </li>
+            <li><a class="nav-link" href="hardening-followups.html">Hardening follow-ups</a>
+            </li>
+            <li><a class="nav-link" href="repo-audit-2026-07.html">Exhaustive repo audit</a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-section">
+          <p class="nav-section-title">Design notes</p>
+          <ul class="nav-list">
+            <li><a class="nav-link" href="people-feature-contracts.html">People feature contracts</a>
+            </li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+  </aside>
+  <div class="sidebar-scrim" data-nav-close hidden></div>
+
+  <main class="main" id="main">
+
+<header class="doc-header">
+  <nav class="breadcrumb" aria-label="Breadcrumb">
+    <a href="index.html">Docs</a><span aria-hidden="true">/</span><span>Start here</span>
+  </nav>
+  <h1>All documentation</h1>
+  <p class="doc-lede">Every document covering the Windows Native app, rendered and searchable. 13 documents, 43,773 words, about 199 minutes of reading in total.</p>
+</header>
+
+<div class="prose map-body">
+<section class="map-section">
+  <h2 id="start" class="anchored">Start here<a class="heading-anchor" href="#start" aria-label="Link to this section">#</a></h2>
+  <p class="section-lead">What the project is, and how to find your way around.</p>
+  <article class="map-entry">
+    <div class="map-entry-head">
+      <h3><a href="overview.html">Project overview</a></h3>
+      <a class="map-source" href="https://github.com/ethanbissbort/memory-line/blob/main/README.md" target="_blank" rel="noopener noreferrer"><code>README.md</code> ↗</a>
+    </div>
+    <p class="map-desc">The repository README: what Memory Timeline is, the memory pipeline, the full feature list, tech stack, architecture, setup, configuration, and privacy model.</p>
+    <div class="map-meta">
+      <span class="tag">Everyone</span>
+      <span class="map-stat">2,932 words</span>
+      <span class="map-stat">13 min read</span>
+      <span class="map-stat">31 sections</span>
+    </div>
+    <details class="map-toc">
+      <summary>16 top-level sections</summary>
+      <ul><li><a href="overview.html#what-it-is">What it is</a></li><li><a href="overview.html#the-memory-pipeline">The memory pipeline</a></li><li><a href="overview.html#features-windows-native">Features (Windows Native)</a></li><li><a href="overview.html#tech-stack">Tech stack</a></li><li><a href="overview.html#architecture">Architecture</a></li><li><a href="overview.html#getting-started">Getting started</a></li><li><a href="overview.html#configuration">Configuration</a></li><li><a href="overview.html#recent-engineering-work">Recent engineering work</a></li><li><a href="overview.html#roadmap--known-follow-ups">Roadmap / known follow-ups</a></li><li><a href="overview.html#project-structure">Project structure</a></li><li><a href="overview.html#testing">Testing</a></li><li><a href="overview.html#privacy--security">Privacy &amp; security</a></li><li><a href="overview.html#legacy-electron-app">Legacy Electron app</a></li><li><a href="overview.html#documentation">Documentation</a></li><li><a href="overview.html#contributing">Contributing</a></li><li><a href="overview.html#license">License</a></li></ul>
+    </details>
+  </article><article class="map-entry">
+    <div class="map-entry-head">
+      <h3><a href="developer-guide.html">Developer orientation guide</a></h3>
+      <a class="map-source" href="https://github.com/ethanbissbort/memory-line/blob/main/claude.md" target="_blank" rel="noopener noreferrer"><code>claude.md</code> ↗</a>
+    </div>
+    <p class="map-desc">The condensed contributor briefing: solution layout, the per-operation DbContext rule, MVVM conventions, settings keys, build reality, and how to add a feature.</p>
+    <div class="map-meta">
+      <span class="tag">Contributors</span>
+      <span class="map-stat">1,699 words</span>
+      <span class="map-stat">8 min read</span>
+      <span class="map-stat">14 sections</span>
+    </div>
+    <details class="map-toc">
+      <summary>8 top-level sections</summary>
+      <ul><li><a href="developer-guide.html#tldr">TL;DR</a></li><li><a href="developer-guide.html#windows-native--the-app-you-work-on">Windows Native — the app you work on</a></li><li><a href="developer-guide.html#build--run-reality">Build &amp; run reality</a></li><li><a href="developer-guide.html#adding-a-feature-in-windows-native">Adding a feature in Windows Native</a></li><li><a href="developer-guide.html#data-model-shared-conceptual-schema">Data model (shared conceptual schema)</a></li><li><a href="developer-guide.html#security--privacy-notes">Security &amp; privacy notes</a></li><li><a href="developer-guide.html#key-docs-read-these-for-detail">Key docs (read these for detail)</a></li><li><a href="developer-guide.html#legacy-electron">Legacy Electron</a></li></ul>
+    </details>
+  </article>
+</section><section class="map-section">
+  <h2 id="windows-native" class="anchored">Windows Native app<a class="heading-anchor" href="#windows-native" aria-label="Link to this section">#</a></h2>
+  <p class="section-lead">The primary, actively developed product: .NET 8 + WinUI 3.</p>
+  <article class="map-entry">
+    <div class="map-entry-head">
+      <h3><a href="windows-native.html">Windows Native app</a></h3>
+      <a class="map-source" href="https://github.com/ethanbissbort/memory-line/blob/main/windows-native/README.md" target="_blank" rel="noopener noreferrer"><code>windows-native/README.md</code> ↗</a>
+    </div>
+    <p class="map-desc">The main reference for the WinUI 3 app: pipeline, features, quick start, project structure, clean-architecture layers, DI composition, database schema, configuration, and troubleshooting.</p>
+    <div class="map-meta">
+      <span class="tag">Developers</span>
+      <span class="map-stat">3,150 words</span>
+      <span class="map-stat">14 min read</span>
+      <span class="map-stat">40 sections</span>
+    </div>
+    <details class="map-toc">
+      <summary>18 top-level sections</summary>
+      <ul><li><a href="windows-native.html#overview">Overview</a></li><li><a href="windows-native.html#the-memory-pipeline">The memory pipeline</a></li><li><a href="windows-native.html#features">Features</a></li><li><a href="windows-native.html#quick-start">Quick Start</a></li><li><a href="windows-native.html#project-structure">Project Structure</a></li><li><a href="windows-native.html#architecture">Architecture</a></li><li><a href="windows-native.html#database">Database</a></li><li><a href="windows-native.html#api-keys--configuration">API Keys &amp; Configuration</a></li><li><a href="windows-native.html#recent-hardening">Recent hardening</a></li><li><a href="windows-native.html#testing">Testing</a></li><li><a href="windows-native.html#deployment">Deployment</a></li><li><a href="windows-native.html#performance-targets">Performance Targets</a></li><li><a href="windows-native.html#development-status">Development Status</a></li><li><a href="windows-native.html#roadmap--known-follow-ups">Roadmap / known follow-ups</a></li><li><a href="windows-native.html#troubleshooting">Troubleshooting</a></li><li><a href="windows-native.html#documentation">Documentation</a></li><li><a href="windows-native.html#contributing">Contributing</a></li><li><a href="windows-native.html#license">License</a></li></ul>
+    </details>
+  </article><article class="map-entry">
+    <div class="map-entry-head">
+      <h3><a href="setup-scripts-windows.html">PowerShell setup scripts</a></h3>
+      <a class="map-source" href="https://github.com/ethanbissbort/memory-line/blob/main/windows-native/scripts/README.md" target="_blank" rel="noopener noreferrer"><code>windows-native/scripts/README.md</code> ↗</a>
+    </div>
+    <p class="map-desc">Setup-Dependencies.ps1 and Verify-Installation.ps1 — automated toolchain install and environment verification, plus the build reality (msbuild, not dotnet build).</p>
+    <div class="map-meta">
+      <span class="tag">Developers</span>
+      <span class="map-stat">922 words</span>
+      <span class="map-stat">4 min read</span>
+      <span class="map-stat">19 sections</span>
+    </div>
+    <details class="map-toc">
+      <summary>8 top-level sections</summary>
+      <ul><li><a href="setup-scripts-windows.html#build-reality-important">Build Reality (Important)</a></li><li><a href="setup-scripts-windows.html#scripts">Scripts</a></li><li><a href="setup-scripts-windows.html#common-scenarios">Common Scenarios</a></li><li><a href="setup-scripts-windows.html#manual-installation">Manual Installation</a></li><li><a href="setup-scripts-windows.html#script-permissions">Script Permissions</a></li><li><a href="setup-scripts-windows.html#getting-help">Getting Help</a></li><li><a href="setup-scripts-windows.html#notes">Notes</a></li><li><a href="setup-scripts-windows.html#version-history">Version History</a></li></ul>
+    </details>
+  </article><article class="map-entry">
+    <div class="map-entry-head">
+      <h3><a href="testing.html">Testing guide</a></h3>
+      <a class="map-source" href="https://github.com/ethanbissbort/memory-line/blob/main/windows-native/TESTING.md" target="_blank" rel="noopener noreferrer"><code>windows-native/TESTING.md</code> ↗</a>
+    </div>
+    <p class="map-desc">Test structure, the DbContext factory pattern for test authors, running and filtering tests, coverage goals, performance benchmarks, templates, and CI behaviour.</p>
+    <div class="map-meta">
+      <span class="tag">Developers</span>
+      <span class="map-stat">1,913 words</span>
+      <span class="map-stat">9 min read</span>
+      <span class="map-stat">37 sections</span>
+    </div>
+    <details class="map-toc">
+      <summary>12 top-level sections</summary>
+      <ul><li><a href="testing.html#test-structure">Test Structure</a></li><li><a href="testing.html#test-framework-and-tools">Test Framework and Tools</a></li><li><a href="testing.html#running-tests">Running Tests</a></li><li><a href="testing.html#code-coverage">Code Coverage</a></li><li><a href="testing.html#test-categories-explained">Test Categories Explained</a></li><li><a href="testing.html#performance-benchmarks">Performance Benchmarks</a></li><li><a href="testing.html#test-data-generators">Test Data Generators</a></li><li><a href="testing.html#continuous-integration">Continuous Integration</a></li><li><a href="testing.html#writing-new-tests">Writing New Tests</a></li><li><a href="testing.html#best-practices">Best Practices</a></li><li><a href="testing.html#troubleshooting-tests">Troubleshooting Tests</a></li><li><a href="testing.html#test-statistics">Test Statistics</a></li></ul>
+    </details>
+  </article><article class="map-entry">
+    <div class="map-entry-head">
+      <h3><a href="deployment.html">Deployment guide</a></h3>
+      <a class="map-source" href="https://github.com/ethanbissbort/memory-line/blob/main/windows-native/DEPLOYMENT.md" target="_blank" rel="noopener noreferrer"><code>windows-native/DEPLOYMENT.md</code> ↗</a>
+    </div>
+    <p class="map-desc">Building Release|x64, runtime data layout, MSIX packaging, code signing, Microsoft Store submission, and side-loading.</p>
+    <div class="map-meta">
+      <span class="tag">Maintainers</span>
+      <span class="map-stat">2,053 words</span>
+      <span class="map-stat">9 min read</span>
+      <span class="map-stat">46 sections</span>
+    </div>
+    <details class="map-toc">
+      <summary>14 top-level sections</summary>
+      <ul><li><a href="deployment.html#table-of-contents">Table of Contents</a></li><li><a href="deployment.html#prerequisites">Prerequisites</a></li><li><a href="deployment.html#building-the-application">Building the Application</a></li><li><a href="deployment.html#data--runtime-layout">Data &amp; Runtime Layout</a></li><li><a href="deployment.html#running-tests">Running Tests</a></li><li><a href="deployment.html#msix-packaging-phase-7--in-progress">MSIX Packaging (Phase 7 — in progress)</a></li><li><a href="deployment.html#code-signing">Code Signing</a></li><li><a href="deployment.html#microsoft-store-deployment-phase-7--in-progress">Microsoft Store Deployment (Phase 7 — in progress)</a></li><li><a href="deployment.html#side-loading">Side-loading</a></li><li><a href="deployment.html#cicd-pipeline">CI/CD Pipeline</a></li><li><a href="deployment.html#post-deployment">Post-Deployment</a></li><li><a href="deployment.html#troubleshooting">Troubleshooting</a></li><li><a href="deployment.html#resources">Resources</a></li><li><a href="deployment.html#support">Support</a></li></ul>
+    </details>
+  </article>
+</section><section class="map-section">
+  <h2 id="status" class="anchored">Status &amp; history<a class="heading-anchor" href="#status" aria-label="Link to this section">#</a></h2>
+  <p class="section-lead">Where the project stands, and how it got here.</p>
+  <article class="map-entry">
+    <div class="map-entry-head">
+      <h3><a href="development-status.html">Development status</a></h3>
+      <a class="map-source" href="https://github.com/ethanbissbort/memory-line/blob/main/windows-native/DEVELOPMENT-STATUS.md" target="_blank" rel="noopener noreferrer"><code>windows-native/DEVELOPMENT-STATUS.md</code> ↗</a>
+    </div>
+    <p class="map-desc">Phase-by-phase status, the 2026-08 F1–F12 feature wave with per-feature detail and deferred items, known limitations, and success criteria.</p>
+    <div class="map-meta">
+      <span class="tag">Everyone</span>
+      <span class="map-stat">3,789 words</span>
+      <span class="map-stat">17 min read</span>
+      <span class="map-stat">42 sections</span>
+    </div>
+    <details class="map-toc">
+      <summary>17 top-level sections</summary>
+      <ul><li><a href="development-status.html#2026-08-feature-spec-implementation-f1f12">2026-08 feature-spec implementation (F1–F12)</a></li><li><a href="development-status.html#post-audit-hardening-2026-07">Post-audit hardening (2026-07)</a></li><li><a href="development-status.html#executive-summary">Executive Summary</a></li><li><a href="development-status.html#phase-0-preparation---completed">Phase 0: Preparation - ✅ COMPLETED</a></li><li><a href="development-status.html#phase-1-core-infrastructure---completed">Phase 1: Core Infrastructure - ✅ COMPLETED</a></li><li><a href="development-status.html#phase-2-timeline-visualization---completed">Phase 2: Timeline Visualization - ✅ COMPLETED</a></li><li><a href="development-status.html#phase-3-audio--processing---completed">Phase 3: Audio &amp; Processing - ✅ COMPLETED</a></li><li><a href="development-status.html#phase-4-llm-integration---completed">Phase 4: LLM Integration - ✅ COMPLETED</a></li><li><a href="development-status.html#phase-5-rag--embeddings---completed">Phase 5: RAG &amp; Embeddings - ✅ COMPLETED</a></li><li><a href="development-status.html#phase-6-polish--windows-integration---completed">Phase 6: Polish &amp; Windows Integration - ✅ COMPLETED</a></li><li><a href="development-status.html#phase-7-testing--deployment---in-progress">Phase 7: Testing &amp; Deployment - 🔄 IN PROGRESS</a></li><li><a href="development-status.html#technology-stack-summary">Technology Stack Summary</a></li><li><a href="development-status.html#code-statistics">Code Statistics</a></li><li><a href="development-status.html#known-issues--limitations">Known Issues &amp; Limitations</a></li><li><a href="development-status.html#success-criteria">Success Criteria</a></li><li><a href="development-status.html#next-steps-immediate-priorities">Next Steps (Immediate Priorities)</a></li><li><a href="development-status.html#documentation-references">Documentation References</a></li></ul>
+    </details>
+  </article><article class="map-entry">
+    <div class="map-entry-head">
+      <h3><a href="development-history.html">Development history</a></h3>
+      <a class="map-source" href="https://github.com/ethanbissbort/memory-line/blob/main/windows-native/DEVELOPMENT-HISTORY.md" target="_blank" rel="noopener noreferrer"><code>windows-native/DEVELOPMENT-HISTORY.md</code> ↗</a>
+    </div>
+    <p class="map-desc">Consolidated phase completion reports (Phase 0 through Phase 6) with deliverables, statistics, and architecture achievements.</p>
+    <div class="map-meta">
+      <span class="tag">Everyone</span>
+      <span class="map-stat">2,198 words</span>
+      <span class="map-stat">10 min read</span>
+      <span class="map-stat">52 sections</span>
+    </div>
+    <details class="map-toc">
+      <summary>15 top-level sections</summary>
+      <ul><li><a href="development-history.html#executive-summary">Executive Summary</a></li><li><a href="development-history.html#phase-0-preparation">Phase 0: Preparation</a></li><li><a href="development-history.html#phase-1-core-infrastructure">Phase 1: Core Infrastructure</a></li><li><a href="development-history.html#phase-2-timeline-visualization">Phase 2: Timeline Visualization</a></li><li><a href="development-history.html#phase-3-audio--processing">Phase 3: Audio &amp; Processing</a></li><li><a href="development-history.html#phase-4-llm-integration">Phase 4: LLM Integration</a></li><li><a href="development-history.html#phase-5-rag--embeddings">Phase 5: RAG &amp; Embeddings</a></li><li><a href="development-history.html#phase-6-polish--windows-integration">Phase 6: Polish &amp; Windows Integration</a></li><li><a href="development-history.html#technology-stack-summary">Technology Stack Summary</a></li><li><a href="development-history.html#code-statistics-summary">Code Statistics Summary</a></li><li><a href="development-history.html#architecture-achievements">Architecture Achievements</a></li><li><a href="development-history.html#known-limitations">Known Limitations</a></li><li><a href="development-history.html#phase-7-testing--deployment-pending">Phase 7: Testing &amp; Deployment (Pending)</a></li><li><a href="development-history.html#post-phase-6-hardening--feature-audit--fix-pass-2026-07">Post-Phase-6 Hardening — Feature Audit &amp; Fix Pass (2026-07)</a></li><li><a href="development-history.html#references">References</a></li></ul>
+    </details>
+  </article><article class="map-entry">
+    <div class="map-entry-head">
+      <h3><a href="migration-to-native-windows.html">Migration to native Windows</a></h3>
+      <a class="map-source" href="https://github.com/ethanbissbort/memory-line/blob/main/MIGRATION-TO-NATIVE-WIN.md" target="_blank" rel="noopener noreferrer"><code>MIGRATION-TO-NATIVE-WIN.md</code> ↗</a>
+    </div>
+    <p class="map-desc">The full migration plan from Electron to .NET 8 + WinUI 3: rationale, stack decision, branch strategy, architecture comparison, all seven phases, feature-parity matrix, and checklists.</p>
+    <div class="map-meta">
+      <span class="tag">Developers</span>
+      <span class="map-stat">5,098 words</span>
+      <span class="map-stat">23 min read</span>
+      <span class="map-stat">70 sections</span>
+    </div>
+    <details class="map-toc">
+      <summary>20 top-level sections</summary>
+      <ul><li><a href="migration-to-native-windows.html#-status-banner--this-migration-is-effectively-realized-updated-2026-07-10">⚠️ STATUS BANNER — This migration is effectively realized (updated 2026-07-10)</a></li><li><a href="migration-to-native-windows.html#current-state-corrections-2026-07-10">Current state corrections (2026-07-10)</a></li><li><a href="migration-to-native-windows.html#table-of-contents">Table of Contents</a></li><li><a href="migration-to-native-windows.html#migration-progress-summary">Migration Progress Summary</a></li><li><a href="migration-to-native-windows.html#overview">Overview</a></li><li><a href="migration-to-native-windows.html#technology-stack-decision">Technology Stack Decision</a></li><li><a href="migration-to-native-windows.html#branch-strategy">Branch Strategy</a></li><li><a href="migration-to-native-windows.html#architecture-comparison">Architecture Comparison</a></li><li><a href="migration-to-native-windows.html#migration-phases">Migration Phases</a></li><li><a href="migration-to-native-windows.html#feature-parity-matrix">Feature Parity Matrix</a></li><li><a href="migration-to-native-windows.html#implementation-checklist">Implementation Checklist</a></li><li><a href="migration-to-native-windows.html#testing-strategy">Testing Strategy</a></li><li><a href="migration-to-native-windows.html#deployment--distribution">Deployment &amp; Distribution</a></li><li><a href="migration-to-native-windows.html#performance-targets">Performance Targets</a></li><li><a href="migration-to-native-windows.html#timeline--resources">Timeline &amp; Resources</a></li><li><a href="migration-to-native-windows.html#risk-assessment--mitigation">Risk Assessment &amp; Mitigation</a></li><li><a href="migration-to-native-windows.html#success-metrics">Success Metrics</a></li><li><a href="migration-to-native-windows.html#appendix">Appendix</a></li><li><a href="migration-to-native-windows.html#conclusion">Conclusion</a></li><li><a href="migration-to-native-windows.html#quick-links">Quick Links</a></li></ul>
+    </details>
+  </article>
+</section><section class="map-section">
+  <h2 id="quality" class="anchored">Audits &amp; reviews<a class="heading-anchor" href="#quality" aria-label="Link to this section">#</a></h2>
+  <p class="section-lead">Multi-agent audits, root-cause analyses, and deferred hardening.</p>
+  <article class="map-entry">
+    <div class="map-entry-head">
+      <h3><a href="feature-audit.html">Feature audit (2026-07)</a></h3>
+      <a class="map-source" href="https://github.com/ethanbissbort/memory-line/blob/main/windows-native/FEATURE-AUDIT.md" target="_blank" rel="noopener noreferrer"><code>windows-native/FEATURE-AUDIT.md</code> ↗</a>
+    </div>
+    <p class="map-desc">Root causes of three reported bugs, the shared-DbContext foundation defect underneath them, a per-feature audit, and the dependency-ordered master fix plan.</p>
+    <div class="map-meta">
+      <span class="tag">Developers</span>
+      <span class="map-stat">2,301 words</span>
+      <span class="map-stat">10 min read</span>
+      <span class="map-stat">19 sections</span>
+    </div>
+    <details class="map-toc">
+      <summary>5 top-level sections</summary>
+      <ul><li><a href="feature-audit.html#part-0--root-causes-of-the-three-reported-bugs">Part 0 — Root causes of the three reported bugs</a></li><li><a href="feature-audit.html#part-1--the-foundation-defect-underneath-everything-confirmed-by-all-5-agents">Part 1 — The foundation defect underneath everything (CONFIRMED by all 5 agents)</a></li><li><a href="feature-audit.html#part-2--per-feature-audit">Part 2 — Per-feature audit</a></li><li><a href="feature-audit.html#part-3--master-fix-plan-dependency-ordered">Part 3 — Master fix plan (dependency-ordered)</a></li><li><a href="feature-audit.html#cross-agent-convergence-confidence-signal">Cross-agent convergence (confidence signal)</a></li></ul>
+    </details>
+  </article><article class="map-entry">
+    <div class="map-entry-head">
+      <h3><a href="hardening-followups.html">Hardening follow-ups</a></h3>
+      <a class="map-source" href="https://github.com/ethanbissbort/memory-line/blob/main/windows-native/HARDENING-FOLLOWUPS.md" target="_blank" rel="noopener noreferrer"><code>windows-native/HARDENING-FOLLOWUPS.md</code> ↗</a>
+    </div>
+    <p class="map-desc">Deferred hardening items ranked high / medium / low — captive DbContext scopes, fire-and-forget embeddings, and migration snapshot drift.</p>
+    <div class="map-meta">
+      <span class="tag">Developers</span>
+      <span class="map-stat">561 words</span>
+      <span class="map-stat">3 min read</span>
+      <span class="map-stat">6 sections</span>
+    </div>
+    <details class="map-toc">
+      <summary>3 top-level sections</summary>
+      <ul><li><a href="hardening-followups.html#high-priority">High priority</a></li><li><a href="hardening-followups.html#medium-priority">Medium priority</a></li><li><a href="hardening-followups.html#low-priority">Low priority</a></li></ul>
+    </details>
+  </article><article class="map-entry">
+    <div class="map-entry-head">
+      <h3><a href="repo-audit-2026-07.html">Exhaustive repo audit</a></h3>
+      <a class="map-source" href="https://github.com/ethanbissbort/memory-line/blob/main/docs/reviews/exhaustive-audit-2026-07.md" target="_blank" rel="noopener noreferrer"><code>docs/reviews/exhaustive-audit-2026-07.md</code> ↗</a>
+    </div>
+    <p class="map-desc">A bug hunt and feature crawl across the whole repository: 27 adversarially verified findings, 61 unverified medium/low findings, and ranked improvement opportunities.</p>
+    <div class="map-meta">
+      <span class="tag">Developers</span>
+      <span class="map-stat">14,439 words</span>
+      <span class="map-stat">66 min read</span>
+      <span class="map-stat">43 sections</span>
+    </div>
+    <details class="map-toc">
+      <summary>4 top-level sections</summary>
+      <ul><li><a href="repo-audit-2026-07.html#part-1--confirmed-findings-adversarially-verified">Part 1 — CONFIRMED findings (adversarially verified)</a></li><li><a href="repo-audit-2026-07.html#part-2--unverified-findings-mediumlow-not-adversarially-checked">Part 2 — UNVERIFIED findings (medium/low; not adversarially checked)</a></li><li><a href="repo-audit-2026-07.html#part-3--improvement-opportunities-ranked-by-scope">Part 3 — Improvement opportunities (ranked by scope)</a></li><li><a href="repo-audit-2026-07.html#part-4--recommended-fix-order">Part 4 — Recommended fix order</a></li></ul>
+    </details>
+  </article>
+</section><section class="map-section">
+  <h2 id="design" class="anchored">Design notes<a class="heading-anchor" href="#design" aria-label="Link to this section">#</a></h2>
+  <p class="section-lead">Cross-cutting contracts written before implementation.</p>
+  <article class="map-entry">
+    <div class="map-entry-head">
+      <h3><a href="people-feature-contracts.html">People feature contracts</a></h3>
+      <a class="map-source" href="https://github.com/ethanbissbort/memory-line/blob/main/docs/design/people-feature-contracts.md" target="_blank" rel="noopener noreferrer"><code>docs/design/people-feature-contracts.md</code> ↗</a>
+    </div>
+    <p class="map-desc">The cross-agent interface contract for the People hub: file ownership map, entity columns, DTOs, service signatures, extraction changes, UI conventions, and DI registrations.</p>
+    <div class="map-meta">
+      <span class="tag">Developers</span>
+      <span class="map-stat">2,718 words</span>
+      <span class="map-stat">12 min read</span>
+      <span class="map-stat">28 sections</span>
+    </div>
+    <details class="map-toc">
+      <summary>8 top-level sections</summary>
+      <ul><li><a href="people-feature-contracts.html#1-feature-summary">1. Feature summary</a></li><li><a href="people-feature-contracts.html#2-file-ownership-map">2. File ownership map</a></li><li><a href="people-feature-contracts.html#3-data-layer-agent-a">3. Data layer (Agent A)</a></li><li><a href="people-feature-contracts.html#4-core-dtos--services-agent-b">4. Core DTOs + services (Agent B)</a></li><li><a href="people-feature-contracts.html#5-extraction--review-pipeline-agent-c">5. Extraction + review pipeline (Agent C)</a></li><li><a href="people-feature-contracts.html#6-shared-ui-contracts-agents-dg--integrator">6. Shared UI contracts (Agents D–G + integrator)</a></li><li><a href="people-feature-contracts.html#7-di-registrations-integrator-applies">7. DI registrations (integrator applies)</a></li><li><a href="people-feature-contracts.html#8-conventions-checklist-all-agents">8. Conventions checklist (all agents)</a></li></ul>
+    </details>
+  </article>
+</section>
+<section class="legacy-note">
+  <h2 class="legacy-title">Legacy Electron build</h2>
+  <p class="legacy-blurb">The earlier cross-platform Electron app (React + Electron + SQLite) is feature-complete for its own scope but is no longer developed. Its documentation stays as plain markdown in the repository and is intentionally left out of this site.</p>
+  <ul class="legacy-list"><li><a href="https://github.com/ethanbissbort/memory-line/blob/main/DEPLOYMENT-INSTALL.md" target="_blank" rel="noopener noreferrer">Deployment &amp; installation guide</a> <code>DEPLOYMENT-INSTALL.md</code></li><li><a href="https://github.com/ethanbissbort/memory-line/blob/main/scripts/README.md" target="_blank" rel="noopener noreferrer">Setup scripts (Windows / Ubuntu)</a> <code>scripts/README.md</code></li><li><a href="https://github.com/ethanbissbort/memory-line/blob/main/scripts/logs/README.md" target="_blank" rel="noopener noreferrer">Setup script logs</a> <code>scripts/logs/README.md</code></li><li><a href="https://github.com/ethanbissbort/memory-line/blob/main/tests/README.md" target="_blank" rel="noopener noreferrer">Jest test suite</a> <code>tests/README.md</code></li><li><a href="https://github.com/ethanbissbort/memory-line/blob/main/tests/fixtures/databases/README.md" target="_blank" rel="noopener noreferrer">Test database fixtures</a> <code>tests/fixtures/databases/README.md</code></li><li><a href="https://github.com/ethanbissbort/memory-line/blob/main/docs/reviews/multi-agent-code-review.md" target="_blank" rel="noopener noreferrer">Multi-agent code review (Electron layers)</a> <code>docs/reviews/multi-agent-code-review.md</code></li></ul>
+</section>
+</div>
+    <footer class="site-footer">
+      <div>
+        <strong>Memory Timeline</strong> documentation ·
+        13 documents ·
+        generated 2026-08-07
+      </div>
+      <div class="footer-links">
+        <a href="index.html">Home</a>
+        <a href="documentation-map.html">All documentation</a>
+        <a href="https://github.com/ethanbissbort/memory-line" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </div>
+      <div class="footer-note">
+        This site is generated from the markdown in the repository — edit the source files and rebuild.
+      </div>
+    </footer>
+  </main>
+</div>
+
+<div class="search-modal" data-search-modal hidden>
+  <div class="search-backdrop" data-search-close></div>
+  <div class="search-panel" role="dialog" aria-modal="true" aria-label="Search documentation">
+    <div class="search-input-row">
+      <svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><circle cx="9" cy="9" r="5.5" stroke="currentColor" stroke-width="1.7" fill="none"/><path d="M13.2 13.2 17 17" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <input type="search" placeholder="Search headings and content…" data-search-input autocomplete="off" spellcheck="false" aria-label="Search query">
+      <button class="icon-btn" type="button" data-search-close aria-label="Close search"><kbd>Esc</kbd></button>
+    </div>
+    <div class="search-results" data-search-results>
+      <p class="search-hint">Start typing to search every document on this site.</p>
+    </div>
+  </div>
+</div>
+
+<script src="assets/search-index.js" defer></script>
+<script src="assets/app.js" defer></script>
+</body>
+</html>
