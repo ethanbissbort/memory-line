@@ -17,6 +17,11 @@ namespace MemoryTimeline.Tests.Integration;
 /// </summary>
 public class TextSourceSchemaTests : IDisposable
 {
+    // The columns this test is about: the original audio shape plus the three
+    // text-source columns the upgrade adds. Asserted as a SUBSET of the upgraded
+    // table, not the whole of it — the same upgrader also adds the iOS-companion
+    // sync provenance columns (source_capture_id, sync_state, processing_stage,
+    // ...), and a feature adding a column must not break this test.
     private static readonly string[] ExpectedRecordingQueueColumns =
     {
         "queue_id", "audio_file_path", "status", "duration_seconds",
@@ -66,7 +71,8 @@ public class TextSourceSchemaTests : IDisposable
             var connection = verifyContext.Database.GetDbConnection();
             await connection.OpenAsync();
             var columns = await GetColumnNamesAsync(connection, "recording_queue");
-            columns.Should().BeEquivalentTo(ExpectedRecordingQueueColumns);
+            columns.Should().Contain(ExpectedRecordingQueueColumns);
+            columns.Should().OnlyHaveUniqueItems();
         }
 
         // Act again — a second upgrade must be a safe no-op
@@ -82,7 +88,10 @@ public class TextSourceSchemaTests : IDisposable
             var connection = readContext.Database.GetDbConnection();
             await connection.OpenAsync();
             var columns = await GetColumnNamesAsync(connection, "recording_queue");
-            columns.Should().BeEquivalentTo(ExpectedRecordingQueueColumns);
+            columns.Should().Contain(ExpectedRecordingQueueColumns);
+            // A re-run must not duplicate any column (SQLite would also reject
+            // the duplicate ADD COLUMN outright, so this pins both symptoms).
+            columns.Should().OnlyHaveUniqueItems();
 
             var legacy = await readContext.RecordingQueues.AsNoTracking().SingleAsync();
             legacy.QueueId.Should().Be("legacy-1");
