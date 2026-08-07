@@ -80,6 +80,19 @@ public class CaptureIngestionService : ICaptureIngestionService
                 IngestionFailureKind.ArtifactUnavailable, $"Could not read audio file: {ex.Message}");
         }
 
+        // Content-hash idempotency (§7.2, §12.2): identical bytes are the same
+        // recording regardless of path or queue ID (e.g. the same file imported
+        // twice under different copy names).
+        var sameContent = await _captureRepository.GetQueueItemByContentSha256Async(sha256);
+        if (sameContent != null)
+        {
+            _logger.LogInformation(
+                "Recording {QueueId} matches content of existing queue item {ExistingQueueId}; reusing",
+                queueId, sameContent.QueueId);
+            return IngestionResult.Duplicate(
+                sameContent.SourceCaptureId ?? string.Empty, sameContent.AudioArtifactId, sameContent.QueueId);
+        }
+
         var now = DateTime.UtcNow;
         var capture = new Capture
         {
@@ -142,9 +155,44 @@ public class CaptureIngestionService : ICaptureIngestionService
         var existing = await _captureRepository.GetQueueItemBySourceCaptureIdAsync(capture.CaptureId);
         if (existing != null)
         {
+            // Same ID with different content is a conflict, not a replay.
+            if (existing.ContentSha256 != null &&
+                !string.Equals(existing.ContentSha256, capture.ExpectedSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                return IngestionResult.Failed(
+                    IngestionFailureKind.ArtifactInvalid,
+                    "Capture ID was already ingested with different content.",
+                    capture.CaptureId);
+            }
+
             _logger.LogInformation("Capture {CaptureId} already ingested as queue item {QueueId}",
                 capture.CaptureId, existing.QueueId);
             return IngestionResult.Duplicate(capture.CaptureId, existing.AudioArtifactId, existing.QueueId);
+        }
+
+        // A capture row without a queue item means the queue item was deleted by
+        // the user after a previous ingestion (queue removal does not delete the
+        // capture). Deletions are never silently resurrected by a re-upload
+        // (§12.2): acknowledge the duplicate without creating rows, instead of
+        // colliding on the captures primary key forever.
+        var priorCapture = await _captureRepository.GetByIdAsync(capture.CaptureId);
+        if (priorCapture != null)
+        {
+            var priorAudio = priorCapture.Artifacts
+                .FirstOrDefault(a => a.ArtifactType == CaptureArtifactType.AudioOriginal);
+            if (priorAudio?.Sha256 != null &&
+                !string.Equals(priorAudio.Sha256, capture.ExpectedSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                return IngestionResult.Failed(
+                    IngestionFailureKind.ArtifactInvalid,
+                    "Capture ID was already ingested with different content.",
+                    capture.CaptureId);
+            }
+
+            _logger.LogInformation(
+                "Capture {CaptureId} was previously ingested and its queue item since removed; not resurrecting",
+                capture.CaptureId);
+            return IngestionResult.Duplicate(capture.CaptureId, priorAudio?.ArtifactId, null);
         }
 
         var resolution = await _artifactResolver.ResolveAsync(capture, cancellationToken);
@@ -189,6 +237,20 @@ public class CaptureIngestionService : ICaptureIngestionService
                 IngestionFailureKind.ArtifactInvalid,
                 "Artifact SHA-256 does not match the declared hash.",
                 capture.CaptureId);
+        }
+
+        // Content-hash idempotency (§7.2, §12.2): the same audio bytes under a
+        // freshly minted capture ID (e.g. an app reinstall regenerating IDs for
+        // unacknowledged recordings) must not produce a second queue item and
+        // duplicate pending events.
+        var sameContent = await _captureRepository.GetQueueItemByContentSha256Async(sha256);
+        if (sameContent != null)
+        {
+            _logger.LogInformation(
+                "Capture {CaptureId} matches content of existing queue item {QueueId}; reusing",
+                capture.CaptureId, sameContent.QueueId);
+            return IngestionResult.Duplicate(
+                sameContent.SourceCaptureId ?? capture.CaptureId, sameContent.AudioArtifactId, sameContent.QueueId);
         }
 
         var now = DateTime.UtcNow;
@@ -283,8 +345,11 @@ public class CaptureIngestionService : ICaptureIngestionService
         }
         catch (DbUpdateException ex)
         {
-            // Unique-index race: another ingest of the same capture won. Treat as
-            // the idempotent-duplicate outcome instead of failing the retry.
+            // A constraint conflict here means another row already explains this
+            // capture; prefer the idempotent-duplicate outcome over a failure.
+
+            // Remote-path race: both racers share the capture ID, so the loser
+            // hits the source_capture_id unique index.
             var winner = await _captureRepository.GetQueueItemBySourceCaptureIdAsync(capture.CaptureId);
             if (winner != null)
             {
@@ -292,6 +357,28 @@ public class CaptureIngestionService : ICaptureIngestionService
                     "Concurrent ingestion of capture {CaptureId} detected; returning existing queue item {QueueId}",
                     capture.CaptureId, winner.QueueId);
                 return IngestionResult.Duplicate(capture.CaptureId, winner.AudioArtifactId, winner.QueueId);
+            }
+
+            // Local-path race: both racers share the pre-generated queue ID but
+            // mint distinct capture IDs, so the conflict is the queue primary key.
+            var byQueueId = await _queueRepository.GetByIdAsync(queueItem.QueueId);
+            if (byQueueId != null)
+            {
+                _logger.LogInformation(
+                    "Concurrent ingestion of recording {QueueId} detected; returning existing queue item",
+                    queueItem.QueueId);
+                return IngestionResult.Duplicate(
+                    byQueueId.SourceCaptureId ?? capture.CaptureId, byQueueId.AudioArtifactId, byQueueId.QueueId);
+            }
+
+            // Orphaned capture row (queue item deleted between the pre-check and
+            // this insert): the captures primary key rejected the re-insert.
+            // Deletions are never resurrected (§12.2).
+            if (await _captureRepository.ExistsAsync(capture.CaptureId))
+            {
+                _logger.LogInformation(
+                    "Capture {CaptureId} already exists without a queue item; not resurrecting", capture.CaptureId);
+                return IngestionResult.Duplicate(capture.CaptureId, null, null);
             }
 
             _logger.LogError(ex, "Failed to persist ingestion of capture {CaptureId}", capture.CaptureId);

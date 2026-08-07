@@ -106,7 +106,12 @@ public class IngestionResult
         QueueId = queueId,
     };
 
-    public static IngestionResult Duplicate(string captureId, string? artifactId, string queueId) => new()
+    /// <summary>
+    /// Idempotent-duplicate outcome. <paramref name="queueId"/> is null when the
+    /// capture was ingested before but its queue item has since been deleted by
+    /// the user — deletions are never silently resurrected (design §12.2).
+    /// </summary>
+    public static IngestionResult Duplicate(string captureId, string? artifactId, string? queueId) => new()
     {
         Success = true,
         AlreadyIngested = true,

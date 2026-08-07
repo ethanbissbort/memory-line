@@ -1,0 +1,1465 @@
+openapi: 3.0.3
+
+# Memory Line Sync API v1 — contract skeleton.
+# Faithful to docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md §11 (API design),
+# §6 (domain model), and §12 (synchronization). Swift and C# clients are generated
+# from this file; see ../README.md for versioning rules.
+
+info:
+  title: Memory Line Sync API
+  version: 1.0.0
+  description: >-
+    Device-neutral sync, capture, assistant, and roadtrip API for Memory Line.
+    Conventions (design doc section 11.1): base path /api/v1, JSON metadata,
+    multipart upload for large artifacts, UUID identifiers, UTC ISO 8601
+    timestamps, camelCase JSON field names, an Idempotency-Key header on all
+    create/mutation calls, and cursor-based synchronization. The server stores
+    the response for each (ownerId, deviceId, idempotencyKey) tuple for a
+    retention window; repeated requests return the original result.
+
+servers:
+  - url: /api/v1
+    description: All paths in this document are relative to the /api/v1 base path.
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: devices
+    description: Device registration, token refresh, and revocation.
+  - name: captures
+    description: Device-neutral capture lifecycle (design doc section 6.1).
+  - name: artifacts
+    description: Multipart artifact upload/download with integrity validation (section 11.4).
+  - name: sync
+    description: Cursor-based push/pull/ack synchronization (section 12).
+  - name: assistant
+    description: Voice assistant sessions and turns (section 6.6).
+  - name: trips
+    description: Trip lifecycle, route context snapshots, and detour generation.
+  - name: detours
+    description: Detour suggestion disposition (section 6.5).
+
+paths:
+
+  # ---------------------------------------------------------------- devices
+
+  /devices/register:
+    post:
+      tags: [devices]
+      operationId: registerDevice
+      summary: Register a device and obtain device-bound tokens.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceRegisterRequest'
+      responses:
+        '201':
+          description: Device registered.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceRegisterResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /devices/{deviceId}/refresh:
+    post:
+      tags: [devices]
+      operationId: refreshDeviceToken
+      summary: Exchange a refresh token for a new short-lived access token.
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: New token pair issued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceRegisterResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /devices/{deviceId}:
+    delete:
+      tags: [devices]
+      operationId: revokeDevice
+      summary: Revoke a device. Its tokens stop working immediately.
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '204':
+          description: Device revoked.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  # --------------------------------------------------------------- captures
+
+  /captures:
+    post:
+      tags: [captures]
+      operationId: createCapture
+      summary: Create a capture from device-generated metadata.
+      description: >-
+        The client generates the captureId. Replaying the same request (same
+        Idempotency-Key, same captureId) returns the original result rather
+        than creating a duplicate.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CaptureCreateRequest'
+      responses:
+        '201':
+          description: Capture created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Capture'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /captures/{captureId}:
+    get:
+      tags: [captures]
+      operationId: getCapture
+      summary: Fetch a capture.
+      parameters:
+        - $ref: '#/components/parameters/CaptureId'
+      responses:
+        '200':
+          description: The capture.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Capture'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    patch:
+      tags: [captures]
+      operationId: updateCapture
+      summary: Update non-critical descriptive capture metadata (last writer wins).
+      parameters:
+        - $ref: '#/components/parameters/CaptureId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CaptureUpdateRequest'
+      responses:
+        '200':
+          description: Updated capture.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Capture'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /captures/{captureId}/complete:
+    post:
+      tags: [captures]
+      operationId: completeCapture
+      summary: Mark a capture fully uploaded; all declared artifacts must be complete.
+      parameters:
+        - $ref: '#/components/parameters/CaptureId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Capture accepted for processing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Capture'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /captures/{captureId}/retry:
+    post:
+      tags: [captures]
+      operationId: retryCapture
+      summary: Re-run processing for a failed capture.
+      parameters:
+        - $ref: '#/components/parameters/CaptureId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Capture re-queued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Capture'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  # --------------------------------------------------------------- artifacts
+
+  /captures/{captureId}/artifacts/initiate:
+    post:
+      tags: [artifacts]
+      operationId: initiateArtifactUpload
+      summary: Declare an artifact and begin a multipart upload.
+      parameters:
+        - $ref: '#/components/parameters/CaptureId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArtifactInitiateRequest'
+      responses:
+        '201':
+          description: Upload session created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArtifactInitiateResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /artifacts/{artifactId}/parts/{partNumber}:
+    put:
+      tags: [artifacts]
+      operationId: uploadArtifactPart
+      summary: Upload one part of an artifact. Re-uploading a part number replaces it.
+      parameters:
+        - $ref: '#/components/parameters/ArtifactId'
+        - $ref: '#/components/parameters/PartNumber'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '204':
+          description: Part stored.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /artifacts/{artifactId}/complete:
+    post:
+      tags: [artifacts]
+      operationId: completeArtifactUpload
+      summary: Finish a multipart upload after all parts are stored.
+      description: >-
+        The server validates expected byte length, expected part count, SHA-256,
+        media type, and capture ownership before accepting the artifact
+        (design doc section 11.4).
+      parameters:
+        - $ref: '#/components/parameters/ArtifactId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArtifactCompleteRequest'
+      responses:
+        '200':
+          description: Artifact validated and stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaptureArtifact'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /artifacts/{artifactId}/download:
+    get:
+      tags: [artifacts]
+      operationId: downloadArtifact
+      summary: Download artifact content.
+      parameters:
+        - $ref: '#/components/parameters/ArtifactId'
+      responses:
+        '200':
+          description: Artifact bytes.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  # -------------------------------------------------------------------- sync
+
+  /sync/push:
+    post:
+      tags: [sync]
+      operationId: pushSyncChanges
+      summary: Push locally recorded changes (client outbox drain).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncPushRequest'
+      responses:
+        '200':
+          description: Per-change acceptance results.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncPushResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /sync/pull:
+    get:
+      tags: [sync]
+      operationId: pullSyncChanges
+      summary: Pull changes after a cursor, in change order.
+      parameters:
+        - $ref: '#/components/parameters/SyncCursor'
+        - $ref: '#/components/parameters/SyncLimit'
+      responses:
+        '200':
+          description: Ordered changes plus the cursor to resume from.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncPullResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /sync/ack:
+    post:
+      tags: [sync]
+      operationId: ackSyncCursor
+      summary: Acknowledge that all changes up to a cursor were applied locally.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncAckRequest'
+      responses:
+        '204':
+          description: Cursor acknowledged.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  # --------------------------------------------------------------- assistant
+
+  /assistant/sessions:
+    post:
+      tags: [assistant]
+      operationId: createAssistantSession
+      summary: Start an assistant session.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssistantSessionCreateRequest'
+      responses:
+        '201':
+          description: Session created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssistantSession'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /assistant/sessions/{sessionId}/turns:
+    post:
+      tags: [assistant]
+      operationId: createAssistantTurn
+      summary: Post a user turn (text and/or a completed audio artifact).
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssistantTurnRequest'
+      responses:
+        '201':
+          description: Turn accepted; the response streams on the session stream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssistantTurnResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /assistant/sessions/{sessionId}/stream:
+    get:
+      tags: [assistant]
+      operationId: streamAssistantSession
+      summary: Server-sent event stream of incremental assistant output for a session.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: text/event-stream of incremental turn deltas and status events.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  # ------------------------------------------------------------------- trips
+
+  /trips:
+    post:
+      tags: [trips]
+      operationId: createTrip
+      summary: Create a trip.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TripCreateRequest'
+      responses:
+        '201':
+          description: Trip created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Trip'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /trips/{tripId}:
+    patch:
+      tags: [trips]
+      operationId: updateTrip
+      summary: Update trip metadata or status (latest valid state transition wins).
+      parameters:
+        - $ref: '#/components/parameters/TripId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TripUpdateRequest'
+      responses:
+        '200':
+          description: Updated trip.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Trip'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /trips/{tripId}/route-context:
+    post:
+      tags: [trips]
+      operationId: appendRouteContext
+      summary: Record a route context snapshot for a trip.
+      description: >-
+        One contextual snapshot per capture by default; continuous trails only
+        when the user explicitly enables trip logging (design doc section 6.4).
+      parameters:
+        - $ref: '#/components/parameters/TripId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RouteContext'
+      responses:
+        '201':
+          description: Snapshot stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RouteContext'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /trips/{tripId}/detours/generate:
+    post:
+      tags: [trips]
+      operationId: generateDetourSuggestions
+      summary: Generate verified detour suggestions for the trip's current route context.
+      parameters:
+        - $ref: '#/components/parameters/TripId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Newly generated suggestions.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DetourSuggestion'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /trips/{tripId}/detours:
+    get:
+      tags: [trips]
+      operationId: listDetourSuggestions
+      summary: List detour suggestions for a trip.
+      parameters:
+        - $ref: '#/components/parameters/TripId'
+      responses:
+        '200':
+          description: Suggestions, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DetourSuggestion'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  # ----------------------------------------------------------------- detours
+
+  /detours/{suggestionId}/accept:
+    post:
+      tags: [detours]
+      operationId: acceptDetourSuggestion
+      summary: Accept a suggestion (monotonic; not overwritten by a stale proposed state).
+      parameters:
+        - $ref: '#/components/parameters/SuggestionId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Suggestion in accepted state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetourSuggestion'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /detours/{suggestionId}/dismiss:
+    post:
+      tags: [detours]
+      operationId: dismissDetourSuggestion
+      summary: Dismiss a suggestion.
+      parameters:
+        - $ref: '#/components/parameters/SuggestionId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Suggestion in dismissed state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetourSuggestion'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /detours/{suggestionId}/save:
+    post:
+      tags: [detours]
+      operationId: saveDetourSuggestion
+      summary: Save a suggestion for later.
+      parameters:
+        - $ref: '#/components/parameters/SuggestionId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Suggestion in saved state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetourSuggestion'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Short-lived device-bound access token obtained from device registration
+        or refresh (design doc section 14.1).
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: >-
+        Client-generated key, unique per logical operation. The server stores
+        the response for each (ownerId, deviceId, idempotencyKey) tuple for a
+        retention window; repeated requests return the original result
+        (design doc section 11.4). Required on all create/mutation operations.
+      schema:
+        type: string
+        format: uuid
+    DeviceId:
+      name: deviceId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CaptureId:
+      name: captureId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ArtifactId:
+      name: artifactId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    PartNumber:
+      name: partNumber
+      in: path
+      required: true
+      description: 1-based part index within the multipart upload.
+      schema:
+        type: integer
+        minimum: 1
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    TripId:
+      name: tripId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SuggestionId:
+      name: suggestionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SyncCursor:
+      name: cursor
+      in: query
+      required: false
+      description: Opaque cursor from a previous pull; omit to start from the beginning.
+      schema:
+        type: string
+    SyncLimit:
+      name: limit
+      in: query
+      required: false
+      description: Maximum number of changes to return.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
+        default: 100
+
+  responses:
+    BadRequest:
+      description: The request is malformed or fails validation. Not retryable as-is.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Missing, expired, or revoked token.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: The addressed entity does not exist or is not owned by the caller.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: Revision conflict, integrity mismatch, or invalid state transition.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalServerError:
+      description: Unexpected server failure. Retryable with backoff.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+
+    # ------------------------------------------------------------- envelopes
+
+    Error:
+      type: object
+      description: Standard error envelope returned by all 4xx/5xx responses.
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Stable machine-readable error code.
+        message:
+          type: string
+          description: Human-readable explanation; safe to log, never contains secrets.
+        retryable:
+          type: boolean
+          description: Whether the same request may succeed later (design doc section 16.2).
+        correlationId:
+          type: string
+          description: Server-generated identifier for tracing this failure across logs.
+
+    # -------------------------------------------------------------- captures
+
+    Capture:
+      type: object
+      description: Device-neutral unit of user input (design doc section 6.1).
+      required: [captureId, captureType, createdAtUtc, capturedAtUtc, status]
+      properties:
+        captureId:
+          type: string
+          format: uuid
+        ownerId:
+          type: string
+          format: uuid
+        sourceDeviceId:
+          type: string
+          format: uuid
+        sourcePlatform:
+          type: string
+          enum: [ios, windows, other]
+        captureType:
+          type: string
+          enum: [memory, idea, trip_log, reminder, question, unclassified]
+        createdAtUtc:
+          type: string
+          format: date-time
+        capturedAtUtc:
+          type: string
+          format: date-time
+        timezoneId:
+          type: string
+          description: IANA timezone identifier, e.g. America/Toronto.
+        localOffsetMinutes:
+          type: integer
+          description: UTC offset in minutes at capture time.
+        status:
+          type: string
+          enum: [local_only, uploading, received, processing, review_ready, completed, failed]
+        titleHint:
+          type: string
+          nullable: true
+        userNote:
+          type: string
+          nullable: true
+        tripId:
+          type: string
+          format: uuid
+          nullable: true
+        routeSegmentId:
+          type: string
+          format: uuid
+          nullable: true
+        locationContextId:
+          type: string
+          format: uuid
+          nullable: true
+        clientSchemaVersion:
+          type: integer
+          minimum: 1
+        serverRevision:
+          type: integer
+          format: int64
+        deletedAtUtc:
+          type: string
+          format: date-time
+          nullable: true
+
+    CaptureCreateRequest:
+      type: object
+      description: >-
+        Capture creation payload. Mirrors the design doc section 11.3 example;
+        the client generates the captureId.
+      required: [captureId, capturedAtUtc]
+      properties:
+        captureId:
+          type: string
+          format: uuid
+        sourceDeviceId:
+          type: string
+          format: uuid
+        captureType:
+          type: string
+          enum: [memory, idea, trip_log, reminder, question, unclassified]
+          default: unclassified
+        capturedAtUtc:
+          type: string
+          format: date-time
+        timezoneId:
+          type: string
+        localOffsetMinutes:
+          type: integer
+        tripId:
+          type: string
+          format: uuid
+        locationContext:
+          $ref: '#/components/schemas/LocationContext'
+        clientSchemaVersion:
+          type: integer
+          minimum: 1
+          default: 1
+      example:
+        captureId: "8d3afab4-bd0c-43db-9b43-18cc4ddc49aa"
+        sourceDeviceId: "5ef474dd-02f8-48e5-9616-a48b27017466"
+        captureType: "trip_log"
+        capturedAtUtc: "2026-08-06T19:46:00Z"
+        timezoneId: "America/Toronto"
+        localOffsetMinutes: -240
+        tripId: "fb811275-7cf4-490f-a908-16657d1f92cb"
+        locationContext:
+          latitude: 43.6532
+          longitude: -79.3832
+          horizontalAccuracyM: 18.0
+          headingDegrees: 255.0
+          speedMps: 21.4
+        clientSchemaVersion: 1
+
+    CaptureUpdateRequest:
+      type: object
+      description: >-
+        Patchable, non-critical descriptive fields; last writer wins
+        (design doc section 12.2). Omitted fields are left unchanged.
+      properties:
+        captureType:
+          type: string
+          enum: [memory, idea, trip_log, reminder, question, unclassified]
+        titleHint:
+          type: string
+          nullable: true
+        userNote:
+          type: string
+          nullable: true
+        tripId:
+          type: string
+          format: uuid
+          nullable: true
+
+    LocationContext:
+      type: object
+      description: Single location snapshot attached to a capture (design doc section 11.3).
+      required: [latitude, longitude]
+      properties:
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+        horizontalAccuracyM:
+          type: number
+          format: double
+        headingDegrees:
+          type: number
+          format: double
+        speedMps:
+          type: number
+          format: double
+
+    # -------------------------------------------------------------- artifacts
+
+    CaptureArtifact:
+      type: object
+      description: Content-carrying artifact of a capture (design doc section 6.2).
+      required: [artifactId, captureId, artifactType, storageLocator, createdAtUtc, uploadState]
+      properties:
+        artifactId:
+          type: string
+          format: uuid
+        captureId:
+          type: string
+          format: uuid
+        artifactType:
+          type: string
+          enum: [audio_original, audio_normalized, transcript, waveform, image, metadata]
+        storageLocator:
+          type: string
+          description: Opaque storage reference; clients must not parse it.
+        mediaType:
+          type: string
+          description: MIME type, e.g. audio/mp4.
+        byteLength:
+          type: integer
+          format: int64
+        sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: Lowercase hex SHA-256 of the artifact bytes.
+        encryptionScheme:
+          type: string
+          nullable: true
+        createdAtUtc:
+          type: string
+          format: date-time
+        uploadState:
+          type: string
+          description: Transfer lifecycle state, e.g. pending_upload or uploaded.
+
+    ArtifactInitiateRequest:
+      type: object
+      description: Declares an artifact and its integrity data before any bytes move.
+      required: [artifactType, expectedByteLength, expectedSha256]
+      properties:
+        artifactId:
+          type: string
+          format: uuid
+          description: Client-generated artifact ID; the server mints one when absent.
+        artifactType:
+          type: string
+          enum: [audio_original, audio_normalized, transcript, waveform, image, metadata]
+        mediaType:
+          type: string
+        originalFileName:
+          type: string
+        expectedByteLength:
+          type: integer
+          format: int64
+          minimum: 1
+        expectedSha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+
+    ArtifactInitiateResponse:
+      type: object
+      required: [artifactId, partSizeBytes, partCount]
+      properties:
+        artifactId:
+          type: string
+          format: uuid
+        partSizeBytes:
+          type: integer
+          format: int64
+          description: Size each part except the last must have.
+        partCount:
+          type: integer
+          minimum: 1
+          description: Number of parts the client must upload for expectedByteLength.
+
+    ArtifactCompleteRequest:
+      type: object
+      description: >-
+        Completion claim; the server validates byte length, part count, SHA-256,
+        media type, and capture ownership (design doc section 11.4).
+      required: [partCount, expectedByteLength, expectedSha256]
+      properties:
+        partCount:
+          type: integer
+          minimum: 1
+        expectedByteLength:
+          type: integer
+          format: int64
+          minimum: 1
+        expectedSha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        mediaType:
+          type: string
+
+    # ------------------------------------------------------------------ sync
+
+    SyncChange:
+      type: object
+      description: One entity change in the sync stream (design doc section 6.7).
+      required: [entityType, entityId, operation, revision, changedAtUtc]
+      properties:
+        changeId:
+          type: string
+          description: >-
+            Monotonically ordered change identifier; server-assigned, present on
+            pulled changes only.
+        entityType:
+          type: string
+          description: Entity discriminator, e.g. capture, capture_artifact, pending_event.
+        entityId:
+          type: string
+          format: uuid
+        operation:
+          type: string
+          enum: [upsert, delete]
+        revision:
+          type: integer
+          format: int64
+        changedAtUtc:
+          type: string
+          format: date-time
+        payload:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Entity snapshot for upsert; absent for delete (tombstone).
+
+    SyncPushRequest:
+      type: object
+      required: [changes]
+      properties:
+        sourceDeviceId:
+          type: string
+          format: uuid
+        changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncChange'
+
+    SyncPushResponse:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          description: One result per pushed change, in request order.
+          items:
+            type: object
+            required: [entityType, entityId, accepted]
+            properties:
+              entityType:
+                type: string
+              entityId:
+                type: string
+                format: uuid
+              accepted:
+                type: boolean
+              serverRevision:
+                type: integer
+                format: int64
+                description: Canonical revision after applying the change.
+              error:
+                $ref: '#/components/schemas/Error'
+
+    SyncPullResponse:
+      type: object
+      required: [changes, nextCursor]
+      properties:
+        changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncChange'
+        nextCursor:
+          type: string
+          description: Cursor to pass to the next pull (and later to ack).
+        hasMore:
+          type: boolean
+          description: True when more changes were available beyond the limit.
+
+    SyncAckRequest:
+      type: object
+      required: [cursor]
+      properties:
+        cursor:
+          type: string
+          description: The nextCursor value whose changes were durably applied locally.
+
+    # --------------------------------------------------------------- devices
+
+    DeviceRegisterRequest:
+      type: object
+      description: Device registration with a per-device key pair (design doc section 14.1).
+      required: [platform, publicKey]
+      properties:
+        platform:
+          type: string
+          enum: [ios, windows, other]
+        displayName:
+          type: string
+        publicKey:
+          type: string
+          description: Base64-encoded device public key.
+        appVersion:
+          type: string
+
+    DeviceRegisterResponse:
+      type: object
+      required: [deviceId, accessToken, accessTokenExpiresAtUtc, refreshToken]
+      properties:
+        deviceId:
+          type: string
+          format: uuid
+        accessToken:
+          type: string
+          description: Short-lived bearer token for subsequent calls.
+        accessTokenExpiresAtUtc:
+          type: string
+          format: date-time
+        refreshToken:
+          type: string
+          description: Long-lived token; store in Keychain (iOS) / protected storage (Windows).
+
+    # ----------------------------------------------------------------- trips
+
+    Trip:
+      type: object
+      description: Trip lifecycle entity (design doc section 6.4).
+      required: [tripId, name, status]
+      properties:
+        tripId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        startedAtUtc:
+          type: string
+          format: date-time
+          nullable: true
+        endedAtUtc:
+          type: string
+          format: date-time
+          nullable: true
+        originLabel:
+          type: string
+          nullable: true
+        destinationLabel:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [planned, active, paused, completed, archived]
+        preferencesJson:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Free-form trip preferences (detour categories, budget, pace, ...).
+
+    TripCreateRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        startedAtUtc:
+          type: string
+          format: date-time
+        originLabel:
+          type: string
+        destinationLabel:
+          type: string
+        status:
+          type: string
+          enum: [planned, active, paused, completed, archived]
+          default: planned
+        preferencesJson:
+          type: object
+          additionalProperties: true
+
+    TripUpdateRequest:
+      type: object
+      description: >-
+        Patchable trip fields. Status changes follow the trip state machine;
+        the latest valid transition wins (design doc section 12.2).
+      properties:
+        name:
+          type: string
+        startedAtUtc:
+          type: string
+          format: date-time
+          nullable: true
+        endedAtUtc:
+          type: string
+          format: date-time
+          nullable: true
+        originLabel:
+          type: string
+          nullable: true
+        destinationLabel:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [planned, active, paused, completed, archived]
+        preferencesJson:
+          type: object
+          additionalProperties: true
+          nullable: true
+
+    RouteContext:
+      type: object
+      description: Point-in-time route/location snapshot for a trip (design doc section 6.4).
+      required: [capturedAtUtc, latitude, longitude]
+      properties:
+        routeContextId:
+          type: string
+          format: uuid
+          description: Client-generated snapshot ID; the server mints one when absent.
+        tripId:
+          type: string
+          format: uuid
+        capturedAtUtc:
+          type: string
+          format: date-time
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+        horizontalAccuracyM:
+          type: number
+          format: double
+        headingDegrees:
+          type: number
+          format: double
+        speedMps:
+          type: number
+          format: double
+        routeProgress:
+          type: number
+          format: double
+          description: Fraction of the route completed, 0.0 to 1.0.
+        remainingDistanceM:
+          type: number
+          format: double
+        remainingDurationS:
+          type: number
+          format: double
+        currentRoadName:
+          type: string
+          nullable: true
+        destinationEtaUtc:
+          type: string
+          format: date-time
+          nullable: true
+        provider:
+          type: string
+          description: Source of the routing data, e.g. apple_maps.
+
+    # --------------------------------------------------------------- detours
+
+    DetourSuggestion:
+      type: object
+      description: Verified detour suggestion (design doc section 6.5).
+      required: [suggestionId, tripId, generatedAtUtc, name, state]
+      properties:
+        suggestionId:
+          type: string
+          format: uuid
+        tripId:
+          type: string
+          format: uuid
+        generatedAtUtc:
+          type: string
+          format: date-time
+        expiresAtUtc:
+          type: string
+          format: date-time
+        placeProvider:
+          type: string
+        providerPlaceId:
+          type: string
+        name:
+          type: string
+        category:
+          type: string
+        reason:
+          type: string
+          description: Short human-readable justification for the suggestion.
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+        routeAddedDistanceM:
+          type: number
+          format: double
+        routeAddedDurationS:
+          type: number
+          format: double
+        openStatus:
+          type: string
+          enum: [open, closed, closing_soon, unknown]
+        nextOpenInterval:
+          type: string
+          nullable: true
+        priceSummary:
+          type: string
+          nullable: true
+        admissionCurrency:
+          type: string
+          nullable: true
+        confidence:
+          type: number
+          format: double
+          description: Verification confidence, 0.0 to 1.0.
+        verificationSourcesJson:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Provenance of the verification checks.
+        state:
+          type: string
+          enum: [proposed, heard, saved, accepted, dismissed, expired]
+
+    # ------------------------------------------------------------- assistant
+
+    AssistantSession:
+      type: object
+      description: Voice assistant session (design doc section 6.6).
+      required: [sessionId, mode, startedAtUtc]
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        deviceId:
+          type: string
+          format: uuid
+        tripId:
+          type: string
+          format: uuid
+          nullable: true
+        startedAtUtc:
+          type: string
+          format: date-time
+        endedAtUtc:
+          type: string
+          format: date-time
+          nullable: true
+        mode:
+          type: string
+          enum: [memory_query, trip_assistant, capture_followup]
+
+    AssistantSessionCreateRequest:
+      type: object
+      required: [mode]
+      properties:
+        deviceId:
+          type: string
+          format: uuid
+        tripId:
+          type: string
+          format: uuid
+        mode:
+          type: string
+          enum: [memory_query, trip_assistant, capture_followup]
+
+    AssistantTurnRequest:
+      type: object
+      description: >-
+        A user turn. At least one of userText or userAudioArtifactId must be
+        provided; audio must reference a completed artifact.
+      properties:
+        userText:
+          type: string
+        userAudioArtifactId:
+          type: string
+          format: uuid
+
+    AssistantTurnResponse:
+      type: object
+      description: Completed assistant turn (design doc section 6.6).
+      required: [turnId, sessionId, sequence, createdAtUtc]
+      properties:
+        turnId:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+          format: uuid
+        sequence:
+          type: integer
+        userAudioArtifactId:
+          type: string
+          format: uuid
+          nullable: true
+        userText:
+          type: string
+          nullable: true
+        assistantText:
+          type: string
+          nullable: true
+        assistantAudioArtifactId:
+          type: string
+          format: uuid
+          nullable: true
+        toolCallsJson:
+          type: object
+          additionalProperties: true
+          nullable: true
+        citationsJson:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Internal source references (event IDs, transcript spans, section 13.3).
+        createdAtUtc:
+          type: string
+          format: date-time

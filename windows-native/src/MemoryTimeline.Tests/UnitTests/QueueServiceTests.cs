@@ -225,6 +225,238 @@ public class QueueServiceTests
     }
 
     [Fact]
+    public async Task AddToQueueAsync_NewRecording_StampsProcessingStageAndSyncState()
+    {
+        // Arrange
+        var recording = new AudioRecordingDto
+        {
+            QueueId = Guid.NewGuid().ToString(),
+            AudioFilePath = "/path/to/audio.wav",
+            CreatedAt = DateTime.UtcNow
+        };
+
+        RecordingQueue? added = null;
+        _repositoryMock.Setup(r => r.AddAsync(It.IsAny<RecordingQueue>()))
+            .Callback<RecordingQueue>(q => added = q)
+            .ReturnsAsync((RecordingQueue q) => q);
+
+        // Act
+        await _queueService.AddToQueueAsync(recording);
+
+        // Assert - new local items start ready for transcription and unsynced
+        added.Should().NotBeNull();
+        added!.ProcessingStage.Should().Be(QueueProcessingStage.ReadyForTranscription);
+        added.SyncState.Should().Be(QueueSyncState.LocalOnly);
+    }
+
+    [Fact]
+    public async Task UpdateQueueItemStatusAsync_WithProcessingStage_PersistsStage()
+    {
+        // Arrange
+        var queueId = "stage-item";
+        var queueItem = new RecordingQueue
+        {
+            QueueId = queueId,
+            AudioFilePath = "/path.wav",
+            Status = QueueStatus.Pending,
+            ProcessingStage = QueueProcessingStage.ReadyForTranscription
+        };
+
+        _repositoryMock.Setup(r => r.GetByIdAsync(queueId))
+            .ReturnsAsync(queueItem);
+
+        _repositoryMock.Setup(r => r.UpdateAsync(It.IsAny<RecordingQueue>()))
+            .Returns(Task.CompletedTask);
+
+        // Act
+        await _queueService.UpdateQueueItemStatusAsync(queueId, QueueStatus.Processing,
+            processingStage: QueueProcessingStage.Transcribing);
+
+        // Assert
+        _repositoryMock.Verify(r => r.UpdateAsync(It.Is<RecordingQueue>(q =>
+            q.QueueId == queueId &&
+            q.Status == QueueStatus.Processing &&
+            q.ProcessingStage == QueueProcessingStage.Transcribing)), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateQueueItemStatusAsync_WithoutProcessingStage_LeavesStageUntouched()
+    {
+        // Arrange
+        var queueId = "stage-item";
+        var queueItem = new RecordingQueue
+        {
+            QueueId = queueId,
+            AudioFilePath = "/path.wav",
+            Status = QueueStatus.Processing,
+            ProcessingStage = QueueProcessingStage.Transcribing
+        };
+
+        _repositoryMock.Setup(r => r.GetByIdAsync(queueId))
+            .ReturnsAsync(queueItem);
+
+        _repositoryMock.Setup(r => r.UpdateAsync(It.IsAny<RecordingQueue>()))
+            .Returns(Task.CompletedTask);
+
+        // Act - no processingStage argument
+        await _queueService.UpdateQueueItemStatusAsync(queueId, QueueStatus.Completed);
+
+        // Assert - status changed, stage preserved
+        queueItem.Status.Should().Be(QueueStatus.Completed);
+        queueItem.ProcessingStage.Should().Be(QueueProcessingStage.Transcribing);
+        _repositoryMock.Verify(r => r.UpdateAsync(It.IsAny<RecordingQueue>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ProcessCaptureAsync_UnknownQueueId_DoesNotInvokeExtraction()
+    {
+        // Arrange
+        _repositoryMock.Setup(r => r.GetByIdAsync("missing-id"))
+            .ReturnsAsync((RecordingQueue?)null);
+
+        // Act
+        await _queueService.ProcessCaptureAsync("missing-id");
+
+        // Assert
+        _extractionServiceMock.Verify(e => e.ProcessRecordingAsync(
+            It.IsAny<string>(), It.IsAny<IProgress<(int, string)>>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ProcessCaptureAsync_CompletedItem_IsSkipped()
+    {
+        // Arrange
+        var queueItem = new RecordingQueue
+        {
+            QueueId = "done-item",
+            AudioFilePath = "/path.wav",
+            Status = QueueStatus.Completed
+        };
+
+        _repositoryMock.Setup(r => r.GetByIdAsync("done-item"))
+            .ReturnsAsync(queueItem);
+
+        // Act
+        await _queueService.ProcessCaptureAsync("done-item");
+
+        // Assert - neither extraction nor any status write happened
+        _extractionServiceMock.Verify(e => e.ProcessRecordingAsync(
+            It.IsAny<string>(), It.IsAny<IProgress<(int, string)>>()), Times.Never);
+        _repositoryMock.Verify(r => r.UpdateAsync(It.IsAny<RecordingQueue>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ProcessCaptureAsync_PendingItemWithEvents_CompletesAsReviewReady()
+    {
+        // Arrange
+        var queueId = "pending-item";
+        var queueItem = new RecordingQueue
+        {
+            QueueId = queueId,
+            AudioFilePath = "/path.wav",
+            Status = QueueStatus.Pending,
+            ProcessingStage = QueueProcessingStage.ReadyForTranscription
+        };
+
+        // The same instance is mutated across updates, so snapshot each
+        // UpdateAsync call instead of verifying with It.Is predicates.
+        var updates = new List<(string Status, string? Stage)>();
+
+        _repositoryMock.Setup(r => r.GetByIdAsync(queueId))
+            .ReturnsAsync(queueItem);
+
+        _repositoryMock.Setup(r => r.UpdateAsync(It.IsAny<RecordingQueue>()))
+            .Callback<RecordingQueue>(q => updates.Add((q.Status, q.ProcessingStage)))
+            .Returns(Task.CompletedTask);
+
+        _extractionServiceMock.Setup(e => e.ProcessRecordingAsync(queueId, It.IsAny<IProgress<(int, string)>>()))
+            .ReturnsAsync(2);
+
+        // Act
+        await _queueService.ProcessCaptureAsync(queueId);
+
+        // Assert - transcribing while processing, review_ready once events exist
+        updates.Should().NotBeEmpty();
+        updates[0].Status.Should().Be(QueueStatus.Processing);
+        updates[0].Stage.Should().Be(QueueProcessingStage.Transcribing);
+        updates[^1].Status.Should().Be(QueueStatus.Completed);
+        updates[^1].Stage.Should().Be(QueueProcessingStage.ReviewReady);
+        queueItem.ProcessedAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task ProcessCaptureAsync_PendingItemWithNoEvents_CompletesWithCompletedStage()
+    {
+        // Arrange
+        var queueId = "empty-item";
+        var queueItem = new RecordingQueue
+        {
+            QueueId = queueId,
+            AudioFilePath = "/path.wav",
+            Status = QueueStatus.Pending,
+            ProcessingStage = QueueProcessingStage.ReadyForTranscription
+        };
+
+        var updates = new List<(string Status, string? Stage)>();
+
+        _repositoryMock.Setup(r => r.GetByIdAsync(queueId))
+            .ReturnsAsync(queueItem);
+
+        _repositoryMock.Setup(r => r.UpdateAsync(It.IsAny<RecordingQueue>()))
+            .Callback<RecordingQueue>(q => updates.Add((q.Status, q.ProcessingStage)))
+            .Returns(Task.CompletedTask);
+
+        _extractionServiceMock.Setup(e => e.ProcessRecordingAsync(queueId, It.IsAny<IProgress<(int, string)>>()))
+            .ReturnsAsync(0);
+
+        // Act
+        await _queueService.ProcessCaptureAsync(queueId);
+
+        // Assert - nothing to review, so the item is simply done
+        updates.Should().NotBeEmpty();
+        updates[^1].Status.Should().Be(QueueStatus.Completed);
+        updates[^1].Stage.Should().Be(QueueProcessingStage.Completed);
+    }
+
+    [Fact]
+    public async Task ProcessCaptureAsync_ConfigurationException_FailsAsConfigurationWithoutRetrying()
+    {
+        // Arrange
+        var queueId = "config-error-item";
+        var queueItem = new RecordingQueue
+        {
+            QueueId = queueId,
+            AudioFilePath = "/path.wav",
+            Status = QueueStatus.Pending,
+            ProcessingStage = QueueProcessingStage.ReadyForTranscription
+        };
+
+        var updates = new List<(string Status, string? Stage)>();
+
+        _repositoryMock.Setup(r => r.GetByIdAsync(queueId))
+            .ReturnsAsync(queueItem);
+
+        _repositoryMock.Setup(r => r.UpdateAsync(It.IsAny<RecordingQueue>()))
+            .Callback<RecordingQueue>(q => updates.Add((q.Status, q.ProcessingStage)))
+            .Returns(Task.CompletedTask);
+
+        _extractionServiceMock.Setup(e => e.ProcessRecordingAsync(queueId, It.IsAny<IProgress<(int, string)>>()))
+            .ThrowsAsync(new ConfigurationException("LLM API key is not configured"));
+
+        // Act
+        await _queueService.ProcessCaptureAsync(queueId);
+
+        // Assert - non-retryable: extraction attempted exactly once, item failed
+        // with the configuration stage
+        _extractionServiceMock.Verify(e => e.ProcessRecordingAsync(
+            queueId, It.IsAny<IProgress<(int, string)>>()), Times.Once);
+        updates.Should().NotBeEmpty();
+        updates[^1].Status.Should().Be(QueueStatus.Failed);
+        updates[^1].Stage.Should().Be(QueueProcessingStage.FailedConfiguration);
+        queueItem.ErrorMessage.Should().Be("LLM API key is not configured");
+    }
+
+    [Fact]
     public async Task QueueItemStatusChanged_WhenStatusUpdated_RaisesEvent()
     {
         // Arrange

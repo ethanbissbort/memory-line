@@ -17,6 +17,12 @@ public interface ICaptureRepository
     Task<RecordingQueue?> GetQueueItemBySourceCaptureIdAsync(string sourceCaptureId);
 
     /// <summary>
+    /// Finds the oldest queue item whose audio content matches the given SHA-256.
+    /// Content-hash idempotency (design §7.2, §12.2): duplicate hash means reuse.
+    /// </summary>
+    Task<RecordingQueue?> GetQueueItemByContentSha256Async(string sha256);
+
+    /// <summary>
     /// Atomically persists a capture, its audio artifact, its queue item, and the
     /// sync outbox record in ONE SaveChanges (one implicit transaction), so local
     /// metadata and outbox insertion cannot diverge (design §16.1).
@@ -65,6 +71,16 @@ public class CaptureRepository : ICaptureRepository
         return await context.RecordingQueues
             .AsNoTracking()
             .FirstOrDefaultAsync(q => q.SourceCaptureId == sourceCaptureId);
+    }
+
+    public async Task<RecordingQueue?> GetQueueItemByContentSha256Async(string sha256)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        return await context.RecordingQueues
+            .AsNoTracking()
+            .Where(q => q.ContentSha256 == sha256)
+            .OrderBy(q => q.CreatedAt)
+            .FirstOrDefaultAsync();
     }
 
     public async Task<RecordingQueue> IngestAsync(

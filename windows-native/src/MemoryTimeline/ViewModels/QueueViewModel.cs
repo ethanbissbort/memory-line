@@ -15,6 +15,7 @@ namespace MemoryTimeline.ViewModels;
 public partial class QueueViewModel : ObservableObject, IDisposable
 {
     private readonly IQueueService _queueService;
+    private readonly ICaptureIngestionService _captureIngestionService;
     private readonly IAudioRecordingService _recordingService;
     private readonly IAudioPlaybackService _playbackService;
     private readonly ILogger<QueueViewModel> _logger;
@@ -89,11 +90,13 @@ public partial class QueueViewModel : ObservableObject, IDisposable
 
     public QueueViewModel(
         IQueueService queueService,
+        ICaptureIngestionService captureIngestionService,
         IAudioRecordingService recordingService,
         IAudioPlaybackService playbackService,
         ILogger<QueueViewModel> logger)
     {
         _queueService = queueService;
+        _captureIngestionService = captureIngestionService;
         _recordingService = recordingService;
         _playbackService = playbackService;
         _logger = logger;
@@ -225,11 +228,25 @@ public partial class QueueViewModel : ObservableObject, IDisposable
             IsPaused = false;
             StatusText = "Recording stopped";
 
-            // Add to queue
-            await _queueService.AddToQueueAsync(recording);
+            // Add to queue through capture ingestion (design §7.2), which mints the
+            // capture/artifact identity and sync-outbox entry alongside the queue item.
+            // A duplicate replay comes back with Success == true / AlreadyIngested.
+            var result = await _captureIngestionService.IngestLocalRecordingAsync(recording);
+            if (!result.Success)
+            {
+                // The audio file is already safe on disk — only the queue hand-off
+                // failed — so say so instead of pretending the item was queued.
+                _logger.LogError("Failed to ingest recording {QueueId}: {Reason}",
+                    recording.QueueId, result.FailureReason);
+                StatusText = $"Recording saved, but could not be queued: {result.FailureReason}";
+            }
+
             await RefreshQueueAsync();
 
-            _logger.LogInformation("Recording stopped and added to queue");
+            if (result.Success)
+            {
+                _logger.LogInformation("Recording stopped and added to queue");
+            }
         }
         catch (Exception ex)
         {

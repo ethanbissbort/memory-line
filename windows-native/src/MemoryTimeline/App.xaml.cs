@@ -103,6 +103,8 @@ public partial class App : Application
                     services.AddSingleton<IEventEmbeddingRepository, EventEmbeddingRepository>();
                     services.AddSingleton<IAppSettingRepository, AppSettingRepository>();
                     services.AddSingleton<IPendingEventRepository, PendingEventRepository>();
+                    services.AddSingleton<ICaptureRepository, CaptureRepository>();
+                    services.AddSingleton<ISyncOutboxRepository, SyncOutboxRepository>();
 
                     // Register core services (stateless over the factory/repositories)
                     services.AddSingleton<ISettingsService, SettingsService>();
@@ -116,6 +118,13 @@ public partial class App : Application
                     // Whisper transcribes the recorded file locally; the Windows
                     // SpeechRecognizer cannot transcribe files (mic-only API).
                     services.AddSingleton<ISpeechToTextService, WhisperSpeechToTextService>();
+
+                    // iOS companion Phase 0: capture ingestion (design §7.2). Every
+                    // recording — local or from another device — enters the queue
+                    // through this seam. The Phase 0 resolver only handles local
+                    // file-path locators; Phase 1 swaps in a sync download client.
+                    services.AddSingleton<IArtifactResolver, LocalFileArtifactResolver>();
+                    services.AddSingleton<ICaptureIngestionService, CaptureIngestionService>();
 
                     // Phase 4: LLM & Event Extraction services
                     services.AddSingleton<ILlmService, AnthropicLlmService>();

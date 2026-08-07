@@ -1,9 +1,48 @@
 # Windows Native Development Status
 
-**Last Updated:** 2026-07-10
+**Last Updated:** 2026-08-06
 **Current Phase:** Phase 7 - Testing & Deployment
 **Overall Progress:** Phases 0-6 complete; Phase 7 in progress
 **Status:** 🔄 IN PROGRESS — builds green in CI, end-to-end runtime validation ongoing
+
+---
+
+## iOS roadtrip companion — Phase 0: contract & schema groundwork (2026-08)
+
+**Date:** 2026-08-06
+
+Phase 0 of the iOS roadtrip companion plan (a separate track from the app phases
+below; see
+[`../docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md`](../docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md),
+section 19) landed:
+
+- **Device-neutral capture schema** — new `captures`, `capture_artifacts`, and
+  `sync_outbox` tables (EF models, `AppDbContext` configuration, idempotent
+  `SchemaUpgrader` DDL); `recording_queue` extended with device-neutral
+  provenance columns (`source_capture_id` **unique**, `source_device_id`,
+  `source_platform`, `audio_artifact_id`, `original_file_name`,
+  `content_sha256`, `sync_state`, `received_at`, `processing_stage`).
+- **Idempotent ingestion service** — `ICaptureIngestionService` /
+  `CaptureIngestionService`: resolves artifacts via `IArtifactResolver`
+  (Phase 0: local files), verifies declared byte length + SHA-256, dedupes by
+  source capture ID (including the insert race), and writes capture + artifact +
+  queue item + sync outbox record in **one atomic SaveChanges**
+  (`ICaptureRepository.IngestAsync`).
+- **Queue processing stages** — `QueueService` now stamps
+  `ProcessingStage`/`SyncState` through the pipeline (transcribing,
+  review_ready/completed, failed_configuration, failed_retryable), gained
+  `ProcessCaptureAsync`, and resets items to pending on cancellation.
+- **Shared API contracts** — new `shared-contracts/` directory:
+  `openapi/memory-line-sync-v1.yaml` (Sync API v1 skeleton) and
+  `json-schema/capture-envelope.v1.json` (remote capture ingestion envelope);
+  Swift/C# clients will be generated from these (see `shared-contracts/README.md`).
+
+Existing Windows recordings pass through the new ingestion abstraction with no
+UI behavior change (the Phase 0 exit criterion).
+
+**Next step:** Phase 1 — sync service (device registration/auth, capture
+metadata + artifact upload, cursor-based push/pull) and the Windows sync worker
+that drains the new `sync_outbox`.
 
 ---
 
@@ -795,4 +834,4 @@ These reflect the real post-audit follow-ups (see `HARDENING-FOLLOWUPS.md`).
 **Document Owner:** Development Team
 **Phase 7 Status:** In progress (CI Windows build green; runtime validation ongoing)
 **Next Review:** After end-to-end runtime validation
-**Last Updated:** 2026-07-10
+**Last Updated:** 2026-08-06

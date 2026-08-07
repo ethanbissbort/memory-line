@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://memory-line.dev/schemas/capture-envelope.v1.json",
+  "title": "RemoteCaptureEnvelope",
+  "description": "Envelope describing a capture that originated on another device, handed to Windows ingestion (design doc section 7.2). Mirrors the C# DTO MemoryTimeline.Core.DTOs.RemoteCaptureEnvelope. Capture metadata comes first; the artifact section carries the integrity data ingestion must verify before creating a queue item.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "captureId",
+    "capturedAtUtc",
+    "expectedByteLength",
+    "expectedSha256",
+    "storageLocator"
+  ],
+  "properties": {
+    "captureId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Globally unique, device-generated capture ID. Ingestion is idempotent on this value."
+    },
+    "sourceDeviceId": {
+      "type": "string",
+      "description": "ID of the originating device."
+    },
+    "sourcePlatform": {
+      "type": "string",
+      "enum": ["ios", "windows", "other"],
+      "default": "ios",
+      "description": "Originating platform."
+    },
+    "captureType": {
+      "type": "string",
+      "enum": ["memory", "idea", "trip_log", "reminder", "question", "unclassified"],
+      "default": "unclassified",
+      "description": "User-selected or inferred capture classification."
+    },
+    "capturedAtUtc": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Moment of capture, UTC ISO 8601."
+    },
+    "timezoneId": {
+      "type": "string",
+      "description": "IANA timezone identifier at capture time, e.g. America/Toronto."
+    },
+    "localOffsetMinutes": {
+      "type": "integer",
+      "description": "UTC offset in minutes at capture time, e.g. -240."
+    },
+    "titleHint": {
+      "type": "string",
+      "description": "Optional user-provided title hint."
+    },
+    "userNote": {
+      "type": "string",
+      "description": "Optional free-text note attached at capture time."
+    },
+    "tripId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Trip the capture belongs to, when applicable."
+    },
+    "clientSchemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1,
+      "description": "Version of this envelope schema the client wrote."
+    },
+    "artifactId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Device-generated audio artifact ID; the receiver mints one when absent."
+    },
+    "originalFileName": {
+      "type": "string",
+      "description": "File name of the artifact on the originating device."
+    },
+    "mediaType": {
+      "type": "string",
+      "description": "MIME type of the audio artifact, e.g. audio/mp4."
+    },
+    "expectedByteLength": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "description": "Declared artifact size in bytes; verified against the resolved file."
+    },
+    "expectedSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Declared lowercase-hex SHA-256 of the artifact bytes; verified before ingestion succeeds."
+    },
+    "storageLocator": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Opaque locator understood by the receiver's artifact resolver. Phase 0 resolves local file paths; Phase 1 replaces the resolver with a sync-service download client without changing this contract."
+    }
+  }
+}

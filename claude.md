@@ -98,7 +98,10 @@ await using var ctx = await _contextFactory.CreateDbContextAsync();
 `Record (Windows MediaCapture) → recording_queue → Transcribe (local Whisper) → Extract
 (Claude → pending_events) → Review/approve → Timeline`. Each hop persists state so a
 failure is recoverable and visible in the UI. Approve is an **atomic** transaction
-writing the event plus its tags/people/locations together.
+writing the event plus its tags/people/locations together. Recordings now enter the
+queue through `ICaptureIngestionService` (idempotent by source capture ID, hashes the
+audio, and writes a sync outbox record atomically with the capture/artifact/queue
+rows) — see the iOS companion design doc for the sync architecture this feeds.
 
 ---
 
@@ -151,6 +154,12 @@ For local dev on a real Windows machine: open the solution in VS 2022 and press 
 Core: `events`, `eras`, `tags`, `people`, `locations`.
 Junctions: `event_tags`, `event_people`, `event_locations`.
 Processing: `recording_queue`, `pending_events`.
+Sync groundwork (Phase 0): `captures`, `capture_artifacts`, `sync_outbox` — the
+device-neutral capture/artifact/outbox schema from the iOS companion design
+([`docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md`](./docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md));
+`recording_queue` also gained device-neutral provenance columns
+(`source_capture_id` **unique**, `source_device_id`, `source_platform`,
+`audio_artifact_id`, `content_sha256`, `processing_stage`, `sync_state`, ...).
 RAG: `event_embeddings`, `cross_references`.
 System: `app_settings`. The Electron build uses a compatible SQLite schema (plus
 `events_fts` FTS5, Electron-only). DB file: `%LOCALAPPDATA%\MemoryTimeline\memory-timeline.db`.
