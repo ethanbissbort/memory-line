@@ -172,6 +172,51 @@ Critical for an assistant — get this wrong and you'll suggest broken commands:
 For local dev on a real Windows machine: open the solution in VS 2022 and press F5, or
 `msbuild MemoryTimeline.sln /t:Restore,Build /p:Configuration=Debug /p:Platform=x64`.
 
+### Troubleshooting a local build
+
+**`MSB4064: The "DisabledXamlOptionalChanges" parameter is not supported by the
+"CompileXaml" task` (followed by `MSB4063`).** Read the two paths in the error: the
+`.targets` file comes from one `microsoft.windowsappsdk.winui` version and the task DLL
+from another. That is a **stale `obj/`**, not a code problem — a machine that built the
+repo before the Windows App SDK 1.8 → 2.3.1 bump keeps generated `obj\*.nuget.g.props`
+pointing the compiler path at the old package. The repo references only 2.3.1; nothing
+references 1.8.
+
+```powershell
+cd windows-native\src
+Get-ChildItem -Path . -Include bin,obj -Recurse -Directory | Remove-Item -Recurse -Force
+msbuild MemoryTimeline.sln /t:Restore,Build /p:Configuration=Debug /p:Platform=x64
+```
+
+If it survives that, delete the stale package from the global cache
+(`$env:USERPROFILE\.nuget\packages\microsoft.windowsappsdk.winui\1.8.*`) and restore again.
+A clean CI checkout builds this commit green, so a local-only failure of this shape is
+almost always leftover state.
+
+**`global.json` SDK resolution fails.** The pin is `10.0.100` with
+`rollForward: latestPatch`, which accepts `10.0.1xx` patches **only** — it will not roll
+forward to `10.0.2xx`. A machine with only a newer band installed (Visual Studio 2026
+ships one) cannot resolve it. Install a 10.0.1xx SDK, or raise the pin deliberately; the
+band is chosen so Visual Studio 2022 can still build (see the note inside `global.json`).
+
+### Tests: the SQLite parallelism hazard
+
+`SqliteConnection.ClearAllPools()` is **process-global** — it disposes the underlying
+`SQLitePCL.sqlite3` handle of every pooled connection, for every connection string.
+`BackupService.CreateBackupAsync` calls it (legitimately, to release file handles), and so
+do two test classes. xUnit runs test classes **in parallel**, so with pooling on, a clear
+in one class can dispose a handle another class is mid-operation on. The victim then
+throws `ObjectDisposedException` from wherever it happened to be — typically the pragma
+interceptor's command in `ConnectionOpened` during `EnsureDeleted` teardown, which that
+interceptor does not catch because it only expects `SqliteException`.
+
+`TestDbContextFactory.CreateSqliteFile` therefore defaults to `Pooling=False`. Do not
+"fix" a flake of this shape by catching `ObjectDisposedException` in the interceptor —
+that hides the race and silently skips the `busy_timeout`/`foreign_keys` pragmas it exists
+to set. Pass `pooled: true` only when pooling is what is being measured (`PerformanceTests`
+does, because the app pools in production and an unpooled throughput number would be
+timing a path that never ships).
+
 ---
 
 ## Adding a feature in Windows Native
@@ -274,6 +319,41 @@ layering rule above enforceable by the compiler rather than by review.
 - **Watch `Environment.SpecialFolder.LocalApplicationData`.** It compiles everywhere but
   resolves to `~/.local/share` on macOS, not `~/Library/Application Support`. Any new
   head needs a path abstraction; the port plan tracks this.
+
+---
+
+## The Swift apps (iOS companion + macOS)
+
+Two SwiftUI apps share one folder of code: `ios-companion/MemoryLineCompanion/Shared/`
+(domain models, sync client, SQLite stores, Keychain). The macOS project compiles that
+folder directly via an Xcode **synchronized folder group**, so a file added there lands in
+both apps with no project edit. Full detail: [`macos-native/README.md`](./macos-native/README.md)
+and [`docs/design/MACOS-PORT-PLAN.md`](./docs/design/MACOS-PORT-PLAN.md).
+
+**Rules for anything under `Shared/`:**
+
+- **It must compile on both platforms.** No `UIKit`, no `WidgetKit`, no
+  `BackgroundTasks`. The two files that do (`ConfirmationFeedback`,
+  `WidgetStatusPublisher`) are excluded from the macOS target by name in its
+  `PBXFileSystemSynchronizedBuildFileExceptionSet` — adding a third means editing that
+  list, which is a signal you are putting platform code in the wrong folder.
+- **Everything is `internal`.** That is deliberate and is why the code is shared as a
+  folder rather than a Swift package: a package would need `public` on ~50 declarations
+  across a shipping app. Do not start adding `public` piecemeal.
+- **Platform differences go behind `#if os(macOS)`, sparingly.** `KeychainTokenStore` is
+  the model: the service name derives from `Bundle.main.bundleIdentifier` (so iOS keeps
+  its existing item byte for byte and the Mac gets its own), and only the
+  data-protection-keychain flag is `#if`-guarded.
+
+**Sync client semantics are a server contract, not a local choice.** `MacSyncCoordinator`
+and the iOS `StatusSyncCoordinator` are separate implementations — the iOS one needs
+`BackgroundTasks` — but both must: page until `hasMore`; persist the cursor **before**
+acking; hold the cursor when *applying* fails so the page replays; never ack a cursor that
+did not advance; and last-write-wins on the Windows-authored `updatedAtUtc`. Change one
+and check the other.
+
+Windows remains the only writer and the only editing/approval surface. Everything the
+phone and the Mac show about processing is a **read-only projection** (design §19).
 
 ---
 
