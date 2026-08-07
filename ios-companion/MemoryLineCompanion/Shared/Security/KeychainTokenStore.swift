@@ -15,14 +15,14 @@ struct KeychainError: Error, LocalizedError, Sendable {
 }
 
 /// `TokenStore` over `kSecClassGenericPassword` items (design §14.1/§14.3).
-/// Service "com.memoryline.companion.tokens", one item per token under the
+/// Service "ca.fluxology.memoryline.ios.tokens", one item per token under the
 /// accounts "access" and "refresh". Items use
 /// `kSecAttrAccessibleAfterFirstUnlock` so background upload retries can read
 /// them while the phone is locked (after the first unlock since boot).
 ///
 /// Token values are never logged — only account names and status codes (§14.5).
 final class KeychainTokenStore: TokenStore {
-    private let service = "com.memoryline.companion.tokens"
+    private let service = "ca.fluxology.memoryline.ios.tokens"
     private let logger = AppLog.security
 
     private enum Account {
