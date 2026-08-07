@@ -32,6 +32,17 @@ public class QueueServiceTests
             _notificationServiceMock.Object);
     }
 
+    /// <summary>
+    /// Builds a service over the shared mocks plus an explicit capture status
+    /// publisher (an optional dependency: absent in the shared instance above).
+    /// </summary>
+    private QueueService CreateQueueServiceWith(ICaptureStatusPublisher statusPublisher) => new(
+        _repositoryMock.Object,
+        _extractionServiceMock.Object,
+        _loggerMock.Object,
+        _notificationServiceMock.Object,
+        statusPublisher);
+
     [Fact]
     public void Constructor_NullNotificationService_ThrowsArgumentNullException()
     {
@@ -454,6 +465,126 @@ public class QueueServiceTests
         updates[^1].Status.Should().Be(QueueStatus.Failed);
         updates[^1].Stage.Should().Be(QueueProcessingStage.FailedConfiguration);
         queueItem.ErrorMessage.Should().Be("LLM API key is not configured");
+    }
+
+    [Fact]
+    public async Task UpdateQueueItemStatusAsync_WithStatusPublisher_PublishesTheUpdatedItem()
+    {
+        // Arrange
+        var publisherMock = new Mock<ICaptureStatusPublisher>();
+        var published = new List<(string Status, string? Stage)>();
+        publisherMock
+            .Setup(p => p.PublishAsync(It.IsAny<RecordingQueue>(), It.IsAny<CancellationToken>()))
+            // The same instance is mutated across updates, so snapshot it here.
+            .Callback<RecordingQueue, CancellationToken>((q, _) => published.Add((q.Status, q.ProcessingStage)))
+            .Returns(Task.CompletedTask);
+
+        var queueService = CreateQueueServiceWith(publisherMock.Object);
+
+        var queueId = "device-item";
+        var queueItem = new RecordingQueue
+        {
+            QueueId = queueId,
+            AudioFilePath = "/path.wav",
+            Status = QueueStatus.Pending,
+            ProcessingStage = QueueProcessingStage.ReadyForTranscription,
+            SourceCaptureId = "capture-1",
+            SourceDeviceId = "device-1",
+            SourcePlatform = CapturePlatform.Ios
+        };
+
+        _repositoryMock.Setup(r => r.GetByIdAsync(queueId))
+            .ReturnsAsync(queueItem);
+
+        _repositoryMock.Setup(r => r.UpdateAsync(It.IsAny<RecordingQueue>()))
+            .Returns(Task.CompletedTask);
+
+        // Act
+        await queueService.UpdateQueueItemStatusAsync(queueId, QueueStatus.Processing,
+            processingStage: QueueProcessingStage.Transcribing);
+
+        // Assert - the phone hears about the transition that was just persisted
+        published.Should().ContainSingle();
+        published[0].Status.Should().Be(QueueStatus.Processing);
+        published[0].Stage.Should().Be(QueueProcessingStage.Transcribing);
+    }
+
+    [Fact]
+    public async Task RetryFailedItemAsync_WithStatusPublisher_PublishesTheReactivatedItem()
+    {
+        // Arrange
+        var publisherMock = new Mock<ICaptureStatusPublisher>();
+        var published = new List<(string Status, string? Stage)>();
+        publisherMock
+            .Setup(p => p.PublishAsync(It.IsAny<RecordingQueue>(), It.IsAny<CancellationToken>()))
+            .Callback<RecordingQueue, CancellationToken>((q, _) => published.Add((q.Status, q.ProcessingStage)))
+            .Returns(Task.CompletedTask);
+
+        var queueService = CreateQueueServiceWith(publisherMock.Object);
+
+        var queueId = "failed-item";
+        var queueItem = new RecordingQueue
+        {
+            QueueId = queueId,
+            AudioFilePath = "/path.wav",
+            Status = QueueStatus.Failed,
+            ProcessingStage = QueueProcessingStage.FailedRetryable,
+            ErrorMessage = "transcription failed",
+            SourceCaptureId = "capture-1",
+            SourceDeviceId = "device-1",
+            SourcePlatform = CapturePlatform.Ios
+        };
+
+        _repositoryMock.Setup(r => r.GetByIdAsync(queueId))
+            .ReturnsAsync(queueItem);
+
+        _repositoryMock.Setup(r => r.UpdateAsync(It.IsAny<RecordingQueue>()))
+            .Returns(Task.CompletedTask);
+
+        // Act
+        await queueService.RetryFailedItemAsync(queueId);
+
+        // Assert - the failure the phone was told about is withdrawn
+        published.Should().ContainSingle();
+        published[0].Status.Should().Be(QueueStatus.Pending);
+        published[0].Stage.Should().Be(QueueProcessingStage.ReadyForTranscription);
+    }
+
+    [Fact]
+    public async Task UpdateQueueItemStatusAsync_StatusPublisherThrows_StillUpdatesTheItem()
+    {
+        // Arrange
+        var publisherMock = new Mock<ICaptureStatusPublisher>();
+        publisherMock
+            .Setup(p => p.PublishAsync(It.IsAny<RecordingQueue>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("outbox unavailable"));
+
+        var queueService = CreateQueueServiceWith(publisherMock.Object);
+
+        var queueId = "device-item";
+        var queueItem = new RecordingQueue
+        {
+            QueueId = queueId,
+            AudioFilePath = "/path.wav",
+            Status = QueueStatus.Pending,
+            SourceCaptureId = "capture-1",
+            SourceDeviceId = "device-1",
+            SourcePlatform = CapturePlatform.Ios
+        };
+
+        _repositoryMock.Setup(r => r.GetByIdAsync(queueId))
+            .ReturnsAsync(queueItem);
+
+        _repositoryMock.Setup(r => r.UpdateAsync(It.IsAny<RecordingQueue>()))
+            .Returns(Task.CompletedTask);
+
+        // Act - status publishing must never break processing
+        await queueService.UpdateQueueItemStatusAsync(queueId, QueueStatus.Completed,
+            processingStage: QueueProcessingStage.Completed);
+
+        // Assert
+        queueItem.Status.Should().Be(QueueStatus.Completed);
+        _repositoryMock.Verify(r => r.UpdateAsync(It.IsAny<RecordingQueue>()), Times.Once);
     }
 
     [Fact]

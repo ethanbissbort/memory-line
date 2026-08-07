@@ -32,6 +32,8 @@ public class SyncDbContext : DbContext
 
     public DbSet<ServerArtifact> Artifacts => Set<ServerArtifact>();
 
+    public DbSet<CaptureStatusRow> CaptureStatuses => Set<CaptureStatusRow>();
+
     public DbSet<SyncChangeRow> SyncChanges => Set<SyncChangeRow>();
 
     public DbSet<PushReceipt> PushReceipts => Set<PushReceipt>();
@@ -111,6 +113,30 @@ public class SyncDbContext : DbContext
             e.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
             e.Property(x => x.CompletedAtUtc).HasColumnName("completed_at_utc");
             e.HasIndex(x => x.CaptureId);
+        });
+
+        // Column names and types here are duplicated in
+        // SyncApiBootstrapper.EnsureCaptureStatusTableAsync, which creates this
+        // table on databases that predate it — keep the two in step.
+        modelBuilder.Entity<CaptureStatusRow>(e =>
+        {
+            e.ToTable("capture_status");
+            e.HasKey(x => x.CaptureId);
+            e.Property(x => x.CaptureId).HasColumnName("capture_id");
+            e.Property(x => x.OwnerId).HasColumnName("owner_id");
+            e.Property(x => x.Status).HasColumnName("status");
+            e.Property(x => x.ProcessingStage).HasColumnName("processing_stage");
+            e.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc");
+            e.Property(x => x.TranscriptAvailable).HasColumnName("transcript_available");
+            e.Property(x => x.TranscriptPreview).HasColumnName("transcript_preview");
+            e.Property(x => x.TranscriptCharCount).HasColumnName("transcript_char_count");
+            e.Property(x => x.PendingEventCount).HasColumnName("pending_event_count");
+            e.Property(x => x.ApprovedEventCount).HasColumnName("approved_event_count");
+            e.Property(x => x.FailureReason).HasColumnName("failure_reason");
+            e.Property(x => x.FailureRetryable).HasColumnName("failure_retryable");
+            e.Property(x => x.Revision).HasColumnName("revision");
+            e.Property(x => x.ReceivedAtUtc).HasColumnName("received_at_utc");
+            e.HasIndex(x => x.OwnerId);
         });
 
         modelBuilder.Entity<SyncChangeRow>(e =>

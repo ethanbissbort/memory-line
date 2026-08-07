@@ -153,6 +153,13 @@ public partial class App : Application
                     services.AddSingleton<ISyncClient, SyncApiClient>();
                     services.AddSingleton<IArtifactTransferClient, ArtifactTransferClient>();
                     services.AddSingleton<IRemoteChangeApplier, RemoteChangeApplier>();
+                    // Phase 3 status handoff. Both consumers (QueueService,
+                    // CaptureIngestionService) take this as an optional
+                    // constructor parameter defaulting to null, so WITHOUT this
+                    // registration the app still starts and silently publishes
+                    // no capture_status at all — the phone would never learn
+                    // what happened to a capture after upload.
+                    services.AddSingleton<ICaptureStatusPublisher, CaptureStatusPublisher>();
                     services.AddSingleton<ILocalOutboxPublisher, LocalOutboxPublisher>();
                     services.AddSingleton<ISyncBackgroundWorker, SyncBackgroundWorker>();
 

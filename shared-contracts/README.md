@@ -11,6 +11,7 @@ companion, and the sync service. Source of truth:
 |------|----------|
 | [`openapi/memory-line-sync-v1.yaml`](./openapi/memory-line-sync-v1.yaml) | Memory Line Sync API v1 (OpenAPI 3.0.3): devices, captures, artifacts, sync push/pull/ack, assistant, trips, detours. |
 | [`json-schema/capture-envelope.v1.json`](./json-schema/capture-envelope.v1.json) | JSON Schema (draft 2020-12) for the remote capture ingestion envelope — the payload handed to Windows ingestion (`RemoteCaptureEnvelope` in `MemoryTimeline.Core`). |
+| [`json-schema/capture-status-payload.v1.json`](./json-schema/capture-status-payload.v1.json) | JSON Schema (draft 2020-12) for the `capture_status` change payload — the Windows-authored processing status the phone reads (`CaptureStatusChangePayload`). |
 
 ## Versioning rules
 
@@ -41,6 +42,40 @@ together in the same commit. Hand-written types elsewhere (e.g.
 `RemoteCaptureEnvelope`) must likewise mirror these files exactly.
 
 ## Changelog
+
+### v1.2 (2026-08-07) — `capture_status`
+
+Added the Phase 3 processing-status handoff (design doc §19 Phase 3), purely
+additively: no existing field, endpoint, or enum value changed.
+
+- **New change type `capture_status`**, added to the `entityType` enum on both
+  `SyncChange` and `SyncPushEntry`. Its `entityId` is the `captureId`, so a
+  capture has exactly one status entity, and only `upsert` is accepted — a
+  latest-wins projection has nothing to tombstone.
+- **New payload schema `CaptureStatusChangePayload`** in the OpenAPI document,
+  mirrored by
+  [`json-schema/capture-status-payload.v1.json`](./json-schema/capture-status-payload.v1.json)
+  and by the shipped DTO
+  [`dotnet/MemoryTimeline.SyncContracts/CaptureStatusContracts.cs`](./dotnet/MemoryTimeline.SyncContracts/CaptureStatusContracts.cs).
+  Required on the wire: `captureId`, `status`, `updatedAtUtc`,
+  `transcriptAvailable`; everything else is nullable and — because payloads are
+  serialized with camelCase web defaults and no null stripping — is present as
+  `null` rather than absent. `transcriptPreview` is bounded at **600
+  characters** (`TranscriptPreviewMaxChars`).
+- **Direction of flow is one-way and documented as such**: Windows authors the
+  status into its own sync outbox → `POST /sync/push` → the service change log
+  → `GET /sync/pull` on the capture's phone. Echo suppression keys on the
+  *publishing* device, so a phone still receives status about its own captures.
+  Nothing in the payload is an instruction; editing and approval stay on
+  Windows.
+- **Documented the push-time validation errors.** They are per-entry results
+  (HTTP 200 with `accepted=false` and a code-prefixed `error`), not HTTP
+  errors: `validation_error` for a delete operation, a missing/unparseable
+  payload, a `captureId` that is not a UUID equal to `entityId`, a status
+  outside the vocabulary, a preview over 600 characters, or a negative count;
+  `capture_not_found` when no capture with that ID belongs to the caller's
+  owner. An over-long preview is refused rather than truncated, so truncation
+  stays the publisher's decision.
 
 ### v1.1 (2026-08-07)
 

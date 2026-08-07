@@ -1,15 +1,20 @@
 import Combine
 import SwiftUI
 
-/// Detail screen for one capture: metadata, audio playback with a read-only
-/// progress bar, sync status, the last error, and a retry control for
-/// captures that still need to upload.
+/// Detail screen for one capture: metadata, the fused lifecycle timeline, the
+/// transcript preview Windows published (a preview only — the full transcript
+/// and every edit stay on Windows, design §19 Phase 3), review counts, audio
+/// playback with a read-only progress bar, and a retry control for captures
+/// that still need to upload.
 @MainActor
 struct HistoryDetailView: View {
     @Environment(AppEnvironment.self) private var env
     let captureId: String
 
     @State private var record: CaptureRecord
+    /// Windows-authored processing status; nil until the PC reports on this
+    /// capture. Read-only projection — nothing here is editable on the phone.
+    @State private var status: CaptureStatusRecord?
     @State private var playback = PlaybackController()
     @State private var isRetrying = false
 
@@ -17,14 +22,14 @@ struct HistoryDetailView: View {
     private let playbackTimer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
 
     /// Seeded with the row's record so the screen renders immediately;
-    /// `reload()` re-reads the database whenever upload state moves.
+    /// `reload()` re-reads the database whenever upload or status state moves.
     init(record: CaptureRecord) {
         self.captureId = record.id
         _record = State(initialValue: record)
     }
 
     var body: some View {
-        detailList(record)
+        detailList(record, summary: CaptureLifecycleSummary(record: record, status: status))
             .navigationTitle(record.type.displayName)
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
@@ -35,6 +40,10 @@ struct HistoryDetailView: View {
             }
             .onChange(of: env.uploads.pendingCount) { reload() }
             .onChange(of: env.uploads.isSyncing) { reload() }
+            .onChange(of: env.statusSync.lastPulledAt) { reload() }
+            // A pass that failed part-way still applied earlier pages, so the
+            // end of every pull is a reload point, not just a successful one.
+            .onChange(of: env.statusSync.isPulling) { reload() }
             .onReceive(playbackTimer) { _ in playback.tick() }
             .onDisappear {
                 // Don't tear down the shared audio session if a recording is live.
@@ -42,8 +51,12 @@ struct HistoryDetailView: View {
             }
     }
 
-    private func detailList(_ record: CaptureRecord) -> some View {
+    private func detailList(_ record: CaptureRecord, summary: CaptureLifecycleSummary) -> some View {
         List {
+            statusSection(summary)
+            lifecycleSection(record, summary: summary)
+            transcriptSection(summary)
+
             Section("Recording") {
                 LabeledContent("Type", value: record.type.displayName)
                 LabeledContent("Captured", value: record.capturedAt.formatted(date: .abbreviated, time: .shortened))
@@ -70,12 +83,118 @@ struct HistoryDetailView: View {
                 }
             }
 
-            Section("Sync") {
-                HStack {
-                    Text("Status")
-                    Spacer()
-                    CaptureStatusChip(state: record.state)
+            uploadSection(record, summary: summary)
+        }
+        .refreshable { await refresh() }
+    }
+
+    // MARK: - Status
+
+    private func statusSection(_ summary: CaptureLifecycleSummary) -> some View {
+        Section {
+            VStack(alignment: .leading, spacing: 6) {
+                CaptureLifecycleChip(summary: summary)
+                CaptureScopeLabel(scope: summary.scope)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 2)
+            if let stageDetail = summary.stageDetail {
+                LabeledContent("Stage", value: stageDetail)
+            }
+            if summary.phase.isFailure, let reason = summary.failureReason, !reason.isEmpty {
+                Label(reason, systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .accessibilityLabel("Failure reason. \(reason)")
+            }
+            if let pending = summary.pendingEventsDescription {
+                LabeledContent("Waiting for review", value: pending)
+            }
+            if let approved = summary.approvedEventsDescription {
+                LabeledContent("Approved", value: approved)
+            }
+            if let updatedAt = summary.remoteUpdatedAt {
+                LabeledContent(
+                    "PC last reported",
+                    value: updatedAt.formatted(date: .abbreviated, time: .shortened))
+            }
+        } header: {
+            Text("Status")
+        } footer: {
+            Text(summary.scope.explanation)
+        }
+    }
+
+    // MARK: - Lifecycle timeline
+
+    private func lifecycleSection(_ record: CaptureRecord, summary: CaptureLifecycleSummary) -> some View {
+        Section {
+            CaptureLifecycleTimelineView(steps: summary.steps(for: record))
+        } header: {
+            Text("Lifecycle")
+        } footer: {
+            Text("Your PC reports only the stage it is on right now, so stages it already finished have no time here.")
+        }
+    }
+
+    // MARK: - Transcript preview
+
+    @ViewBuilder
+    private func transcriptSection(_ summary: CaptureLifecycleSummary) -> some View {
+        if let preview = summary.transcriptPreview, !preview.isEmpty {
+            Section {
+                Text(preview)
+                    .font(.body)
+                    .textSelection(.enabled)
+                    .accessibilityLabel("Transcript preview. \(preview)")
+                if let remaining = summary.transcriptRemainingCharacters, remaining > 0 {
+                    Label(
+                        "\(remaining) more characters are on your PC",
+                        systemImage: "ellipsis.circle")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
+            } header: {
+                Text("Transcript preview")
+            } footer: {
+                Text(transcriptFooter(summary))
+            }
+        } else if summary.hasTranscript {
+            // Windows has a transcript but published no excerpt with this
+            // status — say so rather than implying nothing was transcribed.
+            Section {
+                Label("Transcript ready on your PC", systemImage: "text.quote")
+                    .font(.subheadline)
+            } footer: {
+                Text("Open Memory Line on Windows to read and edit the transcript.")
+            }
+        }
+    }
+
+    private func transcriptFooter(_ summary: CaptureLifecycleSummary) -> String {
+        let boundary = "The full transcript and all editing live on your Windows PC."
+        guard
+            let total = summary.transcriptCharCount,
+            let preview = summary.transcriptPreview,
+            total > 0
+        else {
+            return "Preview only. \(boundary)"
+        }
+        let shown = min(preview.utf16.count, total)
+        guard shown < total else {
+            // Short transcripts fit in the preview whole; saying "preview" then
+            // would understate what is on screen.
+            return "This capture's whole transcript is \(total) characters. Editing it lives on your Windows PC."
+        }
+        return "Preview only \u{2014} the first \(shown) of \(total) characters. \(boundary)"
+    }
+
+    // MARK: - Upload
+
+    @ViewBuilder
+    private func uploadSection(_ record: CaptureRecord, summary: CaptureLifecycleSummary) -> some View {
+        if record.uploadAttempts > 0 || record.uploadedAt != nil || record.state.isUploadPending {
+            Section("Upload from this iPhone") {
                 if record.uploadAttempts > 0 {
                     LabeledContent("Upload attempts", value: "\(record.uploadAttempts)")
                 }
@@ -88,7 +207,15 @@ struct HistoryDetailView: View {
                         .foregroundStyle(.red)
                 }
                 if record.state.isUploadPending {
-                    retryButton(record)
+                    // A retry is pointless once the PC has the capture — the
+                    // pipeline is idempotent, so it would replay to no effect.
+                    if summary.scope == .computer {
+                        Text("Your PC already has this capture, so it does not need to upload again.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        retryButton(record)
+                    }
                 }
             }
         }
@@ -124,6 +251,8 @@ struct HistoryDetailView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Playback position")
             }
             if let playbackError = playback.errorMessage {
                 Text(playbackError)
@@ -171,11 +300,22 @@ struct HistoryDetailView: View {
         }
     }
 
-    /// Re-reads this capture from the store; keeps the last known snapshot if
-    /// the row vanished (e.g. deleted from another screen).
+    /// Pull-to-refresh: ask the service for status Windows published for this
+    /// capture (the pull is service-wide; the store is re-read afterwards).
+    private func refresh() async {
+        await env.statusSync.pullNow()
+        reload()
+    }
+
+    /// Re-reads this capture and its Windows status; keeps the last known
+    /// snapshot if the row vanished (e.g. deleted from another screen) or the
+    /// status read fails, so a transient error never blanks the screen.
     private func reload() {
         if let fetched = try? env.captures.capture(id: captureId), fetched != record {
             record = fetched
+        }
+        if let fetched = try? env.statuses.status(captureId: captureId) {
+            status = fetched
         }
     }
 }

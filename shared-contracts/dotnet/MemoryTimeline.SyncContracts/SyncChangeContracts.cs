@@ -100,6 +100,14 @@ public static class SyncChangeEntityType
     public const string RecordingQueue = "recording_queue";
     public const string PendingEvent = "pending_event";
     public const string Event = "event";
+
+    /// <summary>
+    /// Windows-authored processing status for a capture (Phase 3). Payload is
+    /// <see cref="CaptureStatusChangePayload"/>. Distinct from
+    /// <see cref="Capture"/>, which flows phone -> Windows and carries the audio
+    /// artifact to download.
+    /// </summary>
+    public const string CaptureStatus = "capture_status";
 }
 
 /// <summary>

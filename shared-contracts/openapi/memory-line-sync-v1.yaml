@@ -10,7 +10,7 @@ openapi: 3.0.3
 
 info:
   title: Memory Line Sync API
-  version: 1.1.0
+  version: 1.2.0
   description: >-
     Device-neutral sync, capture, assistant, and roadtrip API for Memory Line.
     Conventions (design doc section 11.1): base path /api/v1, JSON metadata,
@@ -422,6 +422,26 @@ paths:
         idempotency is carried by clientSequence — a replayed sequence from
         the same device is acknowledged with duplicate=true instead of being
         re-applied.
+
+
+        Entry-level validation failures are reported per entry (accepted=false
+        with an error code in the result), not as an HTTP status: a batch of
+        entries that all fail still answers 200. The 4xx responses below cover
+        the request as a whole — a malformed body or a missing/expired token.
+
+
+        capture_status entries (Windows-authored processing status, design doc
+        section 19 Phase 3) are validated before they enter the change log, and
+        rejected rather than silently repaired. The entry is refused with
+        validation_error when its operation is delete, when payloadJson is
+        absent or unparseable, when the payload captureId is not a UUID equal to
+        entityId, when status falls outside the vocabulary, when
+        transcriptPreview exceeds 600 characters — the publisher owns
+        truncation, so an over-long preview is refused, not cut down — or when
+        any of the three counts is negative. It is refused with
+        capture_not_found when no capture with that ID belongs to the caller's
+        owner. Only the code before the colon is contractual; the text after it
+        is advisory detail.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -449,6 +469,13 @@ paths:
       description: >-
         Returns changes with changeId greater than the cursor, oldest first,
         excluding changes that originated on the calling device.
+
+
+        The log is owner-scoped, so it fans out to every other device of the
+        owner. Echo suppression keys on the device that *published* the change,
+        never on the device a capture came from — which is what lets a phone
+        pull the capture_status changes Windows publishes about the phone's own
+        captures.
       parameters:
         - $ref: '#/components/parameters/SyncCursor'
         - $ref: '#/components/parameters/SyncLimit'
@@ -1225,9 +1252,12 @@ components:
           description: Monotonically increasing server change ID — the pull cursor.
         entityType:
           type: string
-          enum: [capture, capture_artifact, recording_queue, pending_event, event]
+          enum: [capture, capture_artifact, capture_status, recording_queue, pending_event, event]
         entityId:
           type: string
+          description: >-
+            The entity's ID. For capture_status this is the captureId, so a
+            capture has exactly one status entity.
         operation:
           type: string
           enum: [upsert, delete]
@@ -1249,7 +1279,8 @@ components:
           description: >-
             Entity-type-specific payload, delivered as a JSON string — not an
             embedded object. For capture upserts it encodes a
-            CaptureChangePayload. Null for tombstones and payload-free
+            CaptureChangePayload; for capture_status upserts, a
+            CaptureStatusChangePayload. Null for tombstones and payload-free
             changes.
 
     CaptureChangePayload:
@@ -1314,6 +1345,115 @@ components:
             The audio artifact to download; set only once a completed audio
             artifact exists (its arrival triggers Windows ingestion).
 
+    CaptureStatusChangePayload:
+      type: object
+      description: >-
+        Shape of the JSON string carried in payloadJson for capture_status
+        changes: the Windows-side processing status of one capture, so the
+        capture's phone can follow the whole lifecycle without opening Windows
+        (design doc section 19 Phase 3). Documented here for reference — on the
+        wire it travels as a string inside payloadJson, not as an inline
+        object.
+
+
+        Direction is one-way, Windows → service → the capture's phone: Windows
+        writes the status into its own sync outbox, pushes it, and the phone
+        receives it on its next pull. Nothing here is an instruction; it is a
+        read-only projection of Windows-side state. Editing transcripts and
+        approving events stay on Windows, and the phone never authors this
+        entity type.
+
+
+        The service keeps one row per capture, overwritten in place (latest
+        wins) — the change log, not the projection, holds the history — and the
+        payload a device pulls is re-serialized from that stored row, so a
+        pulled payload can never disagree with what the service persisted.
+
+
+        Payloads use the same camelCase web defaults as the rest of the API and
+        do not strip nulls, so a nullable field that has no value is present as
+        null rather than absent.
+      required: [captureId, status, updatedAtUtc, transcriptAvailable]
+      properties:
+        captureId:
+          type: string
+          format: uuid
+          description: >-
+            The capture this status belongs to. Must equal the change's
+            entityId; a mismatch rejects the push entry.
+        status:
+          type: string
+          enum: [local_only, uploading, received, processing, review_ready, completed, failed]
+          description: >-
+            Coarse lifecycle state, the same vocabulary as Capture.status. A
+            value outside this list rejects the push entry.
+        processingStage:
+          type: string
+          nullable: true
+          description: >-
+            Finer-grained position inside status, mirroring the Windows queue's
+            stage vocabulary: pending_download, verifying,
+            ready_for_transcription, transcribing, extracting, review_ready,
+            completed, failed_retryable, failed_configuration, failed_permanent.
+            Null when the publisher has no detail finer than the status.
+            Deliberately not an enum here, unlike status: the service stores and
+            forwards the stage without validating it, so clients must keep it as
+            a string and tolerate a value they do not recognize.
+        updatedAtUtc:
+          type: string
+          format: date-time
+          description: >-
+            When Windows produced the status. Display only — consumers apply
+            changes in changeId order, never by this clock.
+        transcriptAvailable:
+          type: boolean
+          description: True once a transcript exists for the capture on Windows.
+        transcriptPreview:
+          type: string
+          nullable: true
+          maxLength: 600
+          description: >-
+            Leading excerpt of the transcript, truncated by the publisher. The
+            full transcript deliberately stays on Windows in this phase — this
+            is a preview, not a replica. The service refuses an over-long
+            preview rather than truncating it, so truncation stays the
+            publisher's decision.
+        transcriptCharCount:
+          type: integer
+          nullable: true
+          minimum: 0
+          description: >-
+            Character count of the complete Windows-side transcript, so the
+            phone can show how much the preview omits without holding the text.
+        pendingEventCount:
+          type: integer
+          nullable: true
+          minimum: 0
+          description: >-
+            Events extracted from this capture that are awaiting review on
+            Windows. Null before extraction has run — the contract prefers null
+            over an invented zero.
+        approvedEventCount:
+          type: integer
+          nullable: true
+          minimum: 0
+          description: Events from this capture already approved onto the timeline.
+        failureReason:
+          type: string
+          nullable: true
+          description: >-
+            User-facing reason when status is failed; null otherwise. By
+            contract it never carries transcript content, file paths, or
+            credentials (design doc section 14.5), so publishers send fixed
+            text keyed on the failure stage rather than raw error output.
+        failureRetryable:
+          type: boolean
+          nullable: true
+          description: >-
+            True when the failure is expected to clear on retry (design doc
+            section 16.2). Null when the publisher cannot classify it — which
+            is not evidence either way.
+
     SyncPushRequest:
       type: object
       required: [entries]
@@ -1336,16 +1476,25 @@ components:
           format: int64
         entityType:
           type: string
-          enum: [capture, capture_artifact, recording_queue, pending_event, event]
+          enum: [capture, capture_artifact, capture_status, recording_queue, pending_event, event]
         entityId:
           type: string
+          description: >-
+            The entity's ID; for capture_status the captureId, which must equal
+            the payload's captureId.
         operation:
           type: string
           enum: [upsert, delete]
+          description: >-
+            capture_status accepts upsert only — a status is a latest-wins
+            projection with nothing to tombstone.
         payloadJson:
           type: string
           nullable: true
-          description: Entity-type-specific payload as a JSON string.
+          description: >-
+            Entity-type-specific payload as a JSON string. Required for
+            capture_status, which carries no meaning without one; optional for
+            entity types whose change is meaningful on its own.
         changedAtUtc:
           type: string
           format: date-time
@@ -1388,7 +1537,9 @@ components:
           description: >-
             Machine-readable rejection reason — an error code, optionally
             followed by details (e.g. "validation_error: operation must be
-            upsert or delete"). Null when accepted.
+            upsert or delete"). Branch on the code before the colon:
+            validation_error and capture_not_found are not retryable as-is,
+            internal_error is. Null when accepted.
 
     SyncPullResponse:
       type: object
