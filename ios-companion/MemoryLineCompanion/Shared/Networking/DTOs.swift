@@ -184,3 +184,43 @@ enum SyncJSON {
         return formatter
     }()
 }
+
+// MARK: - Capture processing status (Phase 3)
+
+/// Swift mirror of `CaptureStatusChangePayload` in
+/// shared-contracts/dotnet/MemoryTimeline.SyncContracts/CaptureStatusContracts.cs.
+/// Carried as the `payloadJson` of a `capture_status` sync change, authored by
+/// Windows and consumed here so the phone can show the full lifecycle. Editing
+/// and approval remain on Windows, so this is a read-only projection.
+struct CaptureStatusChangePayload: Codable, Sendable {
+    var captureId: String
+    var status: String
+    var processingStage: String?
+    var updatedAtUtc: Date
+    var transcriptAvailable: Bool
+    /// Leading excerpt only — the full transcript stays on Windows.
+    var transcriptPreview: String?
+    var transcriptCharCount: Int?
+    var pendingEventCount: Int?
+    var approvedEventCount: Int?
+    var failureReason: String?
+    var failureRetryable: Bool?
+}
+
+/// Wire values of `SyncCaptureStatus` (CaptureContracts.cs).
+enum SyncCaptureStatus {
+    static let localOnly = "local_only"
+    static let uploading = "uploading"
+    static let received = "received"
+    static let processing = "processing"
+    static let reviewReady = "review_ready"
+    static let completed = "completed"
+    static let failed = "failed"
+}
+
+/// Entity-type discriminators on `SyncChangeDto.entityType`.
+enum SyncChangeEntityType {
+    static let capture = "capture"
+    static let captureArtifact = "capture_artifact"
+    static let captureStatus = "capture_status"
+}
