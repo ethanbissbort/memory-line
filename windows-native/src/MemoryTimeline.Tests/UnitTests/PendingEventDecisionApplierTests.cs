@@ -371,6 +371,29 @@ public class PendingEventDecisionApplierTests : IDisposable
     }
 
     [Fact]
+    public async Task ApplyAsync_PayloadWithNoDecisionField_DoesNotApprove()
+    {
+        // Arrange - an out-of-date or truncated client that omits the verdict
+        // entirely. The field deserializes to its default, so the failure mode
+        // of a missing field must not be a write to the archive.
+        var pendingId = await SeedPendingEventAsync();
+        var change = DecisionChange(pendingId, PendingEventDecision.Approve);
+        change.PayloadJson = $$"""
+            {"pendingEventId":"{{pendingId}}","decidedByDeviceId":"device-1","decidedAtUtc":"2026-08-07T12:00:00Z"}
+            """;
+
+        // Act
+        var result = await _applier.ApplyAsync(change);
+
+        // Assert
+        result.Should().Be(ChangeApplicationResult.FailedPermanent);
+
+        await using var context = _contextFactory.CreateDbContext();
+        (await context.Events.CountAsync()).Should().Be(0);
+        (await context.PendingEvents.AsNoTracking().SingleAsync()).IsApproved.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task ApplyAsync_MissingOrUnparseablePayload_IsPermanentlySkipped()
     {
         // Arrange
