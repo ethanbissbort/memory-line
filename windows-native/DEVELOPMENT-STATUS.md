@@ -1,9 +1,60 @@
 # Windows Native Development Status
 
-**Last Updated:** 2026-08-06
+**Last Updated:** 2026-08-07
 **Current Phase:** Phase 7 - Testing & Deployment
 **Overall Progress:** Phases 0-6 complete; Phase 7 in progress
 **Status:** 🔄 IN PROGRESS — builds green in CI, end-to-end runtime validation ongoing
+
+---
+
+## iOS roadtrip companion — Phase 1: sync service & Windows sync client (2026-08)
+
+**Date:** 2026-08-07
+
+Phase 1 of the iOS roadtrip companion plan (design doc section 19; see the
+Phase 0 entry below for the groundwork it builds on) landed:
+
+- **Sync service** — new `services/MemoryTimeline.SyncApi` (ASP.NET Core,
+  net8.0; unlike the WinUI solution it is plain cross-platform .NET and
+  builds/tests/runs with the `dotnet` CLI). Self-hosted Mode A server
+  (design §4.2): device pairing/registration gated by an owner pairing code,
+  self-issued HMAC-SHA256 JWT access tokens with refresh-token rotation and
+  immediate revocation (§14.1); idempotent capture metadata ingestion
+  (replaying a `captureId` returns the existing capture); chunked artifact
+  upload (initiate → PUT parts → complete with byte-length/part-count/SHA-256
+  validation, §11.4) into a filesystem artifact store; and an append-only
+  `sync_changes` log serving cursor-based `GET /sync/pull` (own-device echo
+  suppression), per-device idempotent `POST /sync/push` (push receipts keyed
+  on client sequence), and `POST /sync/ack`. SQLite metadata + artifact blobs
+  live under one configurable data directory. Operator guide:
+  [`../services/README.md`](../services/README.md).
+- **Windows sync client** — new `MemoryTimeline.Sync` project in the WinUI
+  solution. `SyncBackgroundWorker` runs a periodic (30 s) pull → apply →
+  ack → publish-outbox loop; `RemoteChangeApplier` turns each pulled capture
+  change into artifact download + idempotent `ICaptureIngestionService`
+  ingestion, so a remote audio capture enters the existing review queue
+  **exactly once**; `LocalOutboxPublisher` drains the Phase 0 `sync_outbox`
+  in order to `/sync/push` and marks accepted/duplicate rows delivered. The
+  cursor only advances past applied/skipped/permanently-failed changes;
+  retryable failures stop the pull and retry next cycle. Settings → Sync UI:
+  server URL + pairing code, enable/disable, sync-now, status line, and
+  unpair/revoke. New `SettingKeys.Sync*` constants (server URL, device ID,
+  tokens, cursor, auto-process); wire DTOs shared with the service via
+  `shared-contracts/dotnet/MemoryTimeline.SyncContracts` (camelCase JSON,
+  `JsonSerializerDefaults.Web`).
+- **CI** — new Linux workflow `.github/workflows/sync-api-build.yml` builds
+  `services/MemoryTimeline.Services.sln` and runs the SyncApi test suite with
+  the dotnet CLI on `ubuntu-latest`; the Windows workflow now also triggers
+  on this branch and on `shared-contracts/dotnet/**` changes.
+
+**Exit criterion status:** implemented and integration-tested at the service
+level — a test client can register, create a capture, upload its audio
+artifact, and the Windows pull → ingest path dedupes it into review exactly
+once. End-to-end validation against a real iPhone awaits the Phase 2 iOS
+client.
+
+**Next step:** Phase 2 — iOS capture MVP (SwiftUI shell, one-touch recording,
+durable local queue, background upload, capture history/status).
 
 ---
 
@@ -834,4 +885,4 @@ These reflect the real post-audit follow-ups (see `HARDENING-FOLLOWUPS.md`).
 **Document Owner:** Development Team
 **Phase 7 Status:** In progress (CI Windows build green; runtime validation ongoing)
 **Next Review:** After end-to-end runtime validation
-**Last Updated:** 2026-08-06
+**Last Updated:** 2026-08-07

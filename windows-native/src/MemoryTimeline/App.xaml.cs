@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Controls;
 using MemoryTimeline.Core.Services;
 using MemoryTimeline.Data;
 using MemoryTimeline.Data.Repositories;
+using MemoryTimeline.Sync;
 using MemoryTimeline.ViewModels;
 using MemoryTimeline.Views;
 using MemoryTimeline.Services;
@@ -125,6 +126,18 @@ public partial class App : Application
                     // file-path locators; Phase 1 swaps in a sync download client.
                     services.AddSingleton<IArtifactResolver, LocalFileArtifactResolver>();
                     services.AddSingleton<ICaptureIngestionService, CaptureIngestionService>();
+
+                    // iOS companion Phase 1: sync client + background worker (design §7.4).
+                    // One shared HttpClient for the sync endpoints; auth headers are set
+                    // per request, so a single instance is safe app-wide.
+                    services.AddSingleton(_ => new HttpClient());
+                    services.AddSingleton<ISyncSettingsStore, SyncSettingsStore>();
+                    services.AddSingleton<ISyncCursorStore, SettingsSyncCursorStore>();
+                    services.AddSingleton<ISyncClient, SyncApiClient>();
+                    services.AddSingleton<IArtifactTransferClient, ArtifactTransferClient>();
+                    services.AddSingleton<IRemoteChangeApplier, RemoteChangeApplier>();
+                    services.AddSingleton<ILocalOutboxPublisher, LocalOutboxPublisher>();
+                    services.AddSingleton<ISyncBackgroundWorker, SyncBackgroundWorker>();
 
                     // Phase 4: LLM & Event Extraction services
                     services.AddSingleton<ILlmService, AnthropicLlmService>();
@@ -370,6 +383,20 @@ public partial class App : Application
                 await SchemaUpgrader.EnsureSchemaAsync(dbContext, schemaLogger);
             }
             WriteToLog("Database ready");
+
+            // Start the sync background loop (iOS companion Phase 1) once the schema
+            // is guaranteed. Safe no-op while sync is disabled or the device is not
+            // paired; kept non-fatal because sync must never break app launch.
+            try
+            {
+                var syncWorker = Services.GetRequiredService<ISyncBackgroundWorker>();
+                syncWorker.Start();
+                WriteToLog("Sync background worker started");
+            }
+            catch (Exception syncEx)
+            {
+                LogException("Sync background worker startup failed", syncEx);
+            }
 
             WriteToLog("Creating MainWindow...");
             _mainWindow = Services.GetRequiredService<MainWindow>();

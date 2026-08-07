@@ -162,6 +162,122 @@
                 </StackPanel>
             </StackPanel>
 
+            <!-- Sync Section (iOS companion Phase 1) -->
+            <StackPanel Spacing="16"
+                       Padding="16"
+                       Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                       BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                       BorderThickness="1"
+                       CornerRadius="8">
+                <TextBlock Text="Sync"
+                          Style="{StaticResource SubtitleTextBlockStyle}"/>
+
+                <StackPanel Spacing="8">
+                    <ToggleSwitch Header="Sync with companion devices"
+                                 IsOn="{x:Bind ViewModel.SyncEnabled, Mode=TwoWay}"
+                                 OnContent="On"
+                                 OffContent="Off"/>
+                    <TextBlock Text="Pull captures from your other devices and publish local changes"
+                              Style="{StaticResource CaptionTextBlockStyle}"
+                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Server URL"
+                              Style="{StaticResource BodyTextBlockStyle}"/>
+                    <TextBox Text="{x:Bind ViewModel.SyncServerUrl, Mode=TwoWay}"
+                            PlaceholderText="https://..."
+                            IsEnabled="{x:Bind ViewModel.IsSyncPaired, Converter={StaticResource BoolNegationConverter}, Mode=OneWay}"
+                            HorizontalAlignment="Stretch"/>
+                    <TextBlock Text="Address of your Memory Line sync service (unpair to change)"
+                              Style="{StaticResource CaptionTextBlockStyle}"
+                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Pairing Code"
+                              Style="{StaticResource BodyTextBlockStyle}"/>
+                    <PasswordBox Password="{x:Bind ViewModel.SyncPairingCode, Mode=TwoWay}"
+                                PlaceholderText="Enter the one-time pairing code"
+                                IsEnabled="{x:Bind ViewModel.IsSyncPaired, Converter={StaticResource BoolNegationConverter}, Mode=OneWay}"
+                                HorizontalAlignment="Stretch"/>
+                    <TextBlock Text="Shown by the sync service when you add a device; it is never stored"
+                              Style="{StaticResource CaptionTextBlockStyle}"
+                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.ColumnSpacing>8</Grid.ColumnSpacing>
+
+                    <Button Grid.Column="0"
+                           Command="{x:Bind ViewModel.PairDeviceCommand}"
+                           HorizontalAlignment="Stretch"
+                           IsEnabled="{x:Bind ViewModel.IsSyncPaired, Converter={StaticResource BoolNegationConverter}, Mode=OneWay}">
+                        <StackPanel Spacing="4">
+                            <FontIcon Glyph="&#xE71B;" FontSize="20"/>
+                            <TextBlock Text="Pair Device" Style="{StaticResource CaptionTextBlockStyle}"/>
+                        </StackPanel>
+                    </Button>
+
+                    <Button Grid.Column="1"
+                           Command="{x:Bind ViewModel.UnpairDeviceCommand}"
+                           HorizontalAlignment="Stretch"
+                           IsEnabled="{x:Bind ViewModel.IsSyncPaired, Mode=OneWay}">
+                        <StackPanel Spacing="4">
+                            <FontIcon Glyph="&#xE711;" FontSize="20"/>
+                            <TextBlock Text="Unpair" Style="{StaticResource CaptionTextBlockStyle}"/>
+                        </StackPanel>
+                    </Button>
+
+                    <Button Grid.Column="2"
+                           Command="{x:Bind ViewModel.SyncNowCommand}"
+                           HorizontalAlignment="Stretch"
+                           IsEnabled="{x:Bind ViewModel.IsSyncPaired, Mode=OneWay}">
+                        <StackPanel Spacing="4">
+                            <FontIcon Glyph="&#xE895;" FontSize="20"/>
+                            <TextBlock Text="Sync Now" Style="{StaticResource CaptionTextBlockStyle}"/>
+                        </StackPanel>
+                    </Button>
+                </Grid>
+
+                <!-- Run.Text is not a dependency property in WinUI, so the dynamic
+                     device name uses its own TextBlock for the OneWay binding. -->
+                <StackPanel Orientation="Horizontal" Spacing="4"
+                           Visibility="{x:Bind ViewModel.IsSyncPaired, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
+                    <TextBlock Text="Paired as:"
+                              Style="{StaticResource CaptionTextBlockStyle}"
+                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock Text="{x:Bind ViewModel.SyncDeviceDisplayName, Mode=OneWay}"
+                              Style="{StaticResource CaptionTextBlockStyle}"
+                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+
+                <StackPanel Spacing="8">
+                    <ToggleSwitch Header="Process synced recordings automatically"
+                                 IsOn="{x:Bind ViewModel.SyncAutoProcess, Mode=TwoWay}"
+                                 OnContent="On"
+                                 OffContent="Off"/>
+                    <TextBlock Text="Transcribe and extract events from recordings that arrive from other devices"
+                              Style="{StaticResource CaptionTextBlockStyle}"
+                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+
+                <TextBlock Text="{x:Bind ViewModel.SyncStatusText, Mode=OneWay}"
+                          Style="{StaticResource BodyTextBlockStyle}"
+                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                          TextWrapping="Wrap"/>
+
+                <TextBlock Text="Sync tokens are stored in the local settings database on this PC."
+                          Style="{StaticResource CaptionTextBlockStyle}"
+                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                          TextWrapping="Wrap"/>
+            </StackPanel>
+
             <!-- Export/Import Section -->
             <StackPanel Spacing="16"
                        Padding="16"

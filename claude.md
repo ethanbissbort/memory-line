@@ -11,6 +11,11 @@ this repo. Read it before editing. For the product-level overview, see the root
 - The **Electron app** under [`src/`](./src) is **legacy / maintenance only** — it still
   exists and builds, but new features and fixes should target Windows Native unless the
   task is explicitly about Electron. See [Legacy Electron](#legacy-electron).
+- The repo also contains the **sync service** under [`services/`](./services) (ASP.NET
+  Core, plain net8.0 — **CAN be built/tested with the `dotnet` CLI**, no VS msbuild
+  needed; own Linux CI workflow `sync-api-build.yml`) and the **Windows sync client
+  library** `windows-native/src/MemoryTimeline.Sync` — the iOS roadtrip companion sync
+  layer. See [Sync service (iOS companion)](#sync-service-ios-companion).
 - **You cannot build this repo in the cloud sandbox** — there is no .NET SDK, and the
   WinUI 3 app cannot be built with `dotnet build` anyway (see [Build & run reality](#build--run-reality)).
   Changes are validated by **CI on a Windows runner**, not by a local build. Reason
@@ -22,7 +27,7 @@ this repo. Read it before editing. For the product-level overview, see the root
 
 ### Solution layout (clean architecture)
 
-The solution is `windows-native/src/MemoryTimeline.sln`, four projects:
+The solution is `windows-native/src/MemoryTimeline.sln`, six projects:
 
 | Project | Role |
 |---------|------|
@@ -30,8 +35,11 @@ The solution is `windows-native/src/MemoryTimeline.sln`, four projects:
 | **MemoryTimeline.Core** | Business logic — services (events, timeline, queue, extraction, RAG, export/import, settings, search, analytics), DTOs, timeline math, `SettingKeys`. No UI, no EF Core internals leaking out. |
 | **MemoryTimeline.Data** | Data access — `AppDbContext` (EF Core 8 + SQLite), entity models, repositories, and `SchemaUpgrader`. |
 | **MemoryTimeline.Tests** | xUnit unit, integration, and performance tests. |
+| **MemoryTimeline.Sync** | Sync client library (no UI) — `SyncApiClient` (pairing, push/pull/ack), artifact download, `SyncBackgroundWorker` loop, `LocalOutboxPublisher`, `RemoteChangeApplier`, settings/cursor stores. |
+| **MemoryTimeline.SyncContracts** | Shared wire DTOs; lives at `shared-contracts/dotnet/` and is referenced into both this solution and `services/MemoryTimeline.Services.sln`. CamelCase JSON per the OpenAPI contract. |
 
-Dependency direction: `MemoryTimeline` → `Core` → `Data`. Keep it that way; don't make
+Dependency direction: `MemoryTimeline` → `Core` → `Data`; `Sync` sits beside them
+(`Sync` → `Core`/`Data`/`SyncContracts`). Keep it that way; don't make
 `Core` depend on WinUI types or `Data` depend on `Core`.
 
 ### Data access — the single most important rule
@@ -92,6 +100,26 @@ await using var ctx = await _contextFactory.CreateDbContextAsync();
 | **Speech-to-text** | **Local Whisper** via `WhisperSpeechToTextService` (Whisper.net, ggml `base` model) | File-based, fully offline after a one-time ~140 MB model download to `%LOCALAPPDATA%\MemoryTimeline\Models\`. The recorded WAV is transcribed on-device — **not** the old Windows `SpeechRecognizer`, which is mic-only and can't transcribe a file. |
 | **LLM extraction** | **Anthropic Claude** via `AnthropicLlmService` (`Anthropic.SDK`) | Turns transcripts into structured events (title, dates, category, tags, people, locations) held in a review queue. Requires an Anthropic key. |
 | **Embeddings (RAG)** | **OpenAI** via `OpenAIEmbeddingService` (registered with `AddHttpClient`) | **Optional** — powers Connections / semantic similarity. Degrades gracefully with a clear CTA when no embedding key is set. |
+
+### Sync service (iOS companion)
+
+The iOS roadtrip companion sync layer (design:
+[`docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md`](./docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md)):
+
+- **Server** — `services/MemoryTimeline.SyncApi`: self-hosted, single owner, SQLite +
+  filesystem artifact store. Devices join with a one-time **pairing code**
+  (`POST /api/v1/devices/register`) and get a device-bound short-lived JWT plus a
+  rotating refresh token; revocation (from Windows Settings → Sync) is immediate.
+- **Loop** — the Windows client (`MemoryTimeline.Sync`, wired in `App.xaml.cs`) runs
+  **pull → ingest → ack**: `SyncBackgroundWorker` pulls changes after its stored
+  cursor, `RemoteChangeApplier` downloads each capture's audio artifact and feeds it
+  to the idempotent `ICaptureIngestionService` (a remote capture enters review
+  **exactly once**), the cursor advances only past applied/skipped/permanently-failed
+  changes, then `LocalOutboxPublisher` drains `sync_outbox` to `POST /api/v1/sync/push`.
+- Wire DTOs: `shared-contracts/dotnet/MemoryTimeline.SyncContracts` (camelCase JSON —
+  clients must use `JsonSerializerDefaults.Web`); contract source of truth:
+  `shared-contracts/openapi/memory-line-sync-v1.yaml`. Operator guide (run, Docker,
+  pairing, endpoints): [`services/README.md`](./services/README.md).
 
 ### The memory pipeline
 
@@ -210,6 +238,6 @@ focus** — treat it as maintenance. Only touch it for an explicitly Electron-sc
 
 ---
 
-**Last Updated:** 2026-07-10
+**Last Updated:** 2026-08-07
 **Primary target:** Windows Native (.NET 8 / WinUI 3) — `windows-native/`
 **Legacy:** Electron — `src/`
