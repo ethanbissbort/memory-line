@@ -422,10 +422,13 @@ final class UploadCoordinator {
     ) -> CaptureOutcome {
         capture.state = .failedRecoverable
         capture.lastError = message
+        // Copied out before logging: Logger's interpolation is an @autoclosure,
+        // which cannot capture an inout parameter.
+        let captureId = capture.id
         do {
             try store.update(capture)
         } catch {
-            logger.error("could not persist failure state for id=\(capture.id, privacy: .public)")
+            logger.error("could not persist failure state for id=\(captureId, privacy: .public)")
         }
         return .failed(message: message, abortPass: abortPass)
     }
