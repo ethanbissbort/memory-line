@@ -255,13 +255,17 @@ final class MacUploadCoordinatorTests: XCTestCase {
         let bad = try makeCapture(in: f, order: 0)
         let good = try makeCapture(in: f, order: 1)
         let api = FakeSyncAPI()
-        // Scripted ten deep: if the coordinator ever retried inside one drain,
-        // the failure would keep firing and the call log would give it away.
+        // Exactly one scripted failure, so it lands on `bad` and `good` then
+        // uploads cleanly. A retry inside the same drain would still be caught:
+        // it would put a third "createCapture" in the log, which the count
+        // assertion below rejects. (Scripting the failure ten deep instead
+        // would fail `good` too, which is the pass stopping — the very thing
+        // this test exists to prove does not happen.)
         api.fail(
             "createCapture",
             with: SyncAPIError(
                 statusCode: 422, apiError: nil, retryable: false, message: "The capture was rejected."),
-            times: 10)
+            times: 1)
 
         let coordinator = makeCoordinator(f, api: api)
         await coordinator.drainPendingUploads()
