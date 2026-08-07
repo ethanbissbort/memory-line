@@ -1,11 +1,127 @@
 # Windows Native Development Status
 
-**Last Updated:** 2026-08-06
+**Last Updated:** 2026-08-07
 **Current Phase:** Phase 7 - Testing & Deployment (plus the 2026-08 feature-spec wave, landed)
-**Overall Progress:** Phases 0-6 complete; F1–F12 feature spec implemented; Phase 7 in progress
+**Overall Progress:** Phases 0-6 complete; F1–F12 feature spec implemented; iOS companion Phases 0-1 landed; Phase 7 in progress
 **Status:** 🔄 IN PROGRESS — builds green in CI, end-to-end runtime validation ongoing
 
 ---
+
+## iOS roadtrip companion — Phase 1: sync service & Windows sync client (2026-08)
+
+**Date:** 2026-08-07
+
+Phase 1 of the iOS roadtrip companion plan (design doc section 19; see the
+Phase 0 entry below for the groundwork it builds on) landed:
+
+- **Sync service** — new `services/MemoryTimeline.SyncApi` (ASP.NET Core,
+  net8.0; unlike the WinUI solution it is plain cross-platform .NET and
+  builds/tests/runs with the `dotnet` CLI). Self-hosted Mode A server
+  (design §4.2): device pairing/registration gated by an owner pairing code,
+  self-issued HMAC-SHA256 JWT access tokens with refresh-token rotation and
+  immediate revocation (§14.1); idempotent capture metadata ingestion
+  (replaying a `captureId` returns the existing capture); chunked artifact
+  upload (initiate → PUT parts → complete with byte-length/part-count/SHA-256
+  validation, §11.4) into a filesystem artifact store; and an append-only
+  `sync_changes` log serving cursor-based `GET /sync/pull` (own-device echo
+  suppression), per-device idempotent `POST /sync/push` (push receipts keyed
+  on client sequence), and `POST /sync/ack`. SQLite metadata + artifact blobs
+  live under one configurable data directory. Operator guide:
+  [`../services/README.md`](../services/README.md).
+- **Windows sync client** — new `MemoryTimeline.Sync` project in the WinUI
+  solution. `SyncBackgroundWorker` runs a periodic (30 s) pull → apply →
+  ack → publish-outbox loop; `RemoteChangeApplier` turns each pulled capture
+  change into artifact download + idempotent `ICaptureIngestionService`
+  ingestion, so a remote audio capture enters the existing review queue
+  **exactly once**; `LocalOutboxPublisher` drains the Phase 0 `sync_outbox`
+  in order to `/sync/push` and marks accepted/duplicate rows delivered. The
+  cursor only advances past applied/skipped/permanently-failed changes;
+  retryable failures stop the pull and retry next cycle. Settings → Sync UI:
+  server URL + pairing code, enable/disable, sync-now, status line, and
+  unpair/revoke. New `SettingKeys.Sync*` constants (server URL, device ID,
+  tokens, cursor, auto-process); wire DTOs shared with the service via
+  `shared-contracts/dotnet/MemoryTimeline.SyncContracts` (camelCase JSON,
+  `JsonSerializerDefaults.Web`).
+- **CI** — new Linux workflow `.github/workflows/sync-api-build.yml` builds
+  `services/MemoryTimeline.Services.sln` and runs the SyncApi test suite with
+  the dotnet CLI on `ubuntu-latest`; the Windows workflow now also triggers
+  on this branch and on `shared-contracts/dotnet/**` changes.
+
+**Exit criterion status:** implemented and integration-tested at the service
+level — a test client can register, create a capture, upload its audio
+artifact, and the Windows pull → ingest path dedupes it into review exactly
+once. End-to-end validation against a real iPhone awaits the Phase 2 iOS
+client.
+
+**Known follow-ups (from the post-fix verification pass):**
+
+- The `RefreshTokenHash` concurrency token applies to every device-row update;
+  ack/revoke racing a concurrent refresh can surface a retryable 500 (only
+  refresh has reload-and-retry today).
+- Crash-orphaned `*.tmp` assembly files in the service's artifact store are
+  never swept (in-process failures clean up after themselves).
+- The register endpoint reads the `Idempotency-Key` header directly and does
+  not enforce the 128-char limit the authenticated-route filter applies.
+- Service schema is `EnsureCreated` (no migrations); pre-release upgrades
+  across schema changes require deleting `sync.db` (see services/README.md).
+- Sync tokens are stored in the Windows app's settings table like the other
+  keys; DPAPI-at-rest remains the tracked hardening follow-up.
+- Per the resolved design §22 decisions (2026-08-07): the service needs an
+  artifact retention sweep (delete artifacts 14 days after Windows
+  acknowledges archival, or sooner under storage pressure) — artifacts are
+  currently retained indefinitely.
+
+**Design decisions:** all §22 open decisions were resolved by the owner on
+2026-08-07 — self-hosted only, no user accounts (pairing-code device model),
+Windows-local transcription (GPU/NPU when available), optional on-device iOS
+Whisper, Google places within the free tier with informed Apple failover,
+CarPlay screens designed for v1 with the entitlement deferred (Siri/widget/
+Action Button carry the in-car experience), 14-day artifact retention after
+archival ack, pending transcripts excluded from the assistant unless
+explicitly included via UI, 14-day route-context retention. See the design
+doc §22 for the full records.
+
+**Next step:** Phase 2 — iOS capture MVP (SwiftUI shell, one-touch recording,
+durable local queue, background upload, capture history/status).
+
+---
+
+## iOS roadtrip companion — Phase 0: contract & schema groundwork (2026-08)
+
+**Date:** 2026-08-06
+
+Phase 0 of the iOS roadtrip companion plan (a separate track from the app phases
+below; see
+[`../docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md`](../docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md),
+section 19) landed:
+
+- **Device-neutral capture schema** — new `captures`, `capture_artifacts`, and
+  `sync_outbox` tables (EF models, `AppDbContext` configuration, idempotent
+  `SchemaUpgrader` DDL); `recording_queue` extended with device-neutral
+  provenance columns (`source_capture_id` **unique**, `source_device_id`,
+  `source_platform`, `audio_artifact_id`, `original_file_name`,
+  `content_sha256`, `sync_state`, `received_at`, `processing_stage`).
+- **Idempotent ingestion service** — `ICaptureIngestionService` /
+  `CaptureIngestionService`: resolves artifacts via `IArtifactResolver`
+  (Phase 0: local files), verifies declared byte length + SHA-256, dedupes by
+  source capture ID (including the insert race), and writes capture + artifact +
+  queue item + sync outbox record in **one atomic SaveChanges**
+  (`ICaptureRepository.IngestAsync`).
+- **Queue processing stages** — `QueueService` now stamps
+  `ProcessingStage`/`SyncState` through the pipeline (transcribing,
+  review_ready/completed, failed_configuration, failed_retryable), gained
+  `ProcessCaptureAsync`, and resets items to pending on cancellation.
+- **Shared API contracts** — new `shared-contracts/` directory:
+  `openapi/memory-line-sync-v1.yaml` (Sync API v1 skeleton) and
+  `json-schema/capture-envelope.v1.json` (remote capture ingestion envelope);
+  Swift/C# clients will be generated from these (see `shared-contracts/README.md`).
+
+Existing Windows recordings pass through the new ingestion abstraction with no
+UI behavior change (the Phase 0 exit criterion).
+
+**Next step:** Phase 1 — sync service (device registration/auth, capture
+metadata + artifact upload, cursor-based push/pull) and the Windows sync worker
+that drains the new `sync_outbox`.
 
 ## 2026-08 feature-spec implementation (F1–F12)
 
@@ -873,6 +989,6 @@ These reflect the real post-audit follow-ups (see `HARDENING-FOLLOWUPS.md`).
 **Document Owner:** Development Team
 **Phase 7 Status:** In progress (CI Windows build green through the F1–F12 wave pushes; runtime validation ongoing)
 **Next Review:** After end-to-end runtime validation
-**Last Updated:** 2026-08-06
+**Last Updated:** 2026-08-07
 
 <!-- CI retrigger 2026-08-06: runs 31117811806/31119588286/31121424093/31124292681 died (pushes a4f25ca/b9f4276 produced no runs at all — Actions event pipeline outage) to runner/Actions-service infrastructure failures before reaching the code; tree identical to 0d365b2. -->

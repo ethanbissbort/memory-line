@@ -16,6 +16,7 @@ on:
     branches:
       - claude/multi-agent-code-review-bVmNX
       - claude/design-document-ingestion-27bl5z
+      - claude/multi-agent-document-exec-597ynm
     paths:
       - 'windows-native/**'
       - 'shared-contracts/dotnet/**'

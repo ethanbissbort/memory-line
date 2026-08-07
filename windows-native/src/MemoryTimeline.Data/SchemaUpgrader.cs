@@ -162,6 +162,117 @@ public static class SchemaUpgrader
                 CREATE INDEX IF NOT EXISTS "IX_saved_searches_last_used_at" ON "saved_searches" ("last_used_at");
                 """);
 
+            await EnsureTableAsync(connection, existingTables, "drafts", logger,
+                """
+                CREATE TABLE IF NOT EXISTS "drafts" (
+                    "draft_id" TEXT NOT NULL CONSTRAINT "PK_drafts" PRIMARY KEY,
+                    "draft_type" TEXT NOT NULL,
+                    "title" TEXT NOT NULL,
+                    "payload_json" TEXT NOT NULL,
+                    "created_at" TEXT NOT NULL,
+                    "updated_at" TEXT NOT NULL
+                );
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS "IX_drafts_draft_type" ON "drafts" ("draft_type");
+                CREATE INDEX IF NOT EXISTS "IX_drafts_updated_at" ON "drafts" ("updated_at");
+                """);
+
+            // Media attachments (2026-08 F2). New tables may carry their FK
+            // inline in CREATE TABLE (unlike ALTER TABLE ADD COLUMN, which
+            // cannot add one). media_type is an INTEGER enum
+            // (0=Image 1=Video 2=Audio 3=Document).
+            await EnsureTableAsync(connection, existingTables, "event_media", logger,
+                """
+                CREATE TABLE IF NOT EXISTS "event_media" (
+                    "media_id" TEXT NOT NULL CONSTRAINT "PK_event_media" PRIMARY KEY,
+                    "event_id" TEXT NOT NULL,
+                    "file_path" TEXT NOT NULL,
+                    "thumbnail_path" TEXT NULL,
+                    "media_type" INTEGER NOT NULL,
+                    "caption" TEXT NULL,
+                    "captured_at" TEXT NULL,
+                    "latitude" REAL NULL,
+                    "longitude" REAL NULL,
+                    "file_size_bytes" INTEGER NULL,
+                    "content_hash" TEXT NULL,
+                    "sort_order" INTEGER NOT NULL,
+                    "created_at" TEXT NOT NULL,
+                    CONSTRAINT "FK_event_media_events_event_id" FOREIGN KEY ("event_id") REFERENCES "events" ("event_id") ON DELETE CASCADE
+                );
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS "IX_event_media_event_id" ON "event_media" ("event_id");
+                CREATE INDEX IF NOT EXISTS "IX_event_media_content_hash" ON "event_media" ("content_hash");
+                """);
+
+            // Guided recall prompts (2026-08 F6). kind/status/dismiss_reason
+            // are INTEGER enums (RecallPromptKind / RecallPromptStatus /
+            // DismissReason); the (kind, entity_id) index backs the dedupe
+            // lookup that keeps the app from ever re-asking a question.
+            await EnsureTableAsync(connection, existingTables, "recall_prompts", logger,
+                """
+                CREATE TABLE IF NOT EXISTS "recall_prompts" (
+                    "prompt_id" TEXT NOT NULL CONSTRAINT "PK_recall_prompts" PRIMARY KEY,
+                    "kind" INTEGER NOT NULL,
+                    "question" TEXT NOT NULL,
+                    "anchor_start" TEXT NULL,
+                    "anchor_end" TEXT NULL,
+                    "entity_id" TEXT NULL,
+                    "entity_name" TEXT NULL,
+                    "status" INTEGER NOT NULL,
+                    "dismiss_reason" INTEGER NOT NULL,
+                    "snoozed_until" TEXT NULL,
+                    "queue_id" TEXT NULL,
+                    "created_at" TEXT NOT NULL,
+                    "updated_at" TEXT NOT NULL
+                );
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS "IX_recall_prompts_status" ON "recall_prompts" ("status");
+                CREATE INDEX IF NOT EXISTS "IX_recall_prompts_kind_entity_id" ON "recall_prompts" ("kind", "entity_id");
+                """);
+
+            // Person aliases (2026-08 F9). The alias unique index is
+            // case-insensitive (COLLATE NOCASE): a spelling belongs to at most
+            // one person. New tables may carry their FK inline in CREATE TABLE
+            // (unlike ALTER TABLE ADD COLUMN, which cannot add one).
+            await EnsureTableAsync(connection, existingTables, "person_aliases", logger,
+                """
+                CREATE TABLE IF NOT EXISTS "person_aliases" (
+                    "alias_id" TEXT NOT NULL CONSTRAINT "PK_person_aliases" PRIMARY KEY,
+                    "person_id" TEXT NOT NULL,
+                    "alias" TEXT NOT NULL,
+                    "created_at" TEXT NOT NULL,
+                    CONSTRAINT "FK_person_aliases_people_person_id" FOREIGN KEY ("person_id") REFERENCES "people" ("person_id") ON DELETE CASCADE
+                );
+                """,
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS "IX_person_aliases_alias" ON "person_aliases" ("alias" COLLATE NOCASE);
+                CREATE INDEX IF NOT EXISTS "IX_person_aliases_person_id" ON "person_aliases" ("person_id");
+                """);
+
+            // Event revision history (2026-08 F12). Deliberately NO foreign
+            // key to events - history must outlive event deletion (matches
+            // OnModelCreating, which configures no relationship). revision_kind
+            // is an INTEGER enum (RevisionKind: 0=Created 1=Edited 2=Approved
+            // 3=Imported 4=Merged 5=Restored). The composite index is
+            // descending on revised_at to serve newest-first history reads.
+            await EnsureTableAsync(connection, existingTables, "event_revisions", logger,
+                """
+                CREATE TABLE IF NOT EXISTS "event_revisions" (
+                    "revision_id" TEXT NOT NULL CONSTRAINT "PK_event_revisions" PRIMARY KEY,
+                    "event_id" TEXT NOT NULL,
+                    "revised_at" TEXT NOT NULL,
+                    "revision_kind" INTEGER NOT NULL,
+                    "snapshot_json" TEXT NOT NULL,
+                    "changed_fields_csv" TEXT NULL
+                );
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS "IX_event_revisions_event_id_revised_at" ON "event_revisions" ("event_id", "revised_at" DESC);
+                """);
+
             // ---- Sync groundwork tables (iOS companion design, Phase 0) ----
 
             await EnsureTableAsync(connection, existingTables, "captures", logger,
@@ -272,6 +383,56 @@ public static class SchemaUpgrader
             await EnsureColumnsAsync(connection, existingTables, "tags", logger, new[]
             {
                 ("color", "\"color\" TEXT NULL"),
+            });
+
+            // Geographic data on locations (2026-08 F10): nullable coordinates
+            // (REAL, decimal degrees), optional place classification, the
+            // geocoder's canonical display name, and the geocoded-at stamp
+            // (null = coordinates came from photo EXIF or a manual pin drop,
+            // i.e. the place name never left the machine).
+            await EnsureColumnsAsync(connection, existingTables, "locations", logger, new[]
+            {
+                ("latitude",       "\"latitude\" REAL NULL"),
+                ("longitude",      "\"longitude\" REAL NULL"),
+                ("place_type",     "\"place_type\" TEXT NULL"),
+                ("canonical_name", "\"canonical_name\" TEXT NULL"),
+                ("geocoded_at",    "\"geocoded_at\" TEXT NULL"),
+            });
+
+            // Contact-book columns on people (2026-08 people feature). NOT NULL
+            // columns must carry constant defaults - SQLite's ALTER TABLE ADD
+            // COLUMN requirement.
+            await EnsureColumnsAsync(connection, existingTables, "people", logger, new[]
+            {
+                ("nickname",       "\"nickname\" TEXT NULL"),
+                ("relationship",   "\"relationship\" TEXT NULL"),
+                ("email",          "\"email\" TEXT NULL"),
+                ("phone",          "\"phone\" TEXT NULL"),
+                ("birthday",       "\"birthday\" TEXT NULL"),
+                ("company",        "\"company\" TEXT NULL"),
+                ("notes",          "\"notes\" TEXT NULL"),
+                ("photo_path",     "\"photo_path\" TEXT NULL"),
+                ("avatar_color",   "\"avatar_color\" TEXT NULL"),
+                ("is_favorite",    "\"is_favorite\" INTEGER NOT NULL DEFAULT 0"),
+                ("first_met_date", "\"first_met_date\" TEXT NULL"),
+                ("updated_at",     "\"updated_at\" TEXT NOT NULL DEFAULT '2025-01-21 00:00:00'"),
+                // Merge tombstone (2026-08 F9): non-null means "merged into
+                // this person"; NULL keeps every pre-existing row living.
+                ("merged_into_id", "\"merged_into_id\" TEXT NULL"),
+            });
+
+            // Text/paste capture columns on recording_queue (2026-08 text-source
+            // feature): source_type discriminator (INTEGER enum, 0 = Audio, so
+            // every pre-existing row stays an audio source), optional label and
+            // the persisted transcript (pasted text for Text/Imported sources,
+            // cached Whisper output for Audio sources). NOT NULL added columns
+            // must carry constant defaults - SQLite's ALTER TABLE ADD COLUMN
+            // requirement.
+            await EnsureColumnsAsync(connection, existingTables, "recording_queue", logger, new[]
+            {
+                ("source_type",  "\"source_type\" INTEGER NOT NULL DEFAULT 0"),
+                ("source_label", "\"source_label\" TEXT NULL"),
+                ("transcript",   "\"transcript\" TEXT NULL"),
             });
 
             // Device-neutral provenance columns on recording_queue (design §7.1/§7.3).

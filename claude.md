@@ -125,12 +125,20 @@ The iOS roadtrip companion sync layer (design:
 ### The memory pipeline
 
 `Record (Windows MediaCapture) → recording_queue → Transcribe (local Whisper) → Extract
-(Claude → pending_events) → Review/approve → Timeline`. Each hop persists state so a
-failure is recoverable and visible in the UI. Approve is an **atomic** transaction
-writing the event plus its tags/people/locations together. Recordings now enter the
-queue through `ICaptureIngestionService` (idempotent by source capture ID, hashes the
-audio, and writes a sync outbox record atomically with the capture/artifact/queue
-rows) — see the iOS companion design doc for the sync architecture this feeds.
+(LLM → pending_events) → Review/approve → Timeline`. **Text sources join audio in the
+same queue**: pasted/typed text (Ctrl+Shift+V on the Queue page) becomes a
+`recording_queue` row with `source_type = Text` and the text stored in its `transcript`
+column, skipping transcription; Whisper output is likewise persisted to `transcript` and
+reused across retries instead of re-transcribing. Each hop persists state so a failure is
+recoverable and visible in the UI. Extraction assigns a **date precision**
+(`DatePrecision`: Exact/Day/Month/Season/Year/Decade/Unknown) rather than inventing exact
+days, and resolves people **alias-aware** (case-insensitive name → alias lookup). Approve
+is an **atomic** transaction writing the event plus its tags/people/locations (and
+precision/uncertainty fields) together.
+Recordings and text enter the queue through `ICaptureIngestionService` (idempotent by
+source capture ID, hashes the audio, and writes a sync outbox record atomically with
+the capture/artifact/queue rows) — see the iOS companion design doc for the sync
+architecture this feeds.
 
 ---
 
@@ -186,16 +194,28 @@ uncertainty window and `last_viewed_at`/`view_count` view tracking), `eras`,
 `merged_into_id` merge tombstone), `person_aliases`, `locations` (optional
 `latitude`/`longitude`, `place_type`, `canonical_name`, `geocoded_at`).
 Junctions: `event_tags`, `event_people`, `event_locations`.
-Processing: `recording_queue`, `pending_events`.
+Processing: `recording_queue` (with `source_type`, `source_label`, persisted
+`transcript`), `pending_events` (mirrors the events precision columns).
 Sync groundwork (Phase 0): `captures`, `capture_artifacts`, `sync_outbox` — the
 device-neutral capture/artifact/outbox schema from the iOS companion design
 ([`docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md`](./docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md));
 `recording_queue` also gained device-neutral provenance columns
 (`source_capture_id` **unique**, `source_device_id`, `source_platform`,
 `audio_artifact_id`, `content_sha256`, `processing_stage`, `sync_state`, ...).
-RAG: `event_embeddings`, `cross_references`.
-System: `app_settings`. The Electron build uses a compatible SQLite schema (plus
-`events_fts` FTS5, Electron-only). DB file: `%LOCALAPPDATA%\MemoryTimeline\memory-timeline.db`.
+Attachments & history: `event_media` (managed media copies, EXIF, thumbnails, content
+hash), `event_revisions` (append-only edit history), `recall_prompts` (guided-recall
+questions, deduped forever).
+RAG: `event_embeddings` (with per-row `embedding_dimension`), `cross_references`.
+UX: `drafts`, `saved_searches`.
+System: `app_settings` — 33 seeded keys; **seed parity is three-way** (the
+`AppDbContext.SeedDefaultSettings` HasData seed, the `SchemaUpgrader` INSERT OR IGNORE
+backfill, and the `SettingKeys` constants must stay in sync — keep all three when adding
+a seeded setting).
+Identity: the unique name indexes on `people`/`tags`/`locations` are **COLLATE NOCASE**;
+`SchemaUpgrader` defensively merges pre-existing case-variant duplicates (backfilling the
+keeper's empty contact columns) before rebuilding each index.
+The Electron build uses a compatible SQLite schema (plus `events_fts` FTS5,
+Electron-only). DB file: `%LOCALAPPDATA%\MemoryTimeline\memory-timeline.db`.
 
 ---
 

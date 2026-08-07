@@ -104,6 +104,10 @@ public partial class App : Application
                     services.AddSingleton<IEventEmbeddingRepository, EventEmbeddingRepository>();
                     services.AddSingleton<IAppSettingRepository, AppSettingRepository>();
                     services.AddSingleton<IPendingEventRepository, PendingEventRepository>();
+                    services.AddSingleton<IDraftRepository, DraftRepository>();
+                    services.AddSingleton<IEventMediaRepository, EventMediaRepository>();
+                    services.AddSingleton<IRecallPromptRepository, RecallPromptRepository>();
+                    services.AddSingleton<IEventRevisionRepository, EventRevisionRepository>();
                     services.AddSingleton<ICaptureRepository, CaptureRepository>();
                     services.AddSingleton<ISyncOutboxRepository, SyncOutboxRepository>();
 
@@ -152,8 +156,18 @@ public partial class App : Application
                     services.AddSingleton<ILocalOutboxPublisher, LocalOutboxPublisher>();
                     services.AddSingleton<ISyncBackgroundWorker, SyncBackgroundWorker>();
 
-                    // Phase 4: LLM & Event Extraction services
-                    services.AddSingleton<ILlmService, AnthropicLlmService>();
+                    // Phase 4: LLM & Event Extraction services.
+                    // F11 pluggable providers: concrete LLM services are registered as
+                    // themselves (AnthropicLlmService singleton; OpenAiCompatibleLlmService
+                    // as an HttpClient typed client, i.e. transient with factory-managed
+                    // HttpClient). The RoutingLlmService facade re-reads llm_provider on
+                    // every call and resolves the matching concrete per call, so switching
+                    // providers in Settings applies without a restart and HttpClient
+                    // lifetimes stay healthy.
+                    services.AddSingleton<AnthropicLlmService>();
+                    services.AddHttpClient<OpenAiCompatibleLlmService>();
+                    services.AddSingleton<ILlmUsageTracker, LlmUsageTracker>();
+                    services.AddSingleton<ILlmService, RoutingLlmService>();
                     services.AddSingleton<IEventExtractionService, EventExtractionService>();
 
                     // Phase 5: RAG & Embedding services.

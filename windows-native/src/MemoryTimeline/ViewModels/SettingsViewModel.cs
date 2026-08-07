@@ -24,6 +24,10 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     private readonly IThemeService _themeService;
     private readonly IExportService _exportService;
     private readonly IImportService _importService;
+    private readonly IEventService _eventService;
+    private readonly ILlmUsageTracker _llmUsageTracker;
+    private readonly IBackupService _backupService;
+    private readonly IMediaService _mediaService;
     private readonly ISyncClient _syncClient;
     private readonly ISyncSettingsStore _syncSettingsStore;
     private readonly ISyncBackgroundWorker _syncBackgroundWorker;
@@ -37,6 +41,14 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     // True while persisted sync values are being loaded into the observable
     // properties, so the persist-on-change handlers do not write them back.
     private bool _suppressSyncPersistence;
+
+    // Embedding provider persisted at load time; a differing selection shows
+    // the re-embed warning until "Re-embed all events" completes.
+    private string _loadedEmbeddingProviderKey = EmbeddingProviderKeys.Local;
+    private CancellationTokenSource? _reEmbedCts;
+
+    // Suppresses persist-on-change while InitializeAsync loads stored values.
+    private bool _isLoadingBackupSettings;
 
     [ObservableProperty]
     private string _selectedTheme = "System";
@@ -168,6 +180,9 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         ILlmUsageTracker llmUsageTracker,
         IBackupService backupService,
         IMediaService mediaService,
+        ISyncClient syncClient,
+        ISyncSettingsStore syncSettingsStore,
+        ISyncBackgroundWorker syncBackgroundWorker,
         ILogger<SettingsViewModel> logger)
     {
         _settingsService = settingsService;
@@ -178,6 +193,9 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         _llmUsageTracker = llmUsageTracker;
         _backupService = backupService;
         _mediaService = mediaService;
+        _syncClient = syncClient;
+        _syncSettingsStore = syncSettingsStore;
+        _syncBackgroundWorker = syncBackgroundWorker;
         _logger = logger;
 
         // Capture the UI dispatcher while we are still on the UI thread.
@@ -268,6 +286,9 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             {
                 _isLoadingBackupSettings = false;
             }
+
+            // Load sync configuration and pairing state
+            await LoadSyncSettingsAsync();
 
             StatusMessage = "Settings loaded";
         }
