@@ -93,10 +93,23 @@ final class MacAudioRecorderService: MacAudioRecording {
     private(set) var authorization: MacMicrophoneAuthorization
 
     /// Capture type applied to the next recording. `MacAudioRecording.start`
-    /// takes no type — the Mac's capture UI sets this and persists the change
-    /// to `AppSettingsKey.defaultCaptureType`, mirroring how the iOS capture
-    /// screen drives `AudioRecorderService.currentType`.
-    var currentType: CaptureType
+    /// carries no type, so this is how the capture UI says what the next
+    /// recording is.
+    ///
+    /// Read and written straight through `AppSettingsKey.defaultCaptureType`
+    /// rather than cached: the capture screen persists its own picker to that
+    /// key, and a recorder that read the key once at launch would keep filing
+    /// captures under the old type for the rest of the session. Going through
+    /// the store means the two cannot disagree however the composition root
+    /// wires them. Not observation-tracked — the settings store is not
+    /// observable — exactly as `MacAppEnvironment.isPaired` is not.
+    var currentType: CaptureType {
+        get {
+            settings.string(AppSettingsKey.defaultCaptureType)
+                .flatMap(CaptureType.init(rawValue:)) ?? .memory
+        }
+        set { settings.set(newValue.rawValue, for: AppSettingsKey.defaultCaptureType) }
+    }
 
     // MARK: - Dependencies
 
@@ -165,7 +178,7 @@ final class MacAudioRecorderService: MacAudioRecording {
 
     /// - Parameters:
     ///   - store: durable capture storage; rows are written before and after audio I/O.
-    ///   - settings: read for `AppSettingsKey.defaultCaptureType`.
+    ///   - settings: backs `currentType` via `AppSettingsKey.defaultCaptureType`.
     ///   - onFinalized: invoked on the main actor after a capture becomes durable.
     init(
         store: any CaptureStore,
@@ -175,8 +188,6 @@ final class MacAudioRecorderService: MacAudioRecording {
         self.store = store
         self.settings = settings
         self.onFinalized = onFinalized
-        self.currentType = settings.string(AppSettingsKey.defaultCaptureType)
-            .flatMap(CaptureType.init(rawValue:)) ?? .memory
         self.authorization = Self.currentAuthorization()
     }
 
