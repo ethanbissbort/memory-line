@@ -47,7 +47,7 @@
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" />
 
     <!-- WinUI for UI types (Visibility, etc.) -->
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260710003" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.3.1" />
   </ItemGroup>
 
   <ItemGroup>
