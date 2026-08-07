@@ -1,6 +1,6 @@
 import AppIntents
 import Foundation
-import os.log
+import os
 
 /// App Intents exposed to Siri, Shortcuts, widgets, and the Action Button
 /// (design §8.6).
@@ -16,7 +16,7 @@ private let intentLogger = Logger(subsystem: "com.memoryline.companion", categor
 /// Starts a new voice capture.
 struct StartRecordingIntent: AppIntent {
     static var title: LocalizedStringResource = "Start Memory Recording"
-    static var description = IntentDescription("Starts a new Memory Line voice capture.")
+    static var description: IntentDescription? = IntentDescription("Starts a new Memory Line voice capture.")
     /// The recorder lives in the app process, and foregrounding keeps the
     /// audio session reliable, so every recording intent opens the app.
     static var openAppWhenRun: Bool = true
@@ -32,7 +32,7 @@ struct StartRecordingIntent: AppIntent {
 /// Stops and saves the in-progress voice capture.
 struct StopRecordingIntent: AppIntent {
     static var title: LocalizedStringResource = "Stop Memory Recording"
-    static var description = IntentDescription("Stops and saves the current Memory Line voice capture.")
+    static var description: IntentDescription? = IntentDescription("Stops and saves the current Memory Line voice capture.")
     static var openAppWhenRun: Bool = true
 
     @MainActor
@@ -47,7 +47,7 @@ struct StopRecordingIntent: AppIntent {
 /// action used for the Action Button and widget taps.
 struct ToggleRecordingIntent: AppIntent {
     static var title: LocalizedStringResource = "Toggle Memory Recording"
-    static var description = IntentDescription("Starts a Memory Line voice capture, or stops and saves the one in progress.")
+    static var description: IntentDescription? = IntentDescription("Starts a Memory Line voice capture, or stops and saves the one in progress.")
     static var openAppWhenRun: Bool = true
 
     @MainActor
