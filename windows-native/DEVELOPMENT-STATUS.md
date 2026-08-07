@@ -66,6 +66,20 @@ client.
   across schema changes require deleting `sync.db` (see services/README.md).
 - Sync tokens are stored in the Windows app's settings table like the other
   keys; DPAPI-at-rest remains the tracked hardening follow-up.
+- Per the resolved design §22 decisions (2026-08-07): the service needs an
+  artifact retention sweep (delete artifacts 14 days after Windows
+  acknowledges archival, or sooner under storage pressure) — artifacts are
+  currently retained indefinitely.
+
+**Design decisions:** all §22 open decisions were resolved by the owner on
+2026-08-07 — self-hosted only, no user accounts (pairing-code device model),
+Windows-local transcription (GPU/NPU when available), optional on-device iOS
+Whisper, Google places within the free tier with informed Apple failover,
+CarPlay screens designed for v1 with the entitlement deferred (Siri/widget/
+Action Button carry the in-car experience), 14-day artifact retention after
+archival ack, pending transcripts excluded from the assistant unless
+explicitly included via UI, 14-day route-context retention. See the design
+doc §22 for the full records.
 
 **Next step:** Phase 2 — iOS capture MVP (SwiftUI shell, one-touch recording,
 durable local queue, background upload, capture history/status).

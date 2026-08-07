@@ -1,6 +1,6 @@
 # Memory Line iOS Roadtrip Companion — System Design
 
-**Status:** Proposed architecture  
+**Status:** Accepted — Phases 0–1 implemented (Windows + sync service); §22 decisions resolved 2026-08-07  
 **Date:** 2026-08-06  
 **Repository:** `ethanbissbort/memory-line`  
 **Target branch:** `design/ios-roadtrip-companion`
@@ -1336,19 +1336,58 @@ Initial targets:
 
 ---
 
-## 22. Open decisions
+## 22. Resolved decisions
 
-These decisions should be resolved before Phase 1 implementation:
+Resolved by the owner on 2026-08-07 (originally "open decisions to resolve
+before Phase 1"):
 
-- Self-hosted-only launch versus optional managed relay.
-- Authentication provider and account recovery model.
-- Whether the Windows machine or server performs transcription by default.
-- Whether iOS may run an on-device small Whisper model as an optional low-latency path.
-- Preferred place/maps provider mix and pricing budget.
-- CarPlay entitlement/category feasibility for the intended feature set.
-- Retention period for relay-stored artifacts after Windows acknowledges archival.
-- Whether pending transcripts are searchable by the assistant before approval.
-- Maximum default route-context retention.
+1. **Deployment: self-hosted only.** No managed relay. Mode B (§4.1) is
+   dropped from the roadmap; the sync service runs on the user's own machine
+   or home-lab (Docker), reached over a private network (Tailscale/WireGuard
+   or a TLS reverse proxy).
+
+2. **Authentication: no user accounts or logins.** Single-owner identity with
+   device pairing, exactly as Phase 1 implemented: a server-held pairing code
+   admits devices, each device gets rotating tokens, and any device can be
+   revoked. Account recovery = re-pair using the pairing code from the
+   server's data directory; no email/password/recovery flows will be built.
+
+3. **Transcription: the Windows machine, by default.** Windows performs
+   transcription with its local Whisper pipeline, using GPU/NPU acceleration
+   when the hardware and an appropriate model are installed (CPU otherwise).
+   The sync service stores and forwards audio; it does not transcribe.
+
+4. **iOS on-device Whisper: yes, as an option.** A small on-device model is
+   an optional low-latency path (e.g. immediate rough transcript for the
+   assistant); Windows remains the authoritative transcription.
+
+5. **Places/maps: Google preferred, Apple selectable.** Detour/place lookups
+   use Google APIs by default with request caps sized to stay inside the free
+   tier. When the cap is reached, the app informs the user and offers to fail
+   over to Apple (MapKit) for the remainder of the period. Apple is also
+   available as a user-selectable primary provider.
+
+6. **CarPlay: design the screens for v1; entitlement deferred.** The app is
+   not intended for App Store publication. CarPlay screens are designed and
+   validated in the CarPlay Simulator (no entitlement needed there), but
+   rendering on a real head unit requires Apple to grant the CarPlay
+   entitlement to the signing developer account even for sideloaded personal
+   builds — so the in-car experience for v1 is carried by Siri, the Lock
+   Screen widget, and the Action Button (none need approval), with the
+   "driving task" category entitlement application as an optional later step.
+
+7. **Artifact retention on the sync service: 14 days after Windows
+   acknowledges archival, or sooner under storage pressure.** (Follow-up for
+   the Phase 1 service, which currently retains artifacts indefinitely.)
+
+8. **Pending transcripts and the assistant: excluded by default.** The
+   assistant searches approved events only; pending transcripts participate
+   only when the user deliberately includes them via an explicit UI option.
+
+9. **Route-context retention: 14 days by default.** Trip location trails
+   auto-delete after 14 days; a capture's single location snapshot is
+   retained with the memory itself (§14.4 controls still allow deleting it
+   independently).
 
 ---
 
