@@ -126,6 +126,30 @@ public static class SyncChangeEntityType
     /// the completed <see cref="AssistantTurn"/> instead.
     /// </summary>
     public const string AssistantTurnChunk = "assistant_turn_chunk";
+
+    /// <summary>
+    /// A life period, projected read-only from Windows
+    /// (<see cref="EraProjectionPayload"/>). Browsed independently of any
+    /// event, so it is its own entity rather than being folded into
+    /// <see cref="Event"/>.
+    /// </summary>
+    public const string Era = "era";
+
+    /// <summary>
+    /// A contact-book person, projected read-only from Windows
+    /// (<see cref="PersonProjectionPayload"/>). Resolves the person ids an
+    /// event projection carries, and backs the People hub.
+    /// </summary>
+    public const string Person = "person";
+
+    /// <summary>
+    /// A companion's approve/reject verdict on a pending event
+    /// (<see cref="PendingEventDecisionPayload"/>). The ONLY entity a
+    /// non-Windows device may author besides its own captures: a decision is
+    /// idempotent and carries no field values to merge, so accepting it does
+    /// not make the system multi-writer. Windows still performs the approval.
+    /// </summary>
+    public const string PendingEventDecision = "pending_event_decision";
 }
 
 /// <summary>
