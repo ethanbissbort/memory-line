@@ -28,6 +28,9 @@ struct MemoryLineCompanionApp: App {
         // BGTaskScheduler requires every launch handler to be registered
         // before the app finishes launching; App.init runs early enough.
         environment.uploads.registerBackgroundTasks()
+        // Both BGTaskScheduler handlers must be registered before the app
+        // finishes launching, or the identifiers in Info.plist are inert.
+        environment.statusSync.registerBackgroundTasks()
         _env = State(initialValue: environment)
     }
 

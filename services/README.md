@@ -3,7 +3,7 @@
 The self-hosted sync service for the iOS roadtrip companion — deployment
 **Mode A** from the system design
 ([`docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md`](../docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md),
-§4.1/§4.2): an ASP.NET Core (net8.0) service that runs on your own machine or
+§4.1/§4.2): an ASP.NET Core (net10.0) service that runs on your own machine or
 home-lab and brokers captures between mobile devices and the Windows
 Memory Timeline app. Single owner, SQLite metadata, filesystem artifact store.
 
@@ -22,6 +22,9 @@ Phase 1 scope (design §19):
 - an append-only change log behind cursor-based `/sync/pull`, per-device
   idempotent `/sync/push`, and `/sync/ack`.
 
+Phase 3 added the **capture status handoff** on top of that change log — no new
+endpoints, one new change type (see below).
+
 The assistant, trips, and detours endpoints exist in the API contract
 ([`shared-contracts/openapi/memory-line-sync-v1.yaml`](../shared-contracts/openapi/memory-line-sync-v1.yaml))
 but are later phases — this service does not implement them yet.
@@ -37,7 +40,7 @@ but are later phases — this service does not implement them yet.
 
 ## Run locally
 
-Requires the .NET 8 SDK.
+Requires the .NET 10 SDK (the projects target `net10.0`).
 
 ```bash
 cd services
@@ -150,6 +153,67 @@ contract: [`shared-contracts/openapi/memory-line-sync-v1.yaml`](../shared-contra
 Errors use the `ApiError` envelope (`code`, `message`, `retryable`,
 `correlationId`); `retryable` drives client backoff (design §16.2).
 
+## Capture status handoff (design §19 Phase 3)
+
+The service relays a capture's processing status from Windows to the phone that
+recorded it, so the user can follow the whole lifecycle without opening Windows.
+It rides the existing change log — there is no new endpoint.
+
+**Direction of flow, one way only:**
+
+```text
+Windows queue advances a stage
+  → capture_status row in the Windows sync_outbox
+  → POST /sync/push                      (LocalOutboxPublisher drains the outbox)
+  → sync_changes log + capture_status projection row
+  → GET /sync/pull on the originating phone
+  → applied to local state; a local notification if it crossed a milestone
+```
+
+- **`capture_status` is a change type, not an endpoint.** `entityType` is
+  `capture_status`, `entityId` is the `captureId`, `operation` is always
+  `upsert`, and `payloadJson` carries a `CaptureStatusChangePayload` —
+  status, processing stage, a transcript preview capped at 600 characters, the
+  full transcript's character count, pending/approved review counts, and a
+  failure reason with its retry classification. Full shape:
+  [`shared-contracts/openapi/memory-line-sync-v1.yaml`](../shared-contracts/openapi/memory-line-sync-v1.yaml)
+  and
+  [`shared-contracts/json-schema/capture-status-payload.v1.json`](../shared-contracts/json-schema/capture-status-payload.v1.json).
+- **Windows is the only writer, and nothing here is an instruction.** The
+  payload is a read-only projection of Windows-side state; transcript editing
+  and event approval stay on Windows. The service does not author status
+  either — it only validates, stores, and forwards.
+- **The phone still receives it.** Pull suppresses changes published by the
+  calling device, keyed on the publishing device, never on the device a capture
+  came from — so a phone gets the status Windows published about the phone's own
+  captures.
+- **One row per capture, latest wins.** `capture_status` holds the current
+  state only; the change log keeps the sequence that produced it, and a device
+  that pulls receives the payload re-serialized from the stored row, so a pulled
+  payload can never disagree with what was persisted. The capture's own
+  `status` column is kept in step, so `GET /captures/{captureId}` agrees with the
+  latest status change.
+- **Validation is per entry, not per request.** A rejected entry comes back in
+  the 200 response as `accepted=false` with a code-prefixed `error`, and never
+  enters the change log: `validation_error` for a `delete` operation, a
+  missing or unparseable payload, a `captureId` that is not a UUID equal to
+  `entityId`, a status outside the `local_only | uploading | received |
+  processing | review_ready | completed | failed` vocabulary, a
+  `transcriptPreview` over 600 characters, or a negative count;
+  `capture_not_found` when no capture with that ID belongs to the caller's
+  owner. An over-long preview is refused rather than truncated — truncation is
+  the publisher's decision, and silently cutting it here would hide a publisher
+  bug.
+- **Privacy (§14.5).** The preview, the transcript counts, and the failure
+  reason are stored but never logged; log lines carry IDs, the status
+  vocabulary, and counts only. `failureReason` is fixed publisher text keyed on
+  the failure stage, so it cannot leak raw error output, file paths, or
+  credentials.
+- **No push notifications.** The deployment is self-hosted with no accounts
+  (§22.1/§22.2), so there is no APNs certificate and no notification server in
+  this design. The phone learns about status by pulling, and posts its own
+  local notification when a pull observes a milestone.
+
 ## Security notes (design §14)
 
 - **Auth model:** registration is gated by the owner pairing code; every
@@ -174,6 +238,7 @@ Errors use the `ApiError` envelope (`code`, `message`, `retryable`,
 ```text
 {DataDir}/                 # SyncApi__DataDir, default ./data
 ├── sync.db                # SQLite: owners, devices, captures, capture_artifacts,
+│                          #   capture_status (latest Windows-authored status per capture),
 │                          #   sync_changes (change log), push_receipts, idempotency_records
 ├── artifacts/             # filesystem blob store (parts during upload, assembled artifacts after complete)
 ├── signing.key            # base64 HMAC token signing key (generated if not configured)
@@ -189,3 +254,10 @@ deployment across a schema change, stop the service and delete `sync.db`
 (paired devices re-register with the pairing code; completed artifacts under
 `artifacts/` are content-addressed by ID and can be removed too). Proper
 migrations are planned before any stable release.
+
+> The Phase 3 `capture_status` table is the one exception so far: because
+> `EnsureCreated` leaves an existing database untouched, startup issues an
+> idempotent `CREATE TABLE IF NOT EXISTS` for it. Upgrading a Phase 1/2
+> deployment to Phase 3 therefore does **not** require deleting `sync.db`. That
+> is a stopgap, not a migration system — the next schema change still needs
+> real migrations.

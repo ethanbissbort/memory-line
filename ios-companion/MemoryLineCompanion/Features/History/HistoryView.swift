@@ -1,14 +1,20 @@
 import SwiftUI
 
 /// Capture history: newest first, with per-row type, timestamp, duration, and
-/// lifecycle status. Rows push a detail view with playback and retry; swipe to
-/// delete asks for confirmation before removing the row AND its audio file.
-/// The sync pipeline status banner sits at the top whenever there is
-/// something in flight or failed.
+/// the fused lifecycle status — what this iPhone knows about the upload plus
+/// what Windows reported through `capture_status` sync changes. Rows push a
+/// detail view with the full timeline, transcript preview, and playback; swipe
+/// to delete asks for confirmation before removing the row AND its audio file.
+/// The outgoing (upload) and incoming (status) sync banners sit at the top
+/// whenever there is something in flight or failed, and pull-to-refresh asks
+/// the service for fresh status.
 @MainActor
 struct HistoryView: View {
     @Environment(AppEnvironment.self) private var env
     @State private var records: [CaptureRecord] = []
+    /// Windows-authored processing status keyed by capture ID. Read-only on the
+    /// phone — editing and approval stay on Windows (design §19 Phase 3).
+    @State private var statuses: [String: CaptureStatusRecord] = [:]
     @State private var errorMessage: String?
     @State private var deletionCandidate: CaptureRecord?
     @State private var isDeleteConfirmationPresented = false
@@ -27,11 +33,20 @@ struct HistoryView: View {
             }
             .navigationTitle("History")
         }
-        .onAppear(perform: reload)
-        // `uploads` is @Observable — reading these here re-renders on upload
-        // progress, and the reload keeps rows in sync with the database.
+        .onAppear {
+            reload()
+            // Opening History is exactly when the user wants Windows' latest
+            // word. The coordinator drops the kick when a pull is already
+            // running, sync is off, or the device is not paired.
+            env.statusSync.kick()
+        }
+        // `uploads` and `statusSync` are @Observable — reading these here
+        // re-renders on upload progress and on every status pull, and the
+        // reload keeps rows in sync with the database.
         .onChange(of: env.uploads.pendingCount) { reload() }
         .onChange(of: env.uploads.isSyncing) { reload() }
+        .onChange(of: env.statusSync.lastPulledAt) { reload() }
+        .onChange(of: env.statusSync.isPulling) { reload() }
     }
 
     private var historyList: some View {
@@ -39,6 +54,11 @@ struct HistoryView: View {
             if env.uploads.isSyncing || env.uploads.pendingCount > 0 || env.uploads.lastSyncError != nil {
                 Section {
                     SyncStatusView(coordinator: env.uploads)
+                }
+            }
+            if env.statusSync.isPulling || env.statusSync.lastPullError != nil {
+                Section {
+                    StatusPullRow(coordinator: env.statusSync)
                 }
             }
             if let errorMessage {
@@ -53,7 +73,7 @@ struct HistoryView: View {
                     NavigationLink {
                         HistoryDetailView(record: record)
                     } label: {
-                        HistoryRow(record: record)
+                        HistoryRow(record: record, summary: summary(for: record))
                     }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         // Active recordings can't be deleted from here; the
@@ -71,7 +91,7 @@ struct HistoryView: View {
                 }
             }
         }
-        .refreshable { await reload() }
+        .refreshable { await refresh() }
         .confirmationDialog(
             "Delete this capture?",
             isPresented: $isDeleteConfirmationPresented,
@@ -80,12 +100,29 @@ struct HistoryView: View {
         ) { record in
             Button("Delete Recording", role: .destructive) { delete(record) }
         } message: { record in
-            if record.state.isDoneUploading {
-                Text("This removes the recording and its local data from this iPhone. The copy already uploaded to your computer is kept.")
-            } else {
-                Text("This recording has not reached your computer yet. Deleting removes it permanently.")
+            // The warning follows where the audio actually is, not just where
+            // this phone got to: only a copy the PC (or at minimum the server)
+            // holds survives the deletion.
+            switch summary(for: record).scope {
+            case .computer:
+                Text("This removes the recording and its local data from this iPhone. The copy on your PC is kept.")
+            case .syncService:
+                Text("This removes the recording and its local data from this iPhone. The copy on your sync server is kept, but your PC has not picked it up yet.")
+            case .phoneOnly:
+                Text("This recording has not left this iPhone. Deleting removes it permanently.")
             }
         }
+    }
+
+    private func summary(for record: CaptureRecord) -> CaptureLifecycleSummary {
+        CaptureLifecycleSummary(record: record, status: statuses[record.id])
+    }
+
+    /// Pull-to-refresh: ask the service for status changes Windows published,
+    /// then re-read both stores.
+    private func refresh() async {
+        await env.statusSync.pullNow()
+        reload()
     }
 
     private func reload() {
@@ -94,6 +131,18 @@ struct HistoryView: View {
             errorMessage = nil
         } catch {
             errorMessage = "Couldn't load captures: \(error.localizedDescription)"
+        }
+        do {
+            // The store returns rows newest-update first; the rows are keyed by
+            // capture so the list can look each one up without rescanning.
+            statuses = Dictionary(
+                try env.statuses.allStatuses().map { ($0.captureId, $0) },
+                uniquingKeysWith: { first, _ in first })
+        } catch {
+            // Status is a read-only projection: a failed read must not hide the
+            // captures themselves, so keep the last snapshot and carry on.
+            AppLog.ui.error(
+                "capture status read failed: \(String(describing: error), privacy: .public)")
         }
     }
 
@@ -116,11 +165,15 @@ struct HistoryView: View {
     }
 }
 
-/// One history row: type icon, timestamp, duration, status chip, and the
-/// failure reason for failed captures.
+/// One history row: type icon, timestamp, duration, the fused lifecycle chip,
+/// where the recording currently lives, and one line of detail (failure reason,
+/// review counts, or what the PC is doing right now).
 @MainActor
 struct HistoryRow: View {
     let record: CaptureRecord
+    let summary: CaptureLifecycleSummary
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -131,17 +184,24 @@ struct HistoryRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(record.capturedAt, format: .dateTime.month(.abbreviated).day().year().hour().minute())
                     .font(.subheadline.weight(.medium))
-                HStack(spacing: 8) {
-                    Text(Duration.seconds(max(record.durationSeconds, 0)),
-                         format: .time(pattern: .minuteSecond))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    CaptureStatusChip(state: record.state)
+                // At accessibility text sizes the duration and the chip stop
+                // fitting side by side; stack them instead of truncating.
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 6) {
+                        durationText
+                        CaptureLifecycleChip(summary: summary)
+                    }
+                } else {
+                    HStack(spacing: 8) {
+                        durationText
+                        CaptureLifecycleChip(summary: summary)
+                    }
                 }
-                if record.state == .failedRecoverable, let reason = record.lastError {
-                    Text(reason)
+                CaptureScopeLabel(scope: summary.scope)
+                if let detail = summary.rowDetail, !detail.isEmpty {
+                    Text(detail)
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(summary.phase.isFailure ? Color.red : Color.secondary)
                         .lineLimit(2)
                 }
             }
@@ -149,44 +209,11 @@ struct HistoryRow: View {
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
     }
-}
 
-/// Compact capsule describing a capture's lifecycle state.
-@MainActor
-struct CaptureStatusChip: View {
-    let state: CaptureLifecycleState
-
-    var body: some View {
-        Text(label)
-            .font(.caption2.weight(.semibold))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(color.opacity(0.15), in: Capsule())
-            .foregroundStyle(color)
-    }
-
-    private var label: String {
-        switch state {
-        case .recording: return "Recording"
-        case .savedLocal: return "Saved locally"
-        case .queuedUpload: return "Waiting to upload"
-        case .uploading: return "Uploading"
-        case .uploaded: return "Uploaded"
-        case .processingRemote: return "Processing on PC"
-        case .reviewReady: return "Ready for review"
-        case .completed: return "Completed"
-        case .failedRecoverable: return "Failed"
-        case .cancelled: return "Cancelled"
-        }
-    }
-
-    private var color: Color {
-        switch state {
-        case .recording: return .orange
-        case .savedLocal, .queuedUpload, .cancelled: return .gray
-        case .uploading: return .blue
-        case .uploaded, .processingRemote, .reviewReady, .completed: return .green
-        case .failedRecoverable: return .red
-        }
+    private var durationText: some View {
+        Text(Duration.seconds(max(record.durationSeconds, 0)),
+             format: .time(pattern: .minuteSecond))
+            .font(.caption)
+            .foregroundStyle(.secondary)
     }
 }

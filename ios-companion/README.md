@@ -5,6 +5,10 @@ Phase 2 capture MVP (design doc `docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIG
 self-hosted sync service, capture history/status, Lock Screen + Home Screen widgets,
 and App Intents for Siri / Shortcuts / the Action Button.
 
+Plus Phase 3 (§19 Phase 3): the processing status Windows reports back, so a capture's
+whole lifecycle is readable from the phone — see
+[Processing status from Windows](#processing-status-from-windows-phase-3) below.
+
 No external dependencies — system SQLite, CryptoKit, AVFoundation, URLSession only.
 Nothing to resolve on first open.
 
@@ -38,6 +42,65 @@ Nothing to resolve on first open.
 Plain HTTP is allowed by the app's transport policy because the service is designed
 to run on a private overlay network (Tailscale/WireGuard, design §14.2). Put TLS in
 front if you expose it any other way.
+
+## Processing status from Windows (Phase 3)
+
+After a capture uploads, the PC does the work — download, verify, transcribe,
+extract, review. Phase 3 brings that progress back to the phone so you can see
+where a capture is without walking over to Windows.
+
+**Direction of flow, one way only:**
+
+```text
+Windows queue advances a stage
+  → capture_status row in the Windows sync outbox
+  → POST /sync/push
+  → the service's change log
+  → GET /sync/pull here  (Settings → Processing updates → Check for updates,
+                          after an upload pass, or a background refresh)
+  → local state + a local notification on a milestone
+```
+
+What the phone shows: one fused lifecycle position (Saved → Uploading → Uploaded →
+Processing → Ready for review → Done, or an upload/processing failure), where the
+recording currently exists (this iPhone / your sync server / your PC), a transcript
+**preview** with the full transcript's length, how many extracted events are waiting
+for review versus already approved, and a plain-language reason when Windows could
+not process it.
+
+**The boundary this phase makes legible: editing and approval stay on Windows.**
+Everything arriving over `capture_status` is a read-only projection of Windows-side
+state. The phone never authors it, never edits a transcript, and never approves an
+event — it reads.
+
+**Notifications are local, not push.** The deployment is self-hosted with no
+accounts (design §22.1/§22.2), so there is no APNs certificate and no notification
+server anywhere in this design. The phone posts its own `UNUserNotification` the
+moment a pull observes a capture becoming review-ready, completing, or failing.
+The practical consequence: **updates arrive when the app pulls**, not the instant
+Windows finishes — foreground, after an upload pass, or on an iOS-scheduled
+background refresh, whose timing iOS decides. Authorization is requested lazily on
+the first pull after pairing, never at first launch, and `Settings → Processing
+updates → Notification settings` links to the system switch.
+
+### What Phase 3 deliberately does not do
+
+- **The full transcript stays on Windows.** The phone receives a leading excerpt of
+  at most 600 characters plus a character count, not a replica. There is no phone
+  view of the complete text and no local copy of it.
+- **The phone cannot edit or approve.** No transcript editing, no event approval or
+  rejection, and no way to restart Windows-side processing — a capture that failed
+  on the PC is retried on the PC. (The retry button in history is a different
+  thing: it retries this phone's own *upload*, which is the phone's job.)
+- **Progress does not rewind on the phone.** A pulled status can advance a
+  capture's stored lifecycle state but never move it back, so a replayed or
+  out-of-order change is harmless — applying one twice is a no-op. A reported
+  failure is the one transition allowed to reset that floor, so a Windows-side
+  retry can move the capture forward again.
+- **Nothing is streamed back from the PC.** History plays the local recording (that
+  is Phase 2's audio file, still on the phone); the design's Phase 3 line about
+  "playback of the original audio" is satisfied locally, and there is no download
+  path for the Windows-side normalized artifact.
 
 ## Layout
 

@@ -1,7 +1,9 @@
 import SwiftUI
+import UIKit
 
 /// Settings: pairing with the self-hosted sync service, capture defaults,
-/// sync switches, the transcription placeholder (design §22.4), and About.
+/// sync switches, processing updates from Windows, the transcription
+/// placeholder (design §22.4), and About.
 ///
 /// Toggles/pickers mirror the durable `SettingsStore` through local @State and
 /// persist immediately on change. Pairing errors render inline in the section
@@ -9,6 +11,7 @@ import SwiftUI
 @MainActor
 struct SettingsView: View {
     @Environment(AppEnvironment.self) private var env
+    @Environment(\.openURL) private var openURL
 
     // Pairing form
     @State private var serverURL = ""
@@ -31,6 +34,7 @@ struct SettingsView: View {
                 pairingSection
                 captureSection
                 syncSection
+                processingUpdatesSection
                 transcriptionSection
                 aboutSection
             }
@@ -202,6 +206,66 @@ struct SettingsView: View {
         } footer: {
             Text("Recordings always save to this iPhone first. With auto-upload off, captures wait until you tap Sync now.")
         }
+    }
+
+    // MARK: - Processing updates (incoming status, design §19 Phase 3)
+
+    /// The incoming half of sync: `capture_status` changes Windows publishes as
+    /// a capture moves through transcription, extraction, and review. The Sync
+    /// section above covers the outgoing half (uploads).
+    private var processingUpdatesSection: some View {
+        Section {
+            LabeledContent("Last checked") {
+                if let lastPulledAt = env.statusSync.lastPulledAt {
+                    Text(lastPulledAt, format: .relative(presentation: .named))
+                } else {
+                    Text("Never")
+                }
+            }
+            .accessibilityLabel(lastCheckedAccessibilityLabel)
+            Button {
+                Task { await env.statusSync.pullNow() }
+            } label: {
+                HStack {
+                    Text("Check for updates")
+                    Spacer()
+                    if env.statusSync.isPulling {
+                        ProgressView()
+                    }
+                }
+            }
+            .disabled(env.statusSync.isPulling || !env.isPaired)
+            .accessibilityLabel("Check your PC for processing updates")
+            // The alerts themselves are posted by the status pull; this is only
+            // the way back to the system switch that governs them.
+            if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
+                Button("Notification settings") {
+                    openURL(settingsURL)
+                }
+                .accessibilityLabel("Open notification settings for Memory Line in iOS Settings")
+            }
+        } header: {
+            Text("Processing updates")
+        } footer: {
+            processingUpdatesFooter
+        }
+    }
+
+    @ViewBuilder
+    private var processingUpdatesFooter: some View {
+        if let pullError = env.statusSync.lastPullError {
+            Text(pullError)
+                .foregroundStyle(.red)
+        } else {
+            Text("Your iPhone checks for transcription and review progress when you open History, pull to refresh, or tap Check for updates, and it can alert you when a capture becomes ready for review. Transcripts and approvals stay on your Windows PC.")
+        }
+    }
+
+    private var lastCheckedAccessibilityLabel: String {
+        guard let lastPulledAt = env.statusSync.lastPulledAt else {
+            return "Last checked for updates: never"
+        }
+        return "Last checked for updates \(lastPulledAt.formatted(date: .abbreviated, time: .shortened))"
     }
 
     // MARK: - Transcription (Phase 4 placeholder, design §22.4)

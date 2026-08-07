@@ -17,18 +17,21 @@ public class CaptureIngestionService : ICaptureIngestionService
     private readonly ICaptureRepository _captureRepository;
     private readonly IRecordingQueueRepository _queueRepository;
     private readonly IArtifactResolver _artifactResolver;
+    private readonly ICaptureStatusPublisher? _statusPublisher;
     private readonly ILogger<CaptureIngestionService> _logger;
 
     public CaptureIngestionService(
         ICaptureRepository captureRepository,
         IRecordingQueueRepository queueRepository,
         IArtifactResolver artifactResolver,
-        ILogger<CaptureIngestionService> logger)
+        ILogger<CaptureIngestionService> logger,
+        ICaptureStatusPublisher? statusPublisher = null)
     {
         _captureRepository = captureRepository;
         _queueRepository = queueRepository;
         _artifactResolver = artifactResolver;
         _logger = logger;
+        _statusPublisher = statusPublisher;
     }
 
     public async Task<IngestionResult> IngestLocalRecordingAsync(
@@ -389,6 +392,24 @@ public class CaptureIngestionService : ICaptureIngestionService
         _logger.LogInformation(
             "Ingested capture {CaptureId} ({Platform}) as queue item {QueueId}, artifact {ArtifactId}, {Bytes} bytes",
             capture.CaptureId, capture.SourcePlatform, queueItem.QueueId, artifact.ArtifactId, artifact.ByteLength);
+
+        // First status the capturing device hears from Windows: received, and
+        // waiting for the queue (design §19 Phase 3). Windows-local recordings
+        // are filtered out by the publisher — nothing is waiting on those.
+        // Publishing failure must never fail an ingestion that already
+        // committed; the first stage transition republishes.
+        if (_statusPublisher != null)
+        {
+            try
+            {
+                await _statusPublisher.PublishAsync(queueItem);
+            }
+            catch (Exception publishEx)
+            {
+                _logger.LogWarning(publishEx,
+                    "Failed to publish received status for capture {CaptureId}", capture.CaptureId);
+            }
+        }
 
         return IngestionResult.Ingested(capture.CaptureId, artifact.ArtifactId, queueItem.QueueId);
     }

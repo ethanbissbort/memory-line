@@ -20,9 +20,22 @@ public sealed class SyncChangeService : ISyncChangeService
     [
         SyncChangeEntityType.Capture,
         SyncChangeEntityType.CaptureArtifact,
+        SyncChangeEntityType.CaptureStatus,
         SyncChangeEntityType.RecordingQueue,
         SyncChangeEntityType.PendingEvent,
         SyncChangeEntityType.Event,
+    ];
+
+    /// <summary>Statuses a capture_status payload may carry (SyncCaptureStatus vocabulary).</summary>
+    private static readonly string[] AllowedCaptureStatuses =
+    [
+        SyncCaptureStatus.LocalOnly,
+        SyncCaptureStatus.Uploading,
+        SyncCaptureStatus.Received,
+        SyncCaptureStatus.Processing,
+        SyncCaptureStatus.ReviewReady,
+        SyncCaptureStatus.Completed,
+        SyncCaptureStatus.Failed,
     ];
 
     private readonly IDbContextFactory<SyncDbContext> _contextFactory;
@@ -42,6 +55,11 @@ public sealed class SyncChangeService : ISyncChangeService
     {
         var effectiveLimit = limit <= 0 ? DefaultPullLimit : Math.Clamp(limit, 1, MaxPullLimit);
 
+        // The change log is owner-scoped and fans out to every device of that
+        // owner except the one that authored the row. A capture_status change
+        // therefore reaches the capture's originating phone: its publisher is
+        // Windows, so echo suppression (which keys on the *publishing* device,
+        // never the capture's source device) cannot swallow it.
         await using var db = await _contextFactory.CreateDbContextAsync(cancellationToken);
         var rows = await db.SyncChanges.AsNoTracking()
             .Where(c => c.OwnerId == caller.OwnerId
@@ -159,6 +177,7 @@ public sealed class SyncChangeService : ISyncChangeService
         }
 
         long revision = 1;
+        var payloadJson = entry.PayloadJson;
         if (entry.EntityType == SyncChangeEntityType.Capture)
         {
             var payload = TryParseCapturePayload(entry.PayloadJson);
@@ -174,6 +193,20 @@ public sealed class SyncChangeService : ISyncChangeService
                 }
             }
         }
+        else if (entry.EntityType == SyncChangeEntityType.CaptureStatus)
+        {
+            var (status, rejection) = await TryApplyCaptureStatusAsync(db, caller, entry, cancellationToken);
+            if (status is null)
+            {
+                return rejection!;
+            }
+
+            revision = status.Revision;
+            payloadJson = EntityMappers.SerializeCaptureStatusPayload(status);
+            _logger.LogDebug(
+                "Capture {CaptureId} status {Status} (revision {Revision}) recorded from device {DeviceId}.",
+                status.CaptureId, status.Status, status.Revision, caller.DeviceId);
+        }
 
         var change = new SyncChangeRow
         {
@@ -183,7 +216,7 @@ public sealed class SyncChangeService : ISyncChangeService
             Operation = entry.Operation,
             Revision = revision,
             SourceDeviceId = caller.DeviceId,
-            PayloadJson = entry.PayloadJson,
+            PayloadJson = payloadJson,
             ChangedAtUtc = entry.ChangedAtUtc == default ? DateTime.UtcNow : entry.ChangedAtUtc,
         };
         db.SyncChanges.Add(change);
@@ -241,11 +274,113 @@ public sealed class SyncChangeService : ISyncChangeService
         };
     }
 
-    private static SyncPushEntryResult Rejected(SyncPushEntry entry, string message) => new()
+    /// <summary>
+    /// Validates a pushed capture_status entry and applies it to the capture's
+    /// status projection, returning the tracked (still unsaved) row so the
+    /// caller commits it together with the change row and the push receipt.
+    /// On failure returns the per-entry rejection to hand back to the
+    /// publisher. Windows — not the service — owns truncation of the
+    /// transcript preview, so an over-long preview is rejected rather than cut
+    /// down (design §19 Phase 3).
+    /// </summary>
+    private static async Task<(CaptureStatusRow? Status, SyncPushEntryResult? Rejection)> TryApplyCaptureStatusAsync(
+        SyncDbContext db,
+        Device caller,
+        SyncPushEntry entry,
+        CancellationToken cancellationToken)
+    {
+        if (entry.Operation != SyncOperation.Upsert)
+        {
+            return (null, Rejected(entry, "capture_status supports upsert only."));
+        }
+
+        var payload = TryParseCaptureStatusPayload(entry.PayloadJson);
+        if (payload is null)
+        {
+            return (null, Rejected(entry, "capture_status requires a well-formed payload."));
+        }
+
+        if (!Guid.TryParse(entry.EntityId, out var entityGuid)
+            || !Guid.TryParse(payload.CaptureId, out var payloadGuid)
+            || entityGuid != payloadGuid)
+        {
+            return (null, Rejected(entry, "payload captureId must be a UUID equal to entityId."));
+        }
+
+        var status = string.IsNullOrWhiteSpace(payload.Status)
+            ? string.Empty
+            : payload.Status.Trim().ToLowerInvariant();
+        if (!AllowedCaptureStatuses.Contains(status))
+        {
+            return (null, Rejected(
+                entry,
+                "status must be one of: local_only, uploading, received, processing, review_ready, completed, failed."));
+        }
+
+        if (payload.TranscriptPreview is { Length: > CaptureStatusChangePayload.TranscriptPreviewMaxChars })
+        {
+            return (null, Rejected(
+                entry,
+                $"transcriptPreview must be at most {CaptureStatusChangePayload.TranscriptPreviewMaxChars} characters."));
+        }
+
+        if (payload.TranscriptCharCount < 0 || payload.PendingEventCount < 0 || payload.ApprovedEventCount < 0)
+        {
+            return (null, Rejected(
+                entry, "transcriptCharCount, pendingEventCount and approvedEventCount must not be negative."));
+        }
+
+        var captureId = entityGuid.ToString("D");
+        var capture = await db.Captures.FirstOrDefaultAsync(
+            c => c.CaptureId == captureId && c.OwnerId == caller.OwnerId, cancellationToken);
+        if (capture is null)
+        {
+            return (null, Rejected(entry, SyncApiErrorCodes.CaptureNotFound, "No such capture."));
+        }
+
+        var row = await db.CaptureStatuses.FirstOrDefaultAsync(
+            s => s.CaptureId == captureId, cancellationToken);
+        if (row is null)
+        {
+            row = new CaptureStatusRow { CaptureId = captureId, OwnerId = capture.OwnerId };
+            db.CaptureStatuses.Add(row);
+        }
+
+        // Latest wins: the projection holds the current state only, and the
+        // change log preserves the sequence that produced it.
+        row.Status = status;
+        row.ProcessingStage = payload.ProcessingStage;
+        row.UpdatedAtUtc = payload.UpdatedAtUtc == default ? DateTime.UtcNow : payload.UpdatedAtUtc;
+        row.TranscriptAvailable = payload.TranscriptAvailable;
+        row.TranscriptPreview = payload.TranscriptPreview;
+        row.TranscriptCharCount = payload.TranscriptCharCount;
+        row.PendingEventCount = payload.PendingEventCount;
+        row.ApprovedEventCount = payload.ApprovedEventCount;
+        row.FailureReason = payload.FailureReason;
+        row.FailureRetryable = payload.FailureRetryable;
+        row.Revision++;
+        row.ReceivedAtUtc = DateTime.UtcNow;
+
+        // Keep the capture read model (CaptureResponse.Status) in step with the
+        // coarse lifecycle state; a stage-only advance leaves the capture row
+        // and its revision alone.
+        if (capture.Status != status)
+        {
+            capture.Status = status;
+            capture.Revision++;
+        }
+
+        return (row, null);
+    }
+
+    private static SyncPushEntryResult Rejected(SyncPushEntry entry, string message)
+        => Rejected(entry, SyncApiErrorCodes.ValidationError, message);
+
+    private static SyncPushEntryResult Rejected(SyncPushEntry entry, string code, string message) => new()
     {
         ClientSequence = entry.ClientSequence,
         Accepted = false,
-        Error = $"{SyncApiErrorCodes.ValidationError}: {message}",
+        Error = $"{code}: {message}",
     };
 
     private static CaptureChangePayload? TryParseCapturePayload(string? payloadJson)
@@ -263,6 +398,28 @@ public sealed class SyncChangeService : ISyncChangeService
         {
             // Unparseable payloads are still logged to the change stream (the
             // entry is accepted); they simply do not update the capture row.
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Parses a capture_status payload; null when it is missing or malformed,
+    /// which rejects the entry (unlike a capture payload, the status change
+    /// carries no meaning without one).
+    /// </summary>
+    private static CaptureStatusChangePayload? TryParseCaptureStatusPayload(string? payloadJson)
+    {
+        if (string.IsNullOrWhiteSpace(payloadJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<CaptureStatusChangePayload>(payloadJson, SyncJson.Options);
+        }
+        catch (JsonException)
+        {
             return null;
         }
     }

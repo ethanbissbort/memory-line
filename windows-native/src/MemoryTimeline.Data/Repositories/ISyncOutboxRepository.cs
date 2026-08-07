@@ -16,6 +16,13 @@ public interface ISyncOutboxRepository
 
     Task<int> GetPendingCountAsync();
 
+    /// <summary>
+    /// Most recently created record for one entity, delivered or not. Publishers
+    /// that project mutable state (e.g. capture processing status) use it to
+    /// suppress re-publishing a projection that has not changed.
+    /// </summary>
+    Task<SyncOutbox?> GetLatestForEntityAsync(string entityType, string entityId);
+
     Task MarkDeliveredAsync(long outboxId);
 
     /// <summary>Records a failed delivery attempt without consuming the record.</summary>
@@ -60,6 +67,17 @@ public class SyncOutboxRepository : ISyncOutboxRepository
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
         return await context.SyncOutboxEntries.CountAsync(o => o.DeliveredAt == null);
+    }
+
+    public async Task<SyncOutbox?> GetLatestForEntityAsync(string entityType, string entityId)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        // Covered by IX_sync_outbox_entity_type_entity_id.
+        return await context.SyncOutboxEntries
+            .AsNoTracking()
+            .Where(o => o.EntityType == entityType && o.EntityId == entityId)
+            .OrderByDescending(o => o.OutboxId)
+            .FirstOrDefaultAsync();
     }
 
     public async Task MarkDeliveredAsync(long outboxId)
