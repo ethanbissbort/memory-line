@@ -27,6 +27,27 @@ public partial class ErasViewModel : ObservableObject
     private readonly IDraftService _draftService;
     private readonly IDbContextFactory<AppDbContext> _contextFactory;
 
+    /// <summary>
+    /// Projects era writes onto the sync feed (design §19 Phase 3). Optional so
+    /// the page still works with the publisher unregistered — a companion then
+    /// simply never learns the archive has eras.
+    ///
+    /// <para><b>Why a ViewModel is doing this.</b> Eras are the one archive
+    /// entity with no Core service: events go through <c>IEventService</c>,
+    /// people through <c>IPersonService</c>, but an era is created, updated and
+    /// deleted straight from this class through <see cref="IEraRepository"/>.
+    /// Publishing from here is therefore the only place a write can be observed
+    /// at all, and companion devices showing no eras is a worse failure than the
+    /// layering being wrong. It IS wrong: this couples a sync concern to a UI
+    /// class, and any future non-UI era writer (import already is one — see
+    /// <c>ImportService.ImportErasAsync</c>) publishes nothing. The fix is an
+    /// <c>EraService</c> in Core owning create/update/delete plus the tag
+    /// replacement below, with the publish calls moved into it and this
+    /// ViewModel reduced to calling it — deliberately left out of this change
+    /// because it is a refactor of its own.</para>
+    /// </summary>
+    private readonly ITimelineProjectionPublisher? _projectionPublisher;
+
     // Data collections
     [ObservableProperty]
     private ObservableCollection<Era> _eras = new();
@@ -208,7 +229,8 @@ public partial class ErasViewModel : ObservableObject
         IMilestoneRepository milestoneRepository,
         ILogger<ErasViewModel> logger,
         IDraftService draftService,
-        IDbContextFactory<AppDbContext> contextFactory)
+        IDbContextFactory<AppDbContext> contextFactory,
+        ITimelineProjectionPublisher? projectionPublisher = null)
     {
         _eraRepository = eraRepository;
         _categoryRepository = categoryRepository;
@@ -216,6 +238,7 @@ public partial class ErasViewModel : ObservableObject
         _logger = logger;
         _draftService = draftService;
         _contextFactory = contextFactory;
+        _projectionPublisher = projectionPublisher;
 
         // Initialize viewport to show last 10 years
         var now = DateTime.Now;
@@ -738,6 +761,15 @@ public partial class ErasViewModel : ObservableObject
                 _logger.LogInformation("Updated era: {EraId} - {Name}", existingEra.EraId, existingEra.Name);
             }
 
+            // The era row is committed, so a companion is now entitled to see it
+            // (design §19 Phase 3). Published here rather than after the tag
+            // replacement below for two reasons: the era projection carries no
+            // tags, so waiting would add nothing; and a failure replacing the
+            // junction rows must not cost the companion an era that is already
+            // in the database. See _projectionPublisher on why a ViewModel is
+            // the one making this call.
+            await TryPublishEraProjectionAsync(savedEraId);
+
             await ReplaceEraTagsAsync(savedEraId, EditTags.ToList());
             await DeleteResumedDraftAsync();
 
@@ -920,6 +952,12 @@ public partial class ErasViewModel : ObservableObject
 
             await _eraRepository.DeleteAsync(era);
 
+            // The row is gone, so the tombstone is the only thing left that can
+            // tell a companion to drop its copy — otherwise the phone keeps
+            // showing an era the user deleted on the PC. Same layering caveat as
+            // the save path; see _projectionPublisher.
+            await TryPublishEraDeletionAsync(era.EraId);
+
             if (SelectedEra?.EraId == era.EraId)
             {
                 SelectedEra = null;
@@ -955,6 +993,59 @@ public partial class ErasViewModel : ObservableObject
         foreach (var bar in GanttEraBars)
         {
             bar.IsSelected = bar.EraId == era?.EraId;
+        }
+    }
+
+    /// <summary>
+    /// Projects a saved era toward companion devices. Deliberately unconditional
+    /// on WHAT changed: the publisher drops a projection identical to the last
+    /// one it published for the era, so a caller trying to guess whether an edit
+    /// was "worth" sending would only get it wrong. A colour or category change
+    /// counts, incidentally — the payload carries
+    /// <see cref="Era.EffectiveColor"/>, not the raw column.
+    ///
+    /// Publishing failure must never fail a write that already committed; the
+    /// user's era is saved either way, and the next edit republishes.
+    /// </summary>
+    private async Task TryPublishEraProjectionAsync(string eraId)
+    {
+        if (_projectionPublisher == null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _projectionPublisher.PublishEraAsync(eraId);
+        }
+        catch (Exception publishEx)
+        {
+            _logger.LogWarning(publishEx, "Failed to publish era projection for {EraId}", eraId);
+        }
+    }
+
+    /// <summary>
+    /// Tombstones a deleted era for companion devices. Unlike the upsert this
+    /// has no second chance — nothing will ever republish for an id whose row no
+    /// longer exists — so a failure here is logged as the one place a companion
+    /// can be left holding a stale era.
+    /// </summary>
+    private async Task TryPublishEraDeletionAsync(string eraId)
+    {
+        if (_projectionPublisher == null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _projectionPublisher.PublishDeletedAsync(TimelineProjectionEntity.Era, eraId);
+        }
+        catch (Exception publishEx)
+        {
+            _logger.LogWarning(
+                publishEx,
+                "Failed to publish deletion of era {EraId}; companions may keep showing it", eraId);
         }
     }
 
