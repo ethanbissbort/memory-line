@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Merged into the generated Info.plist (GENERATE_INFOPLIST_FILE = YES).
+	     Only keys with no INFOPLIST_KEY_* build setting live here. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+		<string>processing</string>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.memoryline.companion.upload</string>
+	</array>
+	<!-- Deep links used by the widgets ("memoryline://record", "memoryline://open"). -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.memoryline.companion</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>memoryline</string>
+			</array>
+		</dict>
+	</array>
+	<!-- The self-hosted sync service speaks plain HTTP on a private network
+	     (Tailscale/WireGuard, design §14.2); allow local/private hosts. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+</dict>
+</plist>
