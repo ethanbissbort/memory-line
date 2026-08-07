@@ -99,6 +99,35 @@ public class AppDbContext : DbContext
             }
         }
 
+        /// <summary>
+        /// journal_mode=WAL writes the database header when the database is not
+        /// already in WAL mode, so it must be skipped on read-only connections.
+        /// EF's SQLite provider probes database existence (EnsureCreated) over a
+        /// Mode=ReadOnly clone of the connection; running the full pragma set
+        /// there crashes with SQLITE_READONLY against a legacy delete-journal
+        /// database file.
+        /// </summary>
+        private const string ReadOnlyPragmaSql =
+            "PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;";
+
+        private static string GetPragmaSql(DbConnection connection)
+        {
+            try
+            {
+                if (new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder(connection.ConnectionString).Mode ==
+                    Microsoft.Data.Sqlite.SqliteOpenMode.ReadOnly)
+                {
+                    return ReadOnlyPragmaSql;
+                }
+            }
+            catch (Exception)
+            {
+                // Unparseable connection string: fall through to the full set.
+            }
+
+            return PragmaSql;
+        }
+
         public override void ConnectionOpened(DbConnection connection, ConnectionEndEventData eventData)
         {
             if (ShouldAttemptWal(connection))
@@ -117,7 +146,7 @@ public class AppDbContext : DbContext
             }
 
             using var command = connection.CreateCommand();
-            command.CommandText = ConnectionPragmaSql;
+            command.CommandText = GetPragmaSql(connection);
             command.ExecuteNonQuery();
         }
 
@@ -142,7 +171,7 @@ public class AppDbContext : DbContext
             }
 
             using var command = connection.CreateCommand();
-            command.CommandText = ConnectionPragmaSql;
+            command.CommandText = GetPragmaSql(connection);
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
     }
@@ -227,6 +256,40 @@ public class AppDbContext : DbContext
             entity.HasKey(q => q.QueueId);
             entity.HasIndex(q => q.Status);
             entity.HasIndex(q => q.CreatedAt);
+            // Idempotent ingestion: at most one queue item per device-neutral
+            // capture. SQLite treats NULLs as distinct, so Windows-legacy rows
+            // (no capture id) are unaffected.
+            entity.HasIndex(q => q.SourceCaptureId).IsUnique();
+        });
+
+        // Configure Capture entity
+        modelBuilder.Entity<Capture>(entity =>
+        {
+            entity.HasKey(c => c.CaptureId);
+            entity.HasIndex(c => c.Status);
+            entity.HasIndex(c => c.CapturedAtUtc);
+
+            entity.HasMany(c => c.Artifacts)
+                .WithOne(a => a.Capture)
+                .HasForeignKey(a => a.CaptureId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Configure CaptureArtifact entity
+        modelBuilder.Entity<CaptureArtifact>(entity =>
+        {
+            entity.HasKey(a => a.ArtifactId);
+            entity.HasIndex(a => a.CaptureId);
+            entity.HasIndex(a => a.Sha256);
+        });
+
+        // Configure SyncOutbox entity
+        modelBuilder.Entity<SyncOutbox>(entity =>
+        {
+            entity.HasKey(o => o.OutboxId);
+            entity.Property(o => o.OutboxId).ValueGeneratedOnAdd();
+            entity.HasIndex(o => o.DeliveredAt);
+            entity.HasIndex(o => new { o.EntityType, o.EntityId });
         });
 
         // Configure PendingEvent entity

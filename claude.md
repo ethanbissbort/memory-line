@@ -11,6 +11,11 @@ this repo. Read it before editing. For the product-level overview, see the root
 - The **Electron app** under [`src/`](./src) is **legacy / maintenance only** — it still
   exists and builds, but new features and fixes should target Windows Native unless the
   task is explicitly about Electron. See [Legacy Electron](#legacy-electron).
+- The repo also contains the **sync service** under [`services/`](./services) (ASP.NET
+  Core, plain net8.0 — **CAN be built/tested with the `dotnet` CLI**, no VS msbuild
+  needed; own Linux CI workflow `sync-api-build.yml`) and the **Windows sync client
+  library** `windows-native/src/MemoryTimeline.Sync` — the iOS roadtrip companion sync
+  layer. See [Sync service (iOS companion)](#sync-service-ios-companion).
 - **You cannot build this repo in the cloud sandbox** — there is no .NET SDK, and the
   WinUI 3 app cannot be built with `dotnet build` anyway (see [Build & run reality](#build--run-reality)).
   Changes are validated by **CI on a Windows runner**, not by a local build. Reason
@@ -22,7 +27,7 @@ this repo. Read it before editing. For the product-level overview, see the root
 
 ### Solution layout (clean architecture)
 
-The solution is `windows-native/src/MemoryTimeline.sln`, four projects:
+The solution is `windows-native/src/MemoryTimeline.sln`, six projects:
 
 | Project | Role |
 |---------|------|
@@ -30,8 +35,11 @@ The solution is `windows-native/src/MemoryTimeline.sln`, four projects:
 | **MemoryTimeline.Core** | Business logic — services (events, timeline, queue, extraction, RAG, ask/query, narrative, resurfacing, recall prompts, media, backup/revisions, export/import, settings, search, analytics), DTOs, timeline math, `SettingKeys`. No UI, no EF Core internals leaking out. |
 | **MemoryTimeline.Data** | Data access — `AppDbContext` (EF Core 8 + SQLite), entity models, repositories, and `SchemaUpgrader`. |
 | **MemoryTimeline.Tests** | xUnit unit, integration, and performance tests. |
+| **MemoryTimeline.Sync** | Sync client library (no UI) — `SyncApiClient` (pairing, push/pull/ack), artifact download, `SyncBackgroundWorker` loop, `LocalOutboxPublisher`, `RemoteChangeApplier`, settings/cursor stores. |
+| **MemoryTimeline.SyncContracts** | Shared wire DTOs; lives at `shared-contracts/dotnet/` and is referenced into both this solution and `services/MemoryTimeline.Services.sln`. CamelCase JSON per the OpenAPI contract. |
 
-Dependency direction: `MemoryTimeline` → `Core` → `Data`. Keep it that way; don't make
+Dependency direction: `MemoryTimeline` → `Core` → `Data`; `Sync` sits beside them
+(`Sync` → `Core`/`Data`/`SyncContracts`). Keep it that way; don't make
 `Core` depend on WinUI types or `Data` depend on `Core`.
 
 ### Data access — the single most important rule
@@ -94,19 +102,35 @@ await using var ctx = await _contextFactory.CreateDbContextAsync();
 | **Embeddings (RAG / Ask)** | **Local ONNX** `all-MiniLM-L6-v2` (`OnnxEmbeddingService`, 384-dim, CPU execution provider) **or** **OpenAI** (`OpenAIEmbeddingService`, `AddHttpClient`) | `RoutingEmbeddingService` routes on `embedding_provider` (seeded default: `local`), so Connections/Ask semantic retrieval works with **no API key**. A dimension guard (`EmbeddingDimensionMismatchException`) blocks mixing 384/1536-dim vectors; Settings offers a re-embed flow. Local model (~90 MB + vocab) downloads once to `%LOCALAPPDATA%\MemoryTimeline\Models\all-MiniLM-L6-v2\`. |
 | **Geocoding** | Optional **Nominatim** via `NominatimGeocodingService` (`AddHttpClient`) | **Opt-in and OFF by default** (`geocoding_enabled`). When off, location coordinates come only from photo EXIF or manual pin drops — no place name leaves the machine. |
 
+### Sync service (iOS companion)
+
+The iOS roadtrip companion sync layer (design:
+[`docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md`](./docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md)):
+
+- **Server** — `services/MemoryTimeline.SyncApi`: self-hosted, single owner, SQLite +
+  filesystem artifact store. Devices join with a one-time **pairing code**
+  (`POST /api/v1/devices/register`) and get a device-bound short-lived JWT plus a
+  rotating refresh token; revocation (from Windows Settings → Sync) is immediate.
+- **Loop** — the Windows client (`MemoryTimeline.Sync`, wired in `App.xaml.cs`) runs
+  **pull → ingest → ack**: `SyncBackgroundWorker` pulls changes after its stored
+  cursor, `RemoteChangeApplier` downloads each capture's audio artifact and feeds it
+  to the idempotent `ICaptureIngestionService` (a remote capture enters review
+  **exactly once**), the cursor advances only past applied/skipped/permanently-failed
+  changes, then `LocalOutboxPublisher` drains `sync_outbox` to `POST /api/v1/sync/push`.
+- Wire DTOs: `shared-contracts/dotnet/MemoryTimeline.SyncContracts` (camelCase JSON —
+  clients must use `JsonSerializerDefaults.Web`); contract source of truth:
+  `shared-contracts/openapi/memory-line-sync-v1.yaml`. Operator guide (run, Docker,
+  pairing, endpoints): [`services/README.md`](./services/README.md).
+
 ### The memory pipeline
 
 `Record (Windows MediaCapture) → recording_queue → Transcribe (local Whisper) → Extract
-(LLM → pending_events) → Review/approve → Timeline`. **Text sources join audio in the
-same queue**: pasted/typed text (Ctrl+Shift+V on the Queue page) becomes a
-`recording_queue` row with `source_type = Text` and the text stored in its `transcript`
-column, skipping transcription; Whisper output is likewise persisted to `transcript` and
-reused across retries instead of re-transcribing. Each hop persists state so a failure is
-recoverable and visible in the UI. Extraction assigns a **date precision**
-(`DatePrecision`: Exact/Day/Month/Season/Year/Decade/Unknown) rather than inventing exact
-days, and resolves people **alias-aware** (case-insensitive name → alias lookup). Approve
-is an **atomic** transaction writing the event plus its tags/people/locations (and
-precision/uncertainty fields) together.
+(Claude → pending_events) → Review/approve → Timeline`. Each hop persists state so a
+failure is recoverable and visible in the UI. Approve is an **atomic** transaction
+writing the event plus its tags/people/locations together. Recordings now enter the
+queue through `ICaptureIngestionService` (idempotent by source capture ID, hashes the
+audio, and writes a sync outbox record atomically with the capture/artifact/queue
+rows) — see the iOS companion design doc for the sync architecture this feeds.
 
 ---
 
@@ -162,22 +186,16 @@ uncertainty window and `last_viewed_at`/`view_count` view tracking), `eras`,
 `merged_into_id` merge tombstone), `person_aliases`, `locations` (optional
 `latitude`/`longitude`, `place_type`, `canonical_name`, `geocoded_at`).
 Junctions: `event_tags`, `event_people`, `event_locations`.
-Processing: `recording_queue` (with `source_type`, `source_label`, persisted
-`transcript`), `pending_events` (mirrors the events precision columns).
-Attachments & history: `event_media` (managed media copies, EXIF, thumbnails, content
-hash), `event_revisions` (append-only edit history), `recall_prompts` (guided-recall
-questions, deduped forever).
-RAG: `event_embeddings` (with per-row `embedding_dimension`), `cross_references`.
-UX: `drafts`, `saved_searches`.
-System: `app_settings` — 33 seeded keys; **seed parity is three-way** (the
-`AppDbContext.SeedDefaultSettings` HasData seed, the `SchemaUpgrader` INSERT OR IGNORE
-backfill, and the `SettingKeys` constants must stay in sync — keep all three when adding
-a seeded setting).
-Identity: the unique name indexes on `people`/`tags`/`locations` are **COLLATE NOCASE**;
-`SchemaUpgrader` defensively merges pre-existing case-variant duplicates (backfilling the
-keeper's empty contact columns) before rebuilding each index.
-The Electron build uses a compatible SQLite schema (plus `events_fts` FTS5,
-Electron-only). DB file: `%LOCALAPPDATA%\MemoryTimeline\memory-timeline.db`.
+Processing: `recording_queue`, `pending_events`.
+Sync groundwork (Phase 0): `captures`, `capture_artifacts`, `sync_outbox` — the
+device-neutral capture/artifact/outbox schema from the iOS companion design
+([`docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md`](./docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md));
+`recording_queue` also gained device-neutral provenance columns
+(`source_capture_id` **unique**, `source_device_id`, `source_platform`,
+`audio_artifact_id`, `content_sha256`, `processing_stage`, `sync_state`, ...).
+RAG: `event_embeddings`, `cross_references`.
+System: `app_settings`. The Electron build uses a compatible SQLite schema (plus
+`events_fts` FTS5, Electron-only). DB file: `%LOCALAPPDATA%\MemoryTimeline\memory-timeline.db`.
 
 ---
 
@@ -229,6 +247,6 @@ focus** — treat it as maintenance. Only touch it for an explicitly Electron-sc
 
 ---
 
-**Last Updated:** 2026-08-06
+**Last Updated:** 2026-08-07
 **Primary target:** Windows Native (.NET 8 / WinUI 3) — `windows-native/`
 **Legacy:** Electron — `src/`

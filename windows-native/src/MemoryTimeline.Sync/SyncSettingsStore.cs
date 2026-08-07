@@ -1,0 +1,93 @@
+using MemoryTimeline.Core.Services;
+using MemoryTimeline.SyncContracts;
+using Microsoft.Extensions.Logging;
+
+namespace MemoryTimeline.Sync;
+
+/// <summary>
+/// <see cref="ISyncSettingsStore"/> over the app settings table via
+/// <see cref="ISettingsService"/>, using the <see cref="SettingKeys"/> Sync*
+/// constants. Tokens live in app_settings like the app's other keys for now;
+/// DPAPI encryption at rest is the tracked hardening follow-up. Token values
+/// are never logged.
+/// </summary>
+public class SyncSettingsStore : ISyncSettingsStore
+{
+    private readonly ISettingsService _settingsService;
+    private readonly ILogger<SyncSettingsStore> _logger;
+
+    public SyncSettingsStore(ISettingsService settingsService, ILogger<SyncSettingsStore> logger)
+    {
+        _settingsService = settingsService;
+        _logger = logger;
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> IsSyncEnabledAsync() =>
+        await _settingsService.GetSettingAsync(SettingKeys.SyncEnabled, false);
+
+    /// <inheritdoc />
+    public Task<string?> GetServerUrlAsync() => GetNonEmptyAsync(SettingKeys.SyncServerUrl);
+
+    /// <inheritdoc />
+    public Task<string?> GetDeviceIdAsync() => GetNonEmptyAsync(SettingKeys.SyncDeviceId);
+
+    /// <inheritdoc />
+    public Task<string?> GetAccessTokenAsync() => GetNonEmptyAsync(SettingKeys.SyncAccessToken);
+
+    /// <inheritdoc />
+    public Task<string?> GetRefreshTokenAsync() => GetNonEmptyAsync(SettingKeys.SyncRefreshToken);
+
+    /// <inheritdoc />
+    public async Task<bool> IsAutoProcessEnabledAsync() =>
+        await _settingsService.GetSettingAsync(SettingKeys.SyncAutoProcess, true);
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The display name persisted is this machine's name — the value the
+    /// registration request carried; <see cref="DeviceRegisterResponse"/> does
+    /// not echo it back.
+    /// </remarks>
+    public async Task SaveRegistrationAsync(string serverUrl, DeviceRegisterResponse registration)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serverUrl);
+        ArgumentNullException.ThrowIfNull(registration);
+
+        await _settingsService.SetSettingAsync(SettingKeys.SyncServerUrl, serverUrl.TrimEnd('/'));
+        await _settingsService.SetSettingAsync(SettingKeys.SyncDeviceId, registration.DeviceId);
+        await _settingsService.SetSettingAsync(SettingKeys.SyncDeviceDisplayName, Environment.MachineName);
+        await _settingsService.SetSettingAsync(SettingKeys.SyncAccessToken, registration.AccessToken);
+        await _settingsService.SetSettingAsync(SettingKeys.SyncRefreshToken, registration.RefreshToken);
+        await _settingsService.SetSettingAsync(SettingKeys.SyncEnabled, true);
+
+        _logger.LogInformation("Sync registration saved for device {DeviceId}; sync enabled", registration.DeviceId);
+    }
+
+    /// <inheritdoc />
+    public async Task SaveTokensAsync(string accessToken, string refreshToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(accessToken);
+        ArgumentException.ThrowIfNullOrWhiteSpace(refreshToken);
+
+        await _settingsService.SetSettingAsync(SettingKeys.SyncAccessToken, accessToken);
+        await _settingsService.SetSettingAsync(SettingKeys.SyncRefreshToken, refreshToken);
+    }
+
+    /// <inheritdoc />
+    public async Task ClearRegistrationAsync()
+    {
+        await _settingsService.DeleteSettingAsync(SettingKeys.SyncDeviceId);
+        await _settingsService.DeleteSettingAsync(SettingKeys.SyncAccessToken);
+        await _settingsService.DeleteSettingAsync(SettingKeys.SyncRefreshToken);
+        await _settingsService.DeleteSettingAsync(SettingKeys.SyncCursor);
+        await _settingsService.SetSettingAsync(SettingKeys.SyncEnabled, false);
+
+        _logger.LogInformation("Sync registration cleared; sync disabled");
+    }
+
+    private async Task<string?> GetNonEmptyAsync(string key)
+    {
+        var value = await _settingsService.GetSettingAsync<string>(key);
+        return string.IsNullOrWhiteSpace(value) ? null : value;
+    }
+}

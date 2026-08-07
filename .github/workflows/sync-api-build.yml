@@ -1,0 +1,46 @@
+name: Sync API Build
+
+# Compile + test of the Memory Line Sync API (ASP.NET Core, net8.0) and the
+# shared sync contracts library. Unlike the WinUI solution, these are plain
+# cross-platform .NET projects, so they build and run their full test suite on
+# a Linux runner with the dotnet CLI.
+
+on:
+  push:
+    branches:
+      - claude/design-document-ingestion-27bl5z
+    paths:
+      - 'services/**'
+      - 'shared-contracts/dotnet/**'
+      - '.github/workflows/sync-api-build.yml'
+  workflow_dispatch:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build (Release)
+        run: dotnet build services/MemoryTimeline.Services.sln -c Release
+
+      - name: Test (Release)
+        run: >
+          dotnet test services/MemoryTimeline.SyncApi.Tests/MemoryTimeline.SyncApi.Tests.csproj
+          -c Release --no-build
+          --logger "trx;LogFileName=test.trx" --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sync-api-test-results
+          path: TestResults
+          if-no-files-found: ignore

@@ -11,7 +11,14 @@ public interface IQueueService
     /// <summary>
     /// Adds a new recording to the queue.
     /// </summary>
-    Task<RecordingQueue> AddToQueueAsync(AudioRecordingDto recording);
+    Task<RecordingQueue> AddToQueueAsync(AudioRecordingDto recording, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Processes one specific queue item (design §7.3). Waits for any in-flight
+    /// processing to finish first; skips items that are already processing or
+    /// completed.
+    /// </summary>
+    Task ProcessCaptureAsync(string queueId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Enqueues pasted/typed text as a <see cref="QueueSourceType.Text"/> source.
@@ -36,9 +43,10 @@ public interface IQueueService
     Task<RecordingQueue?> GetQueueItemAsync(string queueId);
 
     /// <summary>
-    /// Updates queue item status.
+    /// Updates queue item status and, when provided, its fine-grained processing
+    /// stage (<see cref="QueueProcessingStage"/>).
     /// </summary>
-    Task UpdateQueueItemStatusAsync(string queueId, string status, string? errorMessage = null);
+    Task UpdateQueueItemStatusAsync(string queueId, string status, string? errorMessage = null, string? processingStage = null);
 
     /// <summary>
     /// Removes a queue item.

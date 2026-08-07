@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Controls;
 using MemoryTimeline.Core.Services;
 using MemoryTimeline.Data;
 using MemoryTimeline.Data.Repositories;
+using MemoryTimeline.Sync;
 using MemoryTimeline.ViewModels;
 using MemoryTimeline.Views;
 using MemoryTimeline.Services;
@@ -103,10 +104,8 @@ public partial class App : Application
                     services.AddSingleton<IEventEmbeddingRepository, EventEmbeddingRepository>();
                     services.AddSingleton<IAppSettingRepository, AppSettingRepository>();
                     services.AddSingleton<IPendingEventRepository, PendingEventRepository>();
-                    services.AddSingleton<IDraftRepository, DraftRepository>();
-                    services.AddSingleton<IEventMediaRepository, EventMediaRepository>();
-                    services.AddSingleton<IRecallPromptRepository, RecallPromptRepository>();
-                    services.AddSingleton<IEventRevisionRepository, EventRevisionRepository>();
+                    services.AddSingleton<ICaptureRepository, CaptureRepository>();
+                    services.AddSingleton<ISyncOutboxRepository, SyncOutboxRepository>();
 
                     // Register core services (stateless over the factory/repositories)
                     services.AddSingleton<ISettingsService, SettingsService>();
@@ -134,18 +133,27 @@ public partial class App : Application
                     // SpeechRecognizer cannot transcribe files (mic-only API).
                     services.AddSingleton<ISpeechToTextService, WhisperSpeechToTextService>();
 
-                    // Phase 4: LLM & Event Extraction services.
-                    // F11 pluggable providers: concrete LLM services are registered as
-                    // themselves (AnthropicLlmService singleton; OpenAiCompatibleLlmService
-                    // as an HttpClient typed client, i.e. transient with factory-managed
-                    // HttpClient). The RoutingLlmService facade re-reads llm_provider on
-                    // every call and resolves the matching concrete per call, so switching
-                    // providers in Settings applies without a restart and HttpClient
-                    // lifetimes stay healthy.
-                    services.AddSingleton<AnthropicLlmService>();
-                    services.AddHttpClient<OpenAiCompatibleLlmService>();
-                    services.AddSingleton<ILlmUsageTracker, LlmUsageTracker>();
-                    services.AddSingleton<ILlmService, RoutingLlmService>();
+                    // iOS companion Phase 0: capture ingestion (design §7.2). Every
+                    // recording — local or from another device — enters the queue
+                    // through this seam. The Phase 0 resolver only handles local
+                    // file-path locators; Phase 1 swaps in a sync download client.
+                    services.AddSingleton<IArtifactResolver, LocalFileArtifactResolver>();
+                    services.AddSingleton<ICaptureIngestionService, CaptureIngestionService>();
+
+                    // iOS companion Phase 1: sync client + background worker (design §7.4).
+                    // One shared HttpClient for the sync endpoints; auth headers are set
+                    // per request, so a single instance is safe app-wide.
+                    services.AddSingleton(_ => new HttpClient());
+                    services.AddSingleton<ISyncSettingsStore, SyncSettingsStore>();
+                    services.AddSingleton<ISyncCursorStore, SettingsSyncCursorStore>();
+                    services.AddSingleton<ISyncClient, SyncApiClient>();
+                    services.AddSingleton<IArtifactTransferClient, ArtifactTransferClient>();
+                    services.AddSingleton<IRemoteChangeApplier, RemoteChangeApplier>();
+                    services.AddSingleton<ILocalOutboxPublisher, LocalOutboxPublisher>();
+                    services.AddSingleton<ISyncBackgroundWorker, SyncBackgroundWorker>();
+
+                    // Phase 4: LLM & Event Extraction services
+                    services.AddSingleton<ILlmService, AnthropicLlmService>();
                     services.AddSingleton<IEventExtractionService, EventExtractionService>();
 
                     // Phase 5: RAG & Embedding services.
@@ -521,6 +529,20 @@ public partial class App : Application
                 await SchemaUpgrader.EnsureSchemaAsync(dbContext, schemaLogger);
             }
             WriteToLog("Database ready");
+
+            // Start the sync background loop (iOS companion Phase 1) once the schema
+            // is guaranteed. Safe no-op while sync is disabled or the device is not
+            // paired; kept non-fatal because sync must never break app launch.
+            try
+            {
+                var syncWorker = Services.GetRequiredService<ISyncBackgroundWorker>();
+                syncWorker.Start();
+                WriteToLog("Sync background worker started");
+            }
+            catch (Exception syncEx)
+            {
+                LogException("Sync background worker startup failed", syncEx);
+            }
 
             WriteToLog("Creating MainWindow...");
             _mainWindow = Services.GetRequiredService<MainWindow>();

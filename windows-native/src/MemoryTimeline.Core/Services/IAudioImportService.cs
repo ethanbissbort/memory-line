@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using MemoryTimeline.Core.DTOs;
 using MemoryTimeline.Core.Models;
 using MemoryTimeline.Data;
 using MemoryTimeline.Data.Models;
@@ -55,13 +56,16 @@ public interface IAudioImportService
 }
 
 /// <summary>
-/// Audio import service implementation.
-/// Creates a short-lived DbContext per operation via IDbContextFactory.
+/// Audio import service implementation. Queue insertion routes through
+/// ICaptureIngestionService (design §7.2) so imported files get the same
+/// capture/artifact identity as in-app recordings; the remaining database
+/// work still opens a short-lived DbContext per operation via IDbContextFactory.
 /// </summary>
 public class AudioImportService : IAudioImportService
 {
     private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly IQueueService _queueService;
+    private readonly ICaptureIngestionService _captureIngestionService;
     private readonly ISpeechToTextService? _sttService;
     private readonly IEventExtractionService? _extractionService;
     private readonly ILogger<AudioImportService> _logger;
@@ -71,12 +75,14 @@ public class AudioImportService : IAudioImportService
     public AudioImportService(
         IDbContextFactory<AppDbContext> contextFactory,
         IQueueService queueService,
+        ICaptureIngestionService captureIngestionService,
         ILogger<AudioImportService> logger,
         ISpeechToTextService? sttService = null,
         IEventExtractionService? extractionService = null)
     {
         _contextFactory = contextFactory;
         _queueService = queueService;
+        _captureIngestionService = captureIngestionService;
         _sttService = sttService;
         _extractionService = extractionService;
         _logger = logger;
@@ -170,8 +176,26 @@ public class AudioImportService : IAudioImportService
                 progressReport.CurrentItemProgress = 50;
                 ReportProgress(progress, progressReport);
 
-                var queueItem = await AddToQueueAsync(destinationPath, importItem);
+                var (queueItem, alreadyIngested) = await AddToQueueAsync(destinationPath, importItem);
                 importItem.QueueItemId = queueItem.QueueId;
+
+                if (alreadyIngested)
+                {
+                    // Ingestion's content-hash dedupe matched an existing queue
+                    // item (same bytes under a different file name). Do NOT
+                    // auto-process it again - that would duplicate pending
+                    // events for an item that may already be reviewed.
+                    importItem.Status = AudioImportStatus.Skipped;
+                    importItem.ErrorMessage = "Duplicate content (already in queue)";
+                    result.Items.Add(importItem);
+                    result.SkippedDuplicates++;
+
+                    // The freshly copied file is redundant; the queue item keeps
+                    // pointing at its original artifact path.
+                    TryDeleteFile(destinationPath);
+                    continue;
+                }
+
                 importItem.Status = AudioImportStatus.Queued;
 
                 // Auto-process if enabled
@@ -394,25 +418,44 @@ public class AudioImportService : IAudioImportService
         return destinationPath;
     }
 
-    private async Task<RecordingQueue> AddToQueueAsync(string filePath, AudioImportItem item)
+    private async Task<(RecordingQueue QueueItem, bool AlreadyIngested)> AddToQueueAsync(string filePath, AudioImportItem item)
     {
-        var queueItem = new RecordingQueue
+        // Route through capture ingestion (design §7.2) rather than inserting a
+        // bare RecordingQueue row: the imported file gets the same capture +
+        // artifact identity, content hash, and sync-outbox entry as an in-app
+        // recording.
+        var recording = new AudioRecordingDto
         {
             QueueId = Guid.NewGuid().ToString(),
             AudioFilePath = filePath,
-            FileSizeBytes = item.FileSize,
             DurationSeconds = item.Duration?.TotalSeconds,
-            Status = QueueStatus.Pending,
+            FileSizeBytes = item.FileSize,
             CreatedAt = DateTime.UtcNow
         };
 
-        await using var dbContext = await _contextFactory.CreateDbContextAsync();
+        var result = await _captureIngestionService.IngestLocalRecordingAsync(recording);
+        if (!result.Success)
+        {
+            // The per-file catch in ImportFilesAsync turns this into a failed
+            // import item for the file.
+            throw new InvalidOperationException($"Failed to queue imported audio: {result.FailureReason}");
+        }
 
-        dbContext.RecordingQueues.Add(queueItem);
-        await dbContext.SaveChangesAsync();
+        if (result.QueueId == null)
+        {
+            // Content matched a capture whose queue item was deliberately deleted;
+            // ingestion does not resurrect it (§12.2).
+            throw new InvalidOperationException("This audio was previously ingested and removed from the queue.");
+        }
+
+        var queueItem = await _queueService.GetQueueItemAsync(result.QueueId);
+        if (queueItem == null)
+        {
+            throw new InvalidOperationException($"Queue item {result.QueueId} not found after ingestion.");
+        }
 
         _logger.LogInformation("Added to queue: {Id} - {FileName}", queueItem.QueueId, Path.GetFileName(queueItem.AudioFilePath));
-        return queueItem;
+        return (queueItem, result.AlreadyIngested);
     }
 
     private async Task ProcessQueueItemAsync(
@@ -426,8 +469,11 @@ public class AudioImportService : IAudioImportService
 
         var fileName = Path.GetFileName(queueItem.AudioFilePath);
 
-        // Update status to processing (fresh context; the passed entity is detached)
-        await UpdateQueueStatusAsync(queueItem.QueueId, QueueStatus.Processing);
+        // Status updates go through IQueueService so the fine-grained
+        // processing_stage stays in lockstep with status (and status-changed
+        // events reach the UI), exactly as when QueueService processes the item.
+        await _queueService.UpdateQueueItemStatusAsync(queueItem.QueueId, QueueStatus.Processing,
+            processingStage: QueueProcessingStage.Transcribing);
 
         try
         {
@@ -441,6 +487,7 @@ public class AudioImportService : IAudioImportService
             }
 
             var transcript = transcriptionResult.Text;
+            var extractedCount = 0;
 
             // Extract events if enabled - use the extraction service which handles creating pending events
             if (options.AutoExtract && _extractionService != null)
@@ -450,47 +497,39 @@ public class AudioImportService : IAudioImportService
                 progressReport.CurrentItemProgress = 80;
                 ReportProgress(progress, progressReport);
 
+                await _queueService.UpdateQueueItemStatusAsync(queueItem.QueueId, QueueStatus.Processing,
+                    processingStage: QueueProcessingStage.Extracting);
+
                 _logger.LogInformation("Extracting events from: {FileName}", fileName);
                 var pendingEvents = await _extractionService.ExtractAndCreatePendingEventsAsync(queueItem.QueueId, transcript);
-                _logger.LogInformation("Extracted {Count} events from: {FileName}", pendingEvents.Count, fileName);
+                extractedCount = pendingEvents.Count;
+                _logger.LogInformation("Extracted {Count} events from: {FileName}", extractedCount, fileName);
             }
 
-            await UpdateQueueStatusAsync(queueItem.QueueId, QueueStatus.Completed, processedAt: DateTime.UtcNow);
+            await _queueService.UpdateQueueItemStatusAsync(queueItem.QueueId, QueueStatus.Completed,
+                processingStage: extractedCount > 0
+                    ? QueueProcessingStage.ReviewReady
+                    : QueueProcessingStage.Completed);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error processing queue item: {Id}", queueItem.QueueId);
-            await UpdateQueueStatusAsync(queueItem.QueueId, QueueStatus.Failed, errorMessage: ex.Message);
+            await _queueService.UpdateQueueItemStatusAsync(queueItem.QueueId, QueueStatus.Failed, ex.Message,
+                processingStage: QueueProcessingStage.FailedRetryable);
             throw;
         }
     }
 
-    /// <summary>
-    /// Persists a queue item status change by loading the TRACKED row in a
-    /// fresh context (the entities handed around this service are detached).
-    /// </summary>
-    private async Task UpdateQueueStatusAsync(string queueId, string status, string? errorMessage = null, DateTime? processedAt = null)
+    private void TryDeleteFile(string path)
     {
-        await using var dbContext = await _contextFactory.CreateDbContextAsync();
-
-        var tracked = await dbContext.RecordingQueues.FirstOrDefaultAsync(q => q.QueueId == queueId);
-        if (tracked == null)
+        try
         {
-            _logger.LogWarning("Queue item {QueueId} not found while updating status to {Status}", queueId, status);
-            return;
+            File.Delete(path);
         }
-
-        tracked.Status = status;
-        if (errorMessage != null)
+        catch (Exception ex)
         {
-            tracked.ErrorMessage = errorMessage;
+            _logger.LogWarning(ex, "Failed to delete redundant file: {Path}", path);
         }
-        if (processedAt.HasValue)
-        {
-            tracked.ProcessedAt = processedAt;
-        }
-
-        await dbContext.SaveChangesAsync();
     }
 
     private void ReportProgress(IProgress<AudioImportProgress>? progress, AudioImportProgress report)

@@ -15,9 +15,10 @@ on:
   push:
     branches:
       - claude/multi-agent-code-review-bVmNX
-      - claude/multi-agent-document-exec-597ynm
+      - claude/design-document-ingestion-27bl5z
     paths:
       - 'windows-native/**'
+      - 'shared-contracts/dotnet/**'
       - '.github/workflows/windows-native-build.yml'
   workflow_dispatch:
 
