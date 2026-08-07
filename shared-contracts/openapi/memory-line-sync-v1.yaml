@@ -19,8 +19,10 @@ info:
     on create/mutation calls, and cursor-based synchronization. When the header
     is present, the server stores the successful response for each
     (deviceId, idempotencyKey) pair for a retention window and replays the
-    stored result for a repeated key. Sync push idempotency does not rely on
-    the header — it is carried by per-entry clientSequence receipts.
+    stored result for a repeated key — except that credential material is never
+    stored: a replayed device registration returns the same device identity
+    with freshly minted tokens. Sync push idempotency does not rely on the
+    header — it is carried by per-entry clientSequence receipts.
 
 servers:
   - url: /api/v1
@@ -101,7 +103,11 @@ paths:
               $ref: '#/components/schemas/TokenRefreshRequest'
       responses:
         '200':
-          description: New token pair issued; the previous refresh token is invalidated.
+          description: >-
+            New token pair issued. The previous refresh token remains accepted
+            only within the server's configured recovery grace window
+            (RefreshTokenGraceSeconds, default 300; 0 = strict immediate
+            rotation), then is invalidated.
           content:
             application/json:
               schema:
@@ -1476,7 +1482,10 @@ components:
           format: date-time
         refreshToken:
           type: string
-          description: Rotated refresh token; the previous one is invalidated.
+          description: >-
+            Rotated refresh token. The previous token stays valid only within
+            the server's recovery grace window (default 300s), which exists so
+            a lost response or concurrent refresh cannot strand the device.
 
     DeviceInfo:
       type: object

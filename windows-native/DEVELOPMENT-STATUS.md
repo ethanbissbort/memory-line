@@ -53,6 +53,20 @@ artifact, and the Windows pull → ingest path dedupes it into review exactly
 once. End-to-end validation against a real iPhone awaits the Phase 2 iOS
 client.
 
+**Known follow-ups (from the post-fix verification pass):**
+
+- The `RefreshTokenHash` concurrency token applies to every device-row update;
+  ack/revoke racing a concurrent refresh can surface a retryable 500 (only
+  refresh has reload-and-retry today).
+- Crash-orphaned `*.tmp` assembly files in the service's artifact store are
+  never swept (in-process failures clean up after themselves).
+- The register endpoint reads the `Idempotency-Key` header directly and does
+  not enforce the 128-char limit the authenticated-route filter applies.
+- Service schema is `EnsureCreated` (no migrations); pre-release upgrades
+  across schema changes require deleting `sync.db` (see services/README.md).
+- Sync tokens are stored in the Windows app's settings table like the other
+  keys; DPAPI-at-rest remains the tracked hardening follow-up.
+
 **Next step:** Phase 2 — iOS capture MVP (SwiftUI shell, one-touch recording,
 durable local queue, background upload, capture history/status).
 

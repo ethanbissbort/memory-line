@@ -182,3 +182,10 @@ Errors use the `ApiError` envelope (`code`, `message`, `retryable`,
 
 Back up `{DataDir}` as a unit; `sync.db` and `artifacts/` reference each
 other.
+
+**Pre-release schema note:** the service creates its schema with EF
+`EnsureCreated` — there are no migrations yet. When upgrading a pre-release
+deployment across a schema change, stop the service and delete `sync.db`
+(paired devices re-register with the pairing code; completed artifacts under
+`artifacts/` are content-addressed by ID and can be removed too). Proper
+migrations are planned before any stable release.
