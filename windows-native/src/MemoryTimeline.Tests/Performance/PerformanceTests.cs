@@ -34,7 +34,12 @@ public class PerformanceTests : IDisposable
         // Create a real SQLite database for performance testing
         _databasePath = Path.Combine(Path.GetTempPath(), $"PerfTest_{Guid.NewGuid()}.db");
 
-        _contextFactory = TestDbContextFactory.CreateSqliteFile(_databasePath);
+        // Pooled on purpose: production pools its SQLite connections, so these
+        // numbers must be measured against a pooled connection too. Unpooled,
+        // every repository call would pay a fresh file open plus the pragma
+        // interceptor's three PRAGMA statements, which on the 100-transaction
+        // write loop below dominates the elapsed time being asserted on.
+        _contextFactory = TestDbContextFactory.CreateSqliteFile(_databasePath, pooled: true);
 
         using (var context = _contextFactory.CreateDbContext())
         {
