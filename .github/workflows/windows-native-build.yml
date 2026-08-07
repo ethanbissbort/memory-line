@@ -21,6 +21,15 @@ on:
       - 'windows-native/**'
       - 'shared-contracts/dotnet/**'
       - '.github/workflows/windows-native-build.yml'
+  # Any pull request touching the Windows sources gets built, regardless of
+  # branch name. The push list above is a per-branch opt-in that a new branch
+  # silently misses, which meant a PR could change the WinUI solution and merge
+  # with no Windows build having run at all.
+  pull_request:
+    paths:
+      - 'windows-native/**'
+      - 'shared-contracts/dotnet/**'
+      - '.github/workflows/windows-native-build.yml'
   workflow_dispatch:
 
 jobs:

@@ -20,7 +20,9 @@ on:
       - 'ios-companion/MemoryLineCompanion/Shared/**'
       - 'services/**'
       - 'shared-contracts/**'
+      - 'windows-native/src/MemoryTimeline.Core/**'
       - 'windows-native/src/MemoryTimeline.Data/**'
+      - 'windows-native/src/MemoryTimeline.Sync/**'
       - '.github/workflows/macos-native-build.yml'
   pull_request:
     paths:
@@ -28,7 +30,9 @@ on:
       - 'ios-companion/MemoryLineCompanion/Shared/**'
       - 'services/**'
       - 'shared-contracts/**'
+      - 'windows-native/src/MemoryTimeline.Core/**'
       - 'windows-native/src/MemoryTimeline.Data/**'
+      - 'windows-native/src/MemoryTimeline.Sync/**'
   workflow_dispatch:
 
 jobs:
