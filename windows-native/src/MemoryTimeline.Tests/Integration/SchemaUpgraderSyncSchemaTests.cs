@@ -40,11 +40,12 @@ public class SchemaUpgraderSyncSchemaTests : IDisposable
     }
 
     /// <summary>
-    /// Raw connections must opt OUT of Microsoft.Data.Sqlite's connection pooling:
-    /// a pooled setup connection keeps its underlying SQLite handle open after
-    /// Dispose, and the schema upgrader's later "PRAGMA journal_mode=WAL" cannot
-    /// convert the journal mode while that handle lives — on Windows it fails with
-    /// "SQLite Error 8: attempt to write a readonly database".
+    /// Raw connections opt OUT of Microsoft.Data.Sqlite's connection pooling so no
+    /// pooled handle outlives its using-block and pins the database/WAL files
+    /// while EF later converts the journal mode or Dispose deletes the files.
+    /// (The legacy-database WAL-conversion crash itself was a production bug in
+    /// AppDbContext's pragma interceptor — running journal_mode=WAL on EF's
+    /// read-only existence-probe connection — fixed there, and covered here.)
     /// </summary>
     private string RawConnectionString => $"Data Source={_databasePath};Pooling=False";
 

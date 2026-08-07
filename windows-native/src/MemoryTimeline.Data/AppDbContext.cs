@@ -67,10 +67,39 @@ public class AppDbContext : DbContext
         private const string PragmaSql =
             "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;";
 
+        /// <summary>
+        /// journal_mode=WAL writes the database header when the database is not
+        /// already in WAL mode, so it must be skipped on read-only connections.
+        /// EF's SQLite provider probes database existence (EnsureCreated) over a
+        /// Mode=ReadOnly clone of the connection; running the full pragma set
+        /// there crashes with SQLITE_READONLY against a legacy delete-journal
+        /// database file.
+        /// </summary>
+        private const string ReadOnlyPragmaSql =
+            "PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;";
+
+        private static string GetPragmaSql(DbConnection connection)
+        {
+            try
+            {
+                if (new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder(connection.ConnectionString).Mode ==
+                    Microsoft.Data.Sqlite.SqliteOpenMode.ReadOnly)
+                {
+                    return ReadOnlyPragmaSql;
+                }
+            }
+            catch (Exception)
+            {
+                // Unparseable connection string: fall through to the full set.
+            }
+
+            return PragmaSql;
+        }
+
         public override void ConnectionOpened(DbConnection connection, ConnectionEndEventData eventData)
         {
             using var command = connection.CreateCommand();
-            command.CommandText = PragmaSql;
+            command.CommandText = GetPragmaSql(connection);
             command.ExecuteNonQuery();
         }
 
@@ -80,7 +109,7 @@ public class AppDbContext : DbContext
             CancellationToken cancellationToken = default)
         {
             using var command = connection.CreateCommand();
-            command.CommandText = PragmaSql;
+            command.CommandText = GetPragmaSql(connection);
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
     }
