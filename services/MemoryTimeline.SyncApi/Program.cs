@@ -34,6 +34,7 @@ builder.Services.AddSingleton<IDeviceService, DeviceService>();
 builder.Services.AddSingleton<ICaptureService, CaptureService>();
 builder.Services.AddSingleton<IArtifactService, ArtifactService>();
 builder.Services.AddSingleton<ISyncChangeService, SyncChangeService>();
+builder.Services.AddSingleton<IAssistantService, AssistantService>();
 
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -116,6 +117,7 @@ DeviceEndpoints.MapAuthenticatedEndpoints(authenticatedApi);
 CaptureEndpoints.MapEndpoints(authenticatedApi);
 ArtifactEndpoints.MapEndpoints(authenticatedApi);
 SyncEndpoints.MapEndpoints(authenticatedApi);
+AssistantEndpoints.MapEndpoints(authenticatedApi);
 
 app.Run();
 

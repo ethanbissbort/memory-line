@@ -115,6 +115,148 @@ internal static class EntityMappers
         return JsonSerializer.Serialize(payload, SyncJson.Options);
     }
 
+    /// <summary>Maps an assistant session row to the wire response.</summary>
+    public static AssistantSessionResponse ToAssistantSessionResponse(AssistantSessionRow session) => new()
+    {
+        SessionId = session.SessionId,
+        DeviceId = session.DeviceId,
+        PreferredResponder = session.PreferredResponder,
+        CreatedAtUtc = session.CreatedAtUtc,
+        LastTurnAtUtc = session.LastTurnAtUtc,
+        TurnCount = session.TurnCount,
+    };
+
+    /// <summary>
+    /// Maps an assistant turn row to the wire response. The result object is
+    /// materialized only once an answer exists, so a client can test for its
+    /// presence rather than having to inspect an empty answer string.
+    /// </summary>
+    public static AssistantTurnResponse ToAssistantTurnResponse(AssistantTurnRow turn) => new()
+    {
+        TurnId = turn.TurnId,
+        SessionId = turn.SessionId,
+        Sequence = turn.Sequence,
+        Question = turn.Question,
+        Status = turn.Status,
+        RequestedResponder = turn.RequestedResponder,
+        ActualResponder = turn.ActualResponder,
+        CreatedAtUtc = turn.CreatedAtUtc,
+        CompletedAtUtc = turn.CompletedAtUtc,
+        Result = ToAssistantTurnResult(turn),
+        FailureReason = turn.FailureReason,
+        FailureRetryable = turn.FailureRetryable,
+    };
+
+    /// <summary>
+    /// Builds an assistant_turn upsert change-log row from the stored turn. The
+    /// change carries what the service persisted rather than a publisher's raw
+    /// bytes, so a payload pulled off the feed can never disagree with the turn
+    /// a client polls — the two are the same row, serialized twice.
+    ///
+    /// <paramref name="sourceDeviceId"/> is the device that caused this
+    /// revision, which echo suppression uses to keep the change away from it:
+    /// the asking phone does not need its own question back, and a responder
+    /// does not need its own answer back.
+    /// </summary>
+    public static SyncChangeRow CreateAssistantTurnChange(AssistantTurnRow turn, string sourceDeviceId) => new()
+    {
+        OwnerId = turn.OwnerId,
+        EntityType = SyncChangeEntityType.AssistantTurn,
+        EntityId = turn.TurnId,
+        Operation = SyncOperation.Upsert,
+        Revision = turn.Revision,
+        SourceDeviceId = sourceDeviceId,
+        PayloadJson = SerializeAssistantTurnPayload(turn),
+        ChangedAtUtc = DateTime.UtcNow,
+    };
+
+    /// <summary>Serializes the stored turn as the payload of an assistant_turn change (camelCase JSON).</summary>
+    public static string SerializeAssistantTurnPayload(AssistantTurnRow turn)
+    {
+        var payload = new AssistantTurnChangePayload
+        {
+            TurnId = turn.TurnId,
+            SessionId = turn.SessionId,
+            Sequence = turn.Sequence,
+            Question = turn.Question,
+            Status = turn.Status,
+            RequestedResponder = turn.RequestedResponder,
+            ActualResponder = turn.ActualResponder,
+            OriginDeviceId = turn.OriginDeviceId,
+            ClientContext = DeserializeClientContext(turn.ClientContextJson),
+            Result = ToAssistantTurnResult(turn),
+            FailureReason = turn.FailureReason,
+            FailureRetryable = turn.FailureRetryable,
+            UpdatedAtUtc = turn.UpdatedAtUtc,
+        };
+
+        return JsonSerializer.Serialize(payload, SyncJson.Options);
+    }
+
+    /// <summary>
+    /// The answer carried by a turn, or null when nothing has answered it yet.
+    /// An empty citation list survives as an empty list rather than becoming
+    /// null: a responder that found nothing relevant and said so honestly is
+    /// materially different from one that has not answered.
+    /// </summary>
+    private static AssistantTurnResult? ToAssistantTurnResult(AssistantTurnRow turn)
+    {
+        if (turn.Answer is null)
+        {
+            return null;
+        }
+
+        return new AssistantTurnResult
+        {
+            Answer = turn.Answer,
+            Grounding = turn.Grounding ?? AssistantGrounding.None,
+            Citations = DeserializeCitations(turn.CitationsJson),
+            Model = turn.Model,
+            ElapsedMs = turn.ElapsedMs,
+        };
+    }
+
+    /// <summary>
+    /// Rehydrates stored client context. Written by this service after
+    /// validation, so malformed JSON means the row was corrupted rather than
+    /// that a client sent something odd; the turn still routes, without the
+    /// context, instead of failing the whole pull.
+    /// </summary>
+    private static List<AssistantContextItem>? DeserializeClientContext(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<AssistantContextItem>>(json, SyncJson.Options);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Rehydrates stored citations; see <see cref="DeserializeClientContext"/> for the failure stance.</summary>
+    private static List<AssistantCitation> DeserializeCitations(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return [];
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<AssistantCitation>>(json, SyncJson.Options) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
     /// <summary>Whether the artifact carries capture audio (its completion triggers ingestion).</summary>
     public static bool IsAudioArtifact(ServerArtifact artifact)
         => artifact.ArtifactType is "audio_original" or "audio_normalized";

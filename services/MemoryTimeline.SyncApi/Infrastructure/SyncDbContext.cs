@@ -34,6 +34,10 @@ public class SyncDbContext : DbContext
 
     public DbSet<CaptureStatusRow> CaptureStatuses => Set<CaptureStatusRow>();
 
+    public DbSet<AssistantSessionRow> AssistantSessions => Set<AssistantSessionRow>();
+
+    public DbSet<AssistantTurnRow> AssistantTurns => Set<AssistantTurnRow>();
+
     public DbSet<SyncChangeRow> SyncChanges => Set<SyncChangeRow>();
 
     public DbSet<PushReceipt> PushReceipts => Set<PushReceipt>();
@@ -137,6 +141,61 @@ public class SyncDbContext : DbContext
             e.Property(x => x.Revision).HasColumnName("revision");
             e.Property(x => x.ReceivedAtUtc).HasColumnName("received_at_utc");
             e.HasIndex(x => x.OwnerId);
+        });
+
+        // Column names and types here are duplicated in
+        // SyncApiBootstrapper.EnsureAssistantTablesAsync, which creates these
+        // tables on databases that predate them — keep the two in step.
+        modelBuilder.Entity<AssistantSessionRow>(e =>
+        {
+            e.ToTable("assistant_sessions");
+            e.HasKey(x => x.SessionId);
+            e.Property(x => x.SessionId).HasColumnName("session_id");
+            e.Property(x => x.OwnerId).HasColumnName("owner_id");
+            e.Property(x => x.DeviceId).HasColumnName("device_id");
+            e.Property(x => x.PreferredResponder).HasColumnName("preferred_responder");
+            e.Property(x => x.Surface).HasColumnName("surface");
+            e.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
+            e.Property(x => x.LastTurnAtUtc).HasColumnName("last_turn_at_utc");
+            e.Property(x => x.TurnCount).HasColumnName("turn_count");
+            // Every session read is scoped to the owning device, never to the
+            // session ID alone, so the index carries the device too.
+            e.HasIndex(x => new { x.OwnerId, x.DeviceId });
+        });
+
+        modelBuilder.Entity<AssistantTurnRow>(e =>
+        {
+            e.ToTable("assistant_turns");
+            e.HasKey(x => x.TurnId);
+            e.Property(x => x.TurnId).HasColumnName("turn_id");
+            e.Property(x => x.SessionId).HasColumnName("session_id");
+            e.Property(x => x.OwnerId).HasColumnName("owner_id");
+            e.Property(x => x.OriginDeviceId).HasColumnName("origin_device_id");
+            e.Property(x => x.Sequence).HasColumnName("sequence");
+            e.Property(x => x.Question).HasColumnName("question");
+            e.Property(x => x.Status).HasColumnName("status");
+            e.Property(x => x.RequestedResponder).HasColumnName("requested_responder");
+            e.Property(x => x.ActualResponder).HasColumnName("actual_responder");
+            e.Property(x => x.ClientContextJson).HasColumnName("client_context_json");
+            e.Property(x => x.Stream).HasColumnName("stream");
+            e.Property(x => x.Answer).HasColumnName("answer");
+            e.Property(x => x.Grounding).HasColumnName("grounding");
+            e.Property(x => x.CitationsJson).HasColumnName("citations_json");
+            e.Property(x => x.Model).HasColumnName("model");
+            e.Property(x => x.ElapsedMs).HasColumnName("elapsed_ms");
+            e.Property(x => x.FailureReason).HasColumnName("failure_reason");
+            e.Property(x => x.FailureRetryable).HasColumnName("failure_retryable");
+            e.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
+            e.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc");
+            e.Property(x => x.CompletedAtUtc).HasColumnName("completed_at_utc");
+            e.Property(x => x.Revision).HasColumnName("revision");
+            e.HasIndex(x => x.SessionId);
+
+            // Turn sequence is assigned from the session's turn count, so two
+            // concurrent submissions can compute the same number. The unique
+            // index makes that a lost race the service retries rather than two
+            // turns silently sharing a position in the conversation.
+            e.HasIndex(x => new { x.SessionId, x.Sequence }).IsUnique();
         });
 
         modelBuilder.Entity<SyncChangeRow>(e =>

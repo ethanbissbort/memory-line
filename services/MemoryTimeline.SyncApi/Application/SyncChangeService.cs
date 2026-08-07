@@ -24,6 +24,24 @@ public sealed class SyncChangeService : ISyncChangeService
         SyncChangeEntityType.RecordingQueue,
         SyncChangeEntityType.PendingEvent,
         SyncChangeEntityType.Event,
+        SyncChangeEntityType.AssistantTurn,
+        SyncChangeEntityType.AssistantTurnChunk,
+    ];
+
+    /// <summary>Grounding values an assistant answer may declare.</summary>
+    private static readonly string[] AllowedGroundings =
+    [
+        AssistantGrounding.Archive,
+        AssistantGrounding.ClientContext,
+        AssistantGrounding.None,
+    ];
+
+    /// <summary>Responder values an answer may name as the one that produced it.</summary>
+    private static readonly string[] AllowedResponders =
+    [
+        AssistantResponder.Windows,
+        AssistantResponder.Provider,
+        AssistantResponder.OnDevice,
     ];
 
     /// <summary>Statuses a capture_status payload may carry (SyncCaptureStatus vocabulary).</summary>
@@ -240,6 +258,66 @@ public sealed class SyncChangeService : ISyncChangeService
                 "Capture {CaptureId} status {Status} (revision {Revision}) recorded from device {DeviceId}.",
                 status.CaptureId, status.Status, status.Revision, caller.DeviceId);
         }
+        else if (entry.EntityType == SyncChangeEntityType.AssistantTurn)
+        {
+            var outcome = await TryApplyAssistantTurnAsync(db, caller, entry, cancellationToken);
+            if (outcome.Rejection is not null)
+            {
+                return outcome.Rejection;
+            }
+
+            if (outcome.Ignored)
+            {
+                // The turn already finished — most importantly, the user may
+                // have cancelled it. Consume the entry so the responder stops
+                // re-pushing, but append nothing: a cancelled turn that could
+                // still be answered by work already in flight would make the
+                // cancel button a suggestion rather than a stop.
+                _logger.LogInformation(
+                    "Assistant turn {TurnId} answer from device {DeviceId} arrived after the turn finished; discarded.",
+                    entry.EntityId, caller.DeviceId);
+                return new SyncPushEntryResult
+                {
+                    ClientSequence = entry.ClientSequence,
+                    Accepted = true,
+                    Duplicate = true,
+                };
+            }
+
+            var turn = outcome.Applied!;
+            revision = turn.Revision;
+            payloadJson = EntityMappers.SerializeAssistantTurnPayload(turn);
+            _logger.LogInformation(
+                "Assistant turn {TurnId} moved to {Status} by device {DeviceId} " +
+                "(responder {Responder}, revision {Revision}).",
+                turn.TurnId, turn.Status, caller.DeviceId, turn.ActualResponder ?? "unclaimed", turn.Revision);
+        }
+        else if (entry.EntityType == SyncChangeEntityType.AssistantTurnChunk)
+        {
+            var outcome = await TryRelayAssistantChunkAsync(db, caller, entry, cancellationToken);
+            if (outcome.Rejection is not null)
+            {
+                return outcome.Rejection;
+            }
+
+            if (outcome.Ignored)
+            {
+                _logger.LogDebug(
+                    "Assistant chunk for turn {TurnId} arrived after the turn finished; dropped.",
+                    entry.EntityId);
+                return new SyncPushEntryResult
+                {
+                    ClientSequence = entry.ClientSequence,
+                    Accepted = true,
+                    Duplicate = true,
+                };
+            }
+
+            // Chunks have no projection to keep in step, so the publisher's own
+            // bytes are relayed unchanged; the revision carries the chunk index
+            // so a consumer can spot a gap without parsing the payload.
+            revision = outcome.Applied!.ChunkIndex + 1;
+        }
 
         var change = new SyncChangeRow
         {
@@ -308,22 +386,26 @@ public sealed class SyncChangeService : ISyncChangeService
     }
 
     /// <summary>
-    /// Outcome of one pushed capture_status entry: <see cref="Applied"/> is the
-    /// tracked (still unsaved) projection row, <see cref="Rejection"/> the
-    /// per-entry error to hand back to the publisher, and <see cref="Ignored"/>
-    /// marks an entry that is behind the stored status and must be consumed
-    /// without changing anything. Exactly one of the three is set.
+    /// Outcome of one pushed entry that the service does more with than log:
+    /// <see cref="Applied"/> is what the entry produced (a tracked, still
+    /// unsaved projection row, or the validated payload for entity types that
+    /// keep no projection), <see cref="Rejection"/> the per-entry error to hand
+    /// back to the publisher, and <see cref="Ignored"/> marks an entry that
+    /// must be consumed without changing anything — because it is behind what
+    /// is stored, or because the thing it targets has already finished.
+    /// Exactly one of the three is set.
     /// </summary>
-    private readonly record struct CaptureStatusOutcome(
-        CaptureStatusRow? Applied,
+    private readonly record struct PushEntryOutcome<T>(
+        T? Applied,
         SyncPushEntryResult? Rejection,
         bool Ignored)
+        where T : class
     {
-        public static CaptureStatusOutcome Apply(CaptureStatusRow row) => new(row, null, false);
+        public static PushEntryOutcome<T> Apply(T applied) => new(applied, null, false);
 
-        public static CaptureStatusOutcome Reject(SyncPushEntryResult rejection) => new(null, rejection, false);
+        public static PushEntryOutcome<T> Reject(SyncPushEntryResult rejection) => new(null, rejection, false);
 
-        public static CaptureStatusOutcome Ignore() => new(null, null, true);
+        public static PushEntryOutcome<T> Ignore() => new(null, null, true);
     }
 
     /// <summary>
@@ -336,7 +418,7 @@ public sealed class SyncChangeService : ISyncChangeService
     /// truncation of the transcript preview, so an over-long preview is
     /// rejected rather than cut down (design §19 Phase 3).
     /// </summary>
-    private static async Task<CaptureStatusOutcome> TryApplyCaptureStatusAsync(
+    private static async Task<PushEntryOutcome<CaptureStatusRow>> TryApplyCaptureStatusAsync(
         SyncDbContext db,
         Device caller,
         SyncPushEntry entry,
@@ -344,20 +426,20 @@ public sealed class SyncChangeService : ISyncChangeService
     {
         if (entry.Operation != SyncOperation.Upsert)
         {
-            return CaptureStatusOutcome.Reject(Rejected(entry, "capture_status supports upsert only."));
+            return PushEntryOutcome<CaptureStatusRow>.Reject(Rejected(entry, "capture_status supports upsert only."));
         }
 
         var payload = TryParseCaptureStatusPayload(entry.PayloadJson);
         if (payload is null)
         {
-            return CaptureStatusOutcome.Reject(Rejected(entry, "capture_status requires a well-formed payload."));
+            return PushEntryOutcome<CaptureStatusRow>.Reject(Rejected(entry, "capture_status requires a well-formed payload."));
         }
 
         if (!Guid.TryParse(entry.EntityId, out var entityGuid)
             || !Guid.TryParse(payload.CaptureId, out var payloadGuid)
             || entityGuid != payloadGuid)
         {
-            return CaptureStatusOutcome.Reject(
+            return PushEntryOutcome<CaptureStatusRow>.Reject(
                 Rejected(entry, "payload captureId must be a UUID equal to entityId."));
         }
 
@@ -366,21 +448,21 @@ public sealed class SyncChangeService : ISyncChangeService
             : payload.Status.Trim().ToLowerInvariant();
         if (!AllowedCaptureStatuses.Contains(status))
         {
-            return CaptureStatusOutcome.Reject(Rejected(
+            return PushEntryOutcome<CaptureStatusRow>.Reject(Rejected(
                 entry,
                 "status must be one of: local_only, uploading, received, processing, review_ready, completed, failed."));
         }
 
         if (payload.TranscriptPreview is { Length: > CaptureStatusChangePayload.TranscriptPreviewMaxChars })
         {
-            return CaptureStatusOutcome.Reject(Rejected(
+            return PushEntryOutcome<CaptureStatusRow>.Reject(Rejected(
                 entry,
                 $"transcriptPreview must be at most {CaptureStatusChangePayload.TranscriptPreviewMaxChars} characters."));
         }
 
         if (payload.TranscriptCharCount < 0 || payload.PendingEventCount < 0 || payload.ApprovedEventCount < 0)
         {
-            return CaptureStatusOutcome.Reject(Rejected(
+            return PushEntryOutcome<CaptureStatusRow>.Reject(Rejected(
                 entry, "transcriptCharCount, pendingEventCount and approvedEventCount must not be negative."));
         }
 
@@ -389,7 +471,7 @@ public sealed class SyncChangeService : ISyncChangeService
             c => c.CaptureId == captureId && c.OwnerId == caller.OwnerId, cancellationToken);
         if (capture is null)
         {
-            return CaptureStatusOutcome.Reject(Rejected(entry, SyncApiErrorCodes.CaptureNotFound, "No such capture."));
+            return PushEntryOutcome<CaptureStatusRow>.Reject(Rejected(entry, SyncApiErrorCodes.CaptureNotFound, "No such capture."));
         }
 
         var updatedAtUtc = payload.UpdatedAtUtc == default ? DateTime.UtcNow : payload.UpdatedAtUtc;
@@ -397,7 +479,7 @@ public sealed class SyncChangeService : ISyncChangeService
             s => s.CaptureId == captureId, cancellationToken);
         if (row is not null && IsBehindStored(row, payload, status, updatedAtUtc))
         {
-            return CaptureStatusOutcome.Ignore();
+            return PushEntryOutcome<CaptureStatusRow>.Ignore();
         }
 
         if (row is null)
@@ -430,7 +512,7 @@ public sealed class SyncChangeService : ISyncChangeService
             capture.Revision++;
         }
 
-        return CaptureStatusOutcome.Apply(row);
+        return PushEntryOutcome<CaptureStatusRow>.Apply(row);
     }
 
     /// <summary>
@@ -503,6 +585,254 @@ public sealed class SyncChangeService : ISyncChangeService
         stored.FailureReason == payload.FailureReason &&
         stored.FailureRetryable == payload.FailureRetryable;
 
+    /// <summary>
+    /// Validates a pushed assistant_turn entry and applies it to the stored
+    /// turn, returning the tracked (still unsaved) row so the caller commits it
+    /// together with the change row and the push receipt.
+    ///
+    /// This is the return leg of the Phase 4 round trip: the service published
+    /// the question toward Windows, Windows answered it, and the answer comes
+    /// back through the same push path everything else uses. Applying it here
+    /// rather than only appending a change row is what lets the asking client
+    /// poll <c>GET /assistant/turns/{turnId}</c> — a phone that was suspended
+    /// through the whole exchange gets the answer from the turn, not from
+    /// change rows it has to have been awake to receive.
+    ///
+    /// A turn that has already finished is left alone (an "ignore" outcome).
+    /// That guard is what makes cancellation mean something: work already in
+    /// flight when the user hit stop lands here and is discarded rather than
+    /// resurrecting the turn.
+    /// </summary>
+    private static async Task<PushEntryOutcome<AssistantTurnRow>> TryApplyAssistantTurnAsync(
+        SyncDbContext db,
+        Device caller,
+        SyncPushEntry entry,
+        CancellationToken cancellationToken)
+    {
+        if (entry.Operation != SyncOperation.Upsert)
+        {
+            return PushEntryOutcome<AssistantTurnRow>.Reject(
+                Rejected(entry, "assistant_turn supports upsert only."));
+        }
+
+        var payload = TryParsePayload<AssistantTurnChangePayload>(entry.PayloadJson);
+        if (payload is null)
+        {
+            return PushEntryOutcome<AssistantTurnRow>.Reject(
+                Rejected(entry, "assistant_turn requires a well-formed payload."));
+        }
+
+        if (!Guid.TryParse(entry.EntityId, out var entityGuid)
+            || !Guid.TryParse(payload.TurnId, out var payloadGuid)
+            || entityGuid != payloadGuid)
+        {
+            return PushEntryOutcome<AssistantTurnRow>.Reject(
+                Rejected(entry, "payload turnId must be a UUID equal to entityId."));
+        }
+
+        var status = Normalize(payload.Status);
+        if (!AssistantTurnLifecycle.AllStatuses.Contains(status))
+        {
+            return PushEntryOutcome<AssistantTurnRow>.Reject(Rejected(
+                entry,
+                "status must be one of: pending, dispatched, answering, completed, failed, cancelled."));
+        }
+
+        string? actualResponder = null;
+        if (!string.IsNullOrWhiteSpace(payload.ActualResponder))
+        {
+            actualResponder = Normalize(payload.ActualResponder);
+            if (!AllowedResponders.Contains(actualResponder))
+            {
+                return PushEntryOutcome<AssistantTurnRow>.Reject(
+                    Rejected(entry, "actualResponder must be one of: windows, provider, on_device."));
+            }
+        }
+
+        var resultError = ValidateAssistantResult(payload.Result, status);
+        if (resultError is not null)
+        {
+            return PushEntryOutcome<AssistantTurnRow>.Reject(Rejected(entry, resultError));
+        }
+
+        if (payload.FailureReason is { Length: > AssistantLimits.FailureReasonMaxChars })
+        {
+            return PushEntryOutcome<AssistantTurnRow>.Reject(Rejected(
+                entry, $"failureReason must be at most {AssistantLimits.FailureReasonMaxChars} characters."));
+        }
+
+        // Owner-scoped, not device-scoped: any of the owner's devices may
+        // answer a turn (that is how Windows responds to a phone's question),
+        // even though only the asking device may read it back.
+        var turnId = entityGuid.ToString("D");
+        var turn = await db.AssistantTurns.FirstOrDefaultAsync(
+            t => t.TurnId == turnId && t.OwnerId == caller.OwnerId, cancellationToken);
+        if (turn is null)
+        {
+            return PushEntryOutcome<AssistantTurnRow>.Reject(
+                Rejected(entry, SyncApiErrorCodes.AssistantTurnNotFound, "No such assistant turn."));
+        }
+
+        if (AssistantTurnLifecycle.IsTerminal(turn.Status))
+        {
+            return PushEntryOutcome<AssistantTurnRow>.Ignore();
+        }
+
+        // Latest wins from here on. Unlike capture status there is no ladder to
+        // order against: a responder owns the turn's progress and reports it in
+        // order, and the only transition the service refuses is the one out of
+        // a terminal state, handled above.
+        turn.Status = status;
+        turn.ActualResponder = actualResponder ?? turn.ActualResponder;
+        turn.FailureReason = payload.FailureReason;
+        turn.FailureRetryable = payload.FailureRetryable;
+        turn.UpdatedAtUtc = payload.UpdatedAtUtc == default ? DateTime.UtcNow : payload.UpdatedAtUtc;
+        turn.Revision++;
+
+        if (payload.Result is { } result)
+        {
+            turn.Answer = result.Answer;
+            turn.Grounding = Normalize(result.Grounding);
+            turn.CitationsJson = JsonSerializer.Serialize(result.Citations ?? [], SyncJson.Options);
+            turn.Model = result.Model;
+            turn.ElapsedMs = result.ElapsedMs;
+        }
+
+        if (AssistantTurnLifecycle.IsTerminal(status))
+        {
+            turn.CompletedAtUtc = DateTime.UtcNow;
+        }
+
+        return PushEntryOutcome<AssistantTurnRow>.Apply(turn);
+    }
+
+    /// <summary>
+    /// Validates the answer carried by a pushed assistant_turn. A completed
+    /// turn must actually carry an answer — a client that sees
+    /// <c>completed</c> stops polling and speaks the result, so completing
+    /// without one would leave it silent with nothing to retry. Over-long text
+    /// is rejected rather than trimmed, for the same reason the transcript
+    /// preview is: the responder, not the service, decides what to leave out.
+    /// Returns the rejection message, or null when the result is acceptable.
+    /// </summary>
+    private static string? ValidateAssistantResult(AssistantTurnResult? result, string status)
+    {
+        if (result is null)
+        {
+            return status == AssistantTurnStatus.Completed
+                ? "a completed assistant_turn must carry a result."
+                : null;
+        }
+
+        if (status == AssistantTurnStatus.Completed && string.IsNullOrEmpty(result.Answer))
+        {
+            return "a completed assistant_turn must carry a non-empty result answer.";
+        }
+
+        if (result.Answer.Length > AssistantLimits.AnswerMaxChars)
+        {
+            return $"result answer must be at most {AssistantLimits.AnswerMaxChars} characters.";
+        }
+
+        if (!AllowedGroundings.Contains(Normalize(result.Grounding)))
+        {
+            return "result grounding must be one of: archive, client_context, none.";
+        }
+
+        var citations = result.Citations;
+        if (citations is null)
+        {
+            return null;
+        }
+
+        if (citations.Count > AssistantLimits.CitationMaxCount)
+        {
+            return $"result citations must contain at most {AssistantLimits.CitationMaxCount} entries.";
+        }
+
+        foreach (var citation in citations)
+        {
+            if (citation is null || !Guid.TryParse(citation.EventId, out _))
+            {
+                return "result citation eventId must be a UUID.";
+            }
+
+            if (citation.Excerpt is { Length: > AssistantLimits.CitationExcerptMaxChars })
+            {
+                return $"result citation excerpt must be at most {AssistantLimits.CitationExcerptMaxChars} characters.";
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Validates a pushed assistant_turn_chunk and decides whether to relay it.
+    /// Chunks keep no projection — they are ephemeral fragments of an answer
+    /// whose authoritative version arrives as the completed turn — so nothing
+    /// is applied and the publisher's payload is forwarded verbatim.
+    ///
+    /// Chunks for a finished turn are dropped for the same reason a late answer
+    /// is: after the user cancels, a responder that has not yet noticed must not
+    /// still be able to put words on their screen.
+    /// </summary>
+    private static async Task<PushEntryOutcome<AssistantTurnChunkPayload>> TryRelayAssistantChunkAsync(
+        SyncDbContext db,
+        Device caller,
+        SyncPushEntry entry,
+        CancellationToken cancellationToken)
+    {
+        if (entry.Operation != SyncOperation.Upsert)
+        {
+            return PushEntryOutcome<AssistantTurnChunkPayload>.Reject(
+                Rejected(entry, "assistant_turn_chunk supports upsert only."));
+        }
+
+        var payload = TryParsePayload<AssistantTurnChunkPayload>(entry.PayloadJson);
+        if (payload is null)
+        {
+            return PushEntryOutcome<AssistantTurnChunkPayload>.Reject(
+                Rejected(entry, "assistant_turn_chunk requires a well-formed payload."));
+        }
+
+        if (!Guid.TryParse(entry.EntityId, out var entityGuid)
+            || !Guid.TryParse(payload.TurnId, out var payloadGuid)
+            || entityGuid != payloadGuid)
+        {
+            return PushEntryOutcome<AssistantTurnChunkPayload>.Reject(
+                Rejected(entry, "payload turnId must be a UUID equal to entityId."));
+        }
+
+        if (payload.ChunkIndex < 0)
+        {
+            return PushEntryOutcome<AssistantTurnChunkPayload>.Reject(
+                Rejected(entry, "chunkIndex must not be negative."));
+        }
+
+        if ((payload.Delta ?? string.Empty).Length > AssistantLimits.ChunkDeltaMaxChars)
+        {
+            return PushEntryOutcome<AssistantTurnChunkPayload>.Reject(Rejected(
+                entry, $"delta must be at most {AssistantLimits.ChunkDeltaMaxChars} characters."));
+        }
+
+        var turnId = entityGuid.ToString("D");
+        var turn = await db.AssistantTurns.AsNoTracking()
+            .FirstOrDefaultAsync(t => t.TurnId == turnId && t.OwnerId == caller.OwnerId, cancellationToken);
+        if (turn is null)
+        {
+            return PushEntryOutcome<AssistantTurnChunkPayload>.Reject(
+                Rejected(entry, SyncApiErrorCodes.AssistantTurnNotFound, "No such assistant turn."));
+        }
+
+        return AssistantTurnLifecycle.IsTerminal(turn.Status)
+            ? PushEntryOutcome<AssistantTurnChunkPayload>.Ignore()
+            : PushEntryOutcome<AssistantTurnChunkPayload>.Apply(payload);
+    }
+
+    /// <summary>Trims and lowercases a wire vocabulary value; null and blank become empty, which no vocabulary contains.</summary>
+    private static string Normalize(string? value)
+        => string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().ToLowerInvariant();
+
     private static SyncPushEntryResult Rejected(SyncPushEntry entry, string message)
         => Rejected(entry, SyncApiErrorCodes.ValidationError, message);
 
@@ -538,6 +868,15 @@ public sealed class SyncChangeService : ISyncChangeService
     /// carries no meaning without one).
     /// </summary>
     private static CaptureStatusChangePayload? TryParseCaptureStatusPayload(string? payloadJson)
+        => TryParsePayload<CaptureStatusChangePayload>(payloadJson);
+
+    /// <summary>
+    /// Parses a required change payload; null when it is missing or malformed,
+    /// which rejects the entry. Used by every entity type whose change is
+    /// meaningless without a payload the service can read.
+    /// </summary>
+    private static TPayload? TryParsePayload<TPayload>(string? payloadJson)
+        where TPayload : class
     {
         if (string.IsNullOrWhiteSpace(payloadJson))
         {
@@ -546,7 +885,7 @@ public sealed class SyncChangeService : ISyncChangeService
 
         try
         {
-            return JsonSerializer.Deserialize<CaptureStatusChangePayload>(payloadJson, SyncJson.Options);
+            return JsonSerializer.Deserialize<TPayload>(payloadJson, SyncJson.Options);
         }
         catch (JsonException)
         {
