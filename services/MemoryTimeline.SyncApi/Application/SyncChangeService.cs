@@ -38,6 +38,21 @@ public sealed class SyncChangeService : ISyncChangeService
         SyncCaptureStatus.Failed,
     ];
 
+    /// <summary>
+    /// Lifecycle order of the capture statuses, used by the capture_status
+    /// ordering guard. <c>failed</c> is deliberately absent: it is off the
+    /// ladder in both directions (see <see cref="IsBehindStored"/>).
+    /// </summary>
+    private static readonly string[] CaptureStatusLadder =
+    [
+        SyncCaptureStatus.LocalOnly,
+        SyncCaptureStatus.Uploading,
+        SyncCaptureStatus.Received,
+        SyncCaptureStatus.Processing,
+        SyncCaptureStatus.ReviewReady,
+        SyncCaptureStatus.Completed,
+    ];
+
     private readonly IDbContextFactory<SyncDbContext> _contextFactory;
     private readonly ILogger<SyncChangeService> _logger;
 
@@ -195,12 +210,30 @@ public sealed class SyncChangeService : ISyncChangeService
         }
         else if (entry.EntityType == SyncChangeEntityType.CaptureStatus)
         {
-            var (status, rejection) = await TryApplyCaptureStatusAsync(db, caller, entry, cancellationToken);
-            if (status is null)
+            var outcome = await TryApplyCaptureStatusAsync(db, caller, entry, cancellationToken);
+            if (outcome.Rejection is not null)
             {
-                return rejection!;
+                return outcome.Rejection;
             }
 
+            if (outcome.Ignored)
+            {
+                // Behind what the projection already holds: consume the entry
+                // (so the publisher marks it delivered instead of re-pushing it
+                // forever) but append no change row and mutate nothing, leaving
+                // the newer state the phone has already seen intact.
+                _logger.LogDebug(
+                    "Capture {CaptureId} status push from device {DeviceId} is behind the stored status; ignored.",
+                    entry.EntityId, caller.DeviceId);
+                return new SyncPushEntryResult
+                {
+                    ClientSequence = entry.ClientSequence,
+                    Accepted = true,
+                    Duplicate = true,
+                };
+            }
+
+            var status = outcome.Applied!;
             revision = status.Revision;
             payloadJson = EntityMappers.SerializeCaptureStatusPayload(status);
             _logger.LogDebug(
@@ -275,15 +308,35 @@ public sealed class SyncChangeService : ISyncChangeService
     }
 
     /// <summary>
+    /// Outcome of one pushed capture_status entry: <see cref="Applied"/> is the
+    /// tracked (still unsaved) projection row, <see cref="Rejection"/> the
+    /// per-entry error to hand back to the publisher, and <see cref="Ignored"/>
+    /// marks an entry that is behind the stored status and must be consumed
+    /// without changing anything. Exactly one of the three is set.
+    /// </summary>
+    private readonly record struct CaptureStatusOutcome(
+        CaptureStatusRow? Applied,
+        SyncPushEntryResult? Rejection,
+        bool Ignored)
+    {
+        public static CaptureStatusOutcome Apply(CaptureStatusRow row) => new(row, null, false);
+
+        public static CaptureStatusOutcome Reject(SyncPushEntryResult rejection) => new(null, rejection, false);
+
+        public static CaptureStatusOutcome Ignore() => new(null, null, true);
+    }
+
+    /// <summary>
     /// Validates a pushed capture_status entry and applies it to the capture's
     /// status projection, returning the tracked (still unsaved) row so the
     /// caller commits it together with the change row and the push receipt.
     /// On failure returns the per-entry rejection to hand back to the
-    /// publisher. Windows — not the service — owns truncation of the
-    /// transcript preview, so an over-long preview is rejected rather than cut
-    /// down (design §19 Phase 3).
+    /// publisher, and on a stale entry an "ignore" outcome (see
+    /// <see cref="IsBehindStored"/>). Windows — not the service — owns
+    /// truncation of the transcript preview, so an over-long preview is
+    /// rejected rather than cut down (design §19 Phase 3).
     /// </summary>
-    private static async Task<(CaptureStatusRow? Status, SyncPushEntryResult? Rejection)> TryApplyCaptureStatusAsync(
+    private static async Task<CaptureStatusOutcome> TryApplyCaptureStatusAsync(
         SyncDbContext db,
         Device caller,
         SyncPushEntry entry,
@@ -291,20 +344,21 @@ public sealed class SyncChangeService : ISyncChangeService
     {
         if (entry.Operation != SyncOperation.Upsert)
         {
-            return (null, Rejected(entry, "capture_status supports upsert only."));
+            return CaptureStatusOutcome.Reject(Rejected(entry, "capture_status supports upsert only."));
         }
 
         var payload = TryParseCaptureStatusPayload(entry.PayloadJson);
         if (payload is null)
         {
-            return (null, Rejected(entry, "capture_status requires a well-formed payload."));
+            return CaptureStatusOutcome.Reject(Rejected(entry, "capture_status requires a well-formed payload."));
         }
 
         if (!Guid.TryParse(entry.EntityId, out var entityGuid)
             || !Guid.TryParse(payload.CaptureId, out var payloadGuid)
             || entityGuid != payloadGuid)
         {
-            return (null, Rejected(entry, "payload captureId must be a UUID equal to entityId."));
+            return CaptureStatusOutcome.Reject(
+                Rejected(entry, "payload captureId must be a UUID equal to entityId."));
         }
 
         var status = string.IsNullOrWhiteSpace(payload.Status)
@@ -312,21 +366,21 @@ public sealed class SyncChangeService : ISyncChangeService
             : payload.Status.Trim().ToLowerInvariant();
         if (!AllowedCaptureStatuses.Contains(status))
         {
-            return (null, Rejected(
+            return CaptureStatusOutcome.Reject(Rejected(
                 entry,
                 "status must be one of: local_only, uploading, received, processing, review_ready, completed, failed."));
         }
 
         if (payload.TranscriptPreview is { Length: > CaptureStatusChangePayload.TranscriptPreviewMaxChars })
         {
-            return (null, Rejected(
+            return CaptureStatusOutcome.Reject(Rejected(
                 entry,
                 $"transcriptPreview must be at most {CaptureStatusChangePayload.TranscriptPreviewMaxChars} characters."));
         }
 
         if (payload.TranscriptCharCount < 0 || payload.PendingEventCount < 0 || payload.ApprovedEventCount < 0)
         {
-            return (null, Rejected(
+            return CaptureStatusOutcome.Reject(Rejected(
                 entry, "transcriptCharCount, pendingEventCount and approvedEventCount must not be negative."));
         }
 
@@ -335,22 +389,28 @@ public sealed class SyncChangeService : ISyncChangeService
             c => c.CaptureId == captureId && c.OwnerId == caller.OwnerId, cancellationToken);
         if (capture is null)
         {
-            return (null, Rejected(entry, SyncApiErrorCodes.CaptureNotFound, "No such capture."));
+            return CaptureStatusOutcome.Reject(Rejected(entry, SyncApiErrorCodes.CaptureNotFound, "No such capture."));
         }
 
+        var updatedAtUtc = payload.UpdatedAtUtc == default ? DateTime.UtcNow : payload.UpdatedAtUtc;
         var row = await db.CaptureStatuses.FirstOrDefaultAsync(
             s => s.CaptureId == captureId, cancellationToken);
+        if (row is not null && IsBehindStored(row, payload, status, updatedAtUtc))
+        {
+            return CaptureStatusOutcome.Ignore();
+        }
+
         if (row is null)
         {
             row = new CaptureStatusRow { CaptureId = captureId, OwnerId = capture.OwnerId };
             db.CaptureStatuses.Add(row);
         }
 
-        // Latest wins: the projection holds the current state only, and the
-        // change log preserves the sequence that produced it.
+        // Latest wins from here on: the projection holds the current state only,
+        // and the change log preserves the sequence that produced it.
         row.Status = status;
         row.ProcessingStage = payload.ProcessingStage;
-        row.UpdatedAtUtc = payload.UpdatedAtUtc == default ? DateTime.UtcNow : payload.UpdatedAtUtc;
+        row.UpdatedAtUtc = updatedAtUtc;
         row.TranscriptAvailable = payload.TranscriptAvailable;
         row.TranscriptPreview = payload.TranscriptPreview;
         row.TranscriptCharCount = payload.TranscriptCharCount;
@@ -370,8 +430,78 @@ public sealed class SyncChangeService : ISyncChangeService
             capture.Revision++;
         }
 
-        return (row, null);
+        return CaptureStatusOutcome.Apply(row);
     }
+
+    /// <summary>
+    /// Ordering guard: true when the pushed payload says less than the
+    /// projection already holds, so applying it would walk the capture
+    /// backwards on the phone.
+    ///
+    /// The Windows outbox is drained in order, but only accepted and duplicate
+    /// entries are marked delivered — a transient per-entry rejection (a locked
+    /// database, say) leaves entry N pending while N+1..M land, and the next
+    /// drain re-pushes N under a client sequence that has no receipt yet. Pure
+    /// latest-wins would then regress a capture that already reached
+    /// <c>completed</c> back to <c>processing</c>.
+    ///
+    /// <c>failed</c> sits off the ladder in both directions: an incoming
+    /// failure must always be recordable, and once one is stored the ladder
+    /// cannot order anything against it — so the publisher clock decides
+    /// instead, which still lets a real Windows-side retry move the capture on.
+    /// </summary>
+    private static bool IsBehindStored(
+        CaptureStatusRow stored,
+        CaptureStatusChangePayload payload,
+        string status,
+        DateTime updatedAtUtc)
+    {
+        if (status == SyncCaptureStatus.Failed)
+        {
+            return false;
+        }
+
+        if (stored.Status == SyncCaptureStatus.Failed)
+        {
+            return updatedAtUtc < stored.UpdatedAtUtc;
+        }
+
+        // An unknown stored status (-1) ranks below everything, so a status this
+        // build does understand always wins over it.
+        var incomingRank = Array.IndexOf(CaptureStatusLadder, status);
+        var storedRank = Array.IndexOf(CaptureStatusLadder, stored.Status);
+        if (incomingRank != storedRank)
+        {
+            return incomingRank < storedRank;
+        }
+
+        if (updatedAtUtc != stored.UpdatedAtUtc)
+        {
+            return updatedAtUtc < stored.UpdatedAtUtc;
+        }
+
+        // Same rung at the same publisher instant: only a payload that would
+        // leave the projection identical is a pure replay. A stage or a count
+        // that moved (extraction finishing, an event approved) is new
+        // information at an unchanged status and must still reach the phone.
+        return LeavesProjectionUnchanged(stored, payload);
+    }
+
+    /// <summary>
+    /// True when applying <paramref name="payload"/> would leave the stored
+    /// projection byte-identical, so the change row it produced would repeat
+    /// what the phone already pulled. Status and UpdatedAtUtc are compared by
+    /// the caller.
+    /// </summary>
+    private static bool LeavesProjectionUnchanged(CaptureStatusRow stored, CaptureStatusChangePayload payload) =>
+        stored.ProcessingStage == payload.ProcessingStage &&
+        stored.TranscriptAvailable == payload.TranscriptAvailable &&
+        stored.TranscriptPreview == payload.TranscriptPreview &&
+        stored.TranscriptCharCount == payload.TranscriptCharCount &&
+        stored.PendingEventCount == payload.PendingEventCount &&
+        stored.ApprovedEventCount == payload.ApprovedEventCount &&
+        stored.FailureReason == payload.FailureReason &&
+        stored.FailureRetryable == payload.FailureRetryable;
 
     private static SyncPushEntryResult Rejected(SyncPushEntry entry, string message)
         => Rejected(entry, SyncApiErrorCodes.ValidationError, message);

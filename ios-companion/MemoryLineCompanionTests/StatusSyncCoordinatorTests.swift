@@ -49,10 +49,13 @@ final class StatusSyncCoordinatorTests: XCTestCase {
             // Windows may skip straight past a stage the phone never saw.
             (SyncCaptureStatus.completed, .uploaded, .completed),
             (SyncCaptureStatus.reviewReady, .uploaded, .reviewReady),
-            (SyncCaptureStatus.failed, .uploaded, .failedRecoverable),
-            (SyncCaptureStatus.failed, .processingRemote, .failedRecoverable),
-            (SyncCaptureStatus.failed, .completed, .failedRecoverable),
-            // A failure the phone already recorded is not a transition.
+            // A Windows-side PROCESSING failure never moves the local state:
+            // `.failedRecoverable` is the UPLOAD-failure state and is
+            // upload-pending, so taking it here would re-queue the audio.
+            (SyncCaptureStatus.failed, .uploaded, nil),
+            (SyncCaptureStatus.failed, .processingRemote, nil),
+            (SyncCaptureStatus.failed, .reviewReady, nil),
+            (SyncCaptureStatus.failed, .completed, nil),
             (SyncCaptureStatus.failed, .failedRecoverable, nil),
             // Windows holding the capture proves the upload landed, so a
             // capture parked by a failed upload attempt may move forward.
@@ -148,7 +151,10 @@ final class StatusSyncCoordinatorTests: XCTestCase {
         XCTAssertNotNil(coordinator.lastPulledAt)
     }
 
-    func testFailureStatusRecordsTheReasonOnTheCapture() async throws {
+    /// A Windows-side processing failure is recorded where the History screens
+    /// read it, and is left out of the local upload state entirely: the audio
+    /// uploaded fine, so re-queueing it would re-send every part forever.
+    func testRemoteProcessingFailureIsRecordedWithoutTouchingTheUploadState() async throws {
         try captures.insert(TestSupport.makeCapture(id: "cap-1", state: .processingRemote))
         api.pullResults = [StatusSyncTestData.page([
             try StatusSyncTestData.change(changeId: 4, payload: StatusSyncTestData.payload(
@@ -161,10 +167,115 @@ final class StatusSyncCoordinatorTests: XCTestCase {
 
         await coordinator.pullNow()
 
+        // The capture is untouched — same state, no invented local error.
         let capture = try XCTUnwrap(captures.capture(id: "cap-1"))
-        XCTAssertEqual(capture.state, .failedRecoverable)
-        XCTAssertEqual(capture.lastError, "The transcription service was unreachable.")
-        XCTAssertEqual(try XCTUnwrap(statuses.status(captureId: "cap-1")).failureRetryable, true)
+        XCTAssertEqual(capture.state, .processingRemote)
+        XCTAssertNil(capture.lastError)
+        XCTAssertFalse(capture.state.isUploadPending)
+
+        // Nothing was pushed back into the upload queue.
+        XCTAssertEqual(try captures.pendingUploadCount(), 0)
+        XCTAssertTrue(try captures.pendingUploads().isEmpty)
+
+        // And the failure is still readable from the status store, which is
+        // where CaptureLifecycleSummary sources `.processingFailed`.
+        let status = try XCTUnwrap(statuses.status(captureId: "cap-1"))
+        XCTAssertEqual(status.status, SyncCaptureStatus.failed)
+        XCTAssertEqual(status.processingStage, "failed_retryable")
+        XCTAssertEqual(status.failureReason, "The transcription service was unreachable.")
+        XCTAssertEqual(status.failureRetryable, true)
+
+        // The user is still told about it.
+        XCTAssertEqual(notifier.posted, [
+            .failed(captureId: "cap-1", reason: "The transcription service was unreachable.")
+        ])
+    }
+
+    /// The upload leg keeps its own failure state: a capture parked there by a
+    /// failed upload must stay upload-pending, and a processing failure on top
+    /// of it must not change that either way.
+    func testUploadFailureStaysUploadPendingAcrossARemoteFailure() async throws {
+        var capture = TestSupport.makeCapture(id: "cap-1", state: .failedRecoverable)
+        capture.lastError = "Upload was interrupted."
+        try captures.insert(capture)
+        api.pullResults = [StatusSyncTestData.page([
+            try StatusSyncTestData.change(changeId: 5, payload: StatusSyncTestData.payload(
+                captureId: "cap-1",
+                status: SyncCaptureStatus.failed,
+                failureReason: "Audio could not be decoded."))
+        ], nextCursor: 5)]
+
+        await coordinator.pullNow()
+
+        let updated = try XCTUnwrap(captures.capture(id: "cap-1"))
+        XCTAssertEqual(updated.state, .failedRecoverable)
+        XCTAssertEqual(updated.lastError, "Upload was interrupted.")
+        XCTAssertEqual(try captures.pendingUploadCount(), 1)
+    }
+
+    /// A failure must not pin the rank floor: Windows retrying and getting
+    /// further has to move the capture on.
+    func testAdvanceAfterARemoteFailureStillApplies() async throws {
+        try captures.insert(TestSupport.makeCapture(id: "cap-1", state: .processingRemote))
+        api.pullResults = [StatusSyncTestData.page([
+            try StatusSyncTestData.change(changeId: 1, payload: StatusSyncTestData.payload(
+                captureId: "cap-1", status: SyncCaptureStatus.failed,
+                failureReason: "Processing failed on the Windows machine.")),
+            try StatusSyncTestData.change(changeId: 2, payload: StatusSyncTestData.payload(
+                captureId: "cap-1", status: SyncCaptureStatus.reviewReady, pendingEventCount: 2)),
+            try StatusSyncTestData.change(changeId: 3, payload: StatusSyncTestData.payload(
+                captureId: "cap-1", status: SyncCaptureStatus.completed, approvedEventCount: 2)),
+        ], nextCursor: 3)]
+
+        await coordinator.pullNow()
+
+        XCTAssertEqual(try XCTUnwrap(captures.capture(id: "cap-1")).state, .completed)
+        XCTAssertEqual(try XCTUnwrap(statuses.status(captureId: "cap-1")).status, SyncCaptureStatus.completed)
+        XCTAssertEqual(notifier.posted, [
+            .failed(captureId: "cap-1", reason: "Processing failed on the Windows machine."),
+            .reviewReady(captureId: "cap-1"),
+            .completed(captureId: "cap-1"),
+        ])
+    }
+
+    /// The failure notification is deduped from the stored status, since no
+    /// state change is left to recognize the replay by.
+    func testReplayedRemoteFailureNotifiesOnlyOnce() async throws {
+        try captures.insert(TestSupport.makeCapture(id: "cap-1", state: .uploaded))
+        let change = try StatusSyncTestData.change(
+            changeId: 1,
+            payload: StatusSyncTestData.payload(
+                captureId: "cap-1", status: SyncCaptureStatus.failed,
+                failureReason: "Audio could not be decoded."))
+        api.pullResults = [
+            StatusSyncTestData.page([change], nextCursor: 1),
+            StatusSyncTestData.page([change], nextCursor: 1),
+        ]
+
+        await coordinator.pullNow()
+        await coordinator.pullNow()
+
+        XCTAssertEqual(notifier.posted, [
+            .failed(captureId: "cap-1", reason: "Audio could not be decoded.")
+        ])
+        XCTAssertEqual(try XCTUnwrap(captures.capture(id: "cap-1")).state, .uploaded)
+    }
+
+    /// A failure for a capture the phone still owns is recorded but not
+    /// announced — it has not been handed over as far as this device knows.
+    func testRemoteFailureForALocalCaptureIsRecordedSilently() async throws {
+        try captures.insert(TestSupport.makeCapture(id: "cap-1", state: .queuedUpload))
+        api.pullResults = [StatusSyncTestData.page([
+            try StatusSyncTestData.change(changeId: 6, payload: StatusSyncTestData.payload(
+                captureId: "cap-1", status: SyncCaptureStatus.failed,
+                failureReason: "Audio could not be decoded."))
+        ], nextCursor: 6)]
+
+        await coordinator.pullNow()
+
+        XCTAssertEqual(try XCTUnwrap(captures.capture(id: "cap-1")).state, .queuedUpload)
+        XCTAssertEqual(try XCTUnwrap(statuses.status(captureId: "cap-1")).status, SyncCaptureStatus.failed)
+        XCTAssertTrue(notifier.posted.isEmpty)
     }
 
     /// Moving past a failure clears the stale error the UI would otherwise

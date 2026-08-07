@@ -26,7 +26,8 @@ private enum SyncChangeOperation {
 /// Failure policy (design §16.2): any failure — network, server, or local
 /// persistence — leaves the cursor where it was and returns. The next pass
 /// replays the page; applying a change twice is a no-op by construction
-/// (`resolvedState` only ever advances a capture).
+/// (`resolvedState` only ever advances a capture, the status upsert is
+/// idempotent, and a repeated failure is recognized from the stored status).
 @MainActor
 @Observable
 final class StatusSyncCoordinator {
@@ -249,9 +250,12 @@ final class StatusSyncCoordinator {
         return notifications
     }
 
-    /// Applies one `capture_status` change. Returns the notification-worthy
-    /// transition when the capture's lifecycle actually advanced, nil otherwise
-    /// (unknown capture, malformed payload, or a status that must not move it).
+    /// Applies one `capture_status` change: the Windows-side detail is always
+    /// recorded in the status store, and the capture's own state moves only
+    /// when the status genuinely advances its remote lifecycle. Returns the
+    /// notification-worthy transition, nil otherwise (unknown capture,
+    /// malformed payload, a status that must not move it, or a failure already
+    /// reported).
     private func apply(_ change: SyncChangeDto) throws -> CaptureStatusNotification? {
         // Only upserts carry a status; a delete would have no payload anyway.
         guard change.operation == SyncChangeOperation.upsert else { return nil }
@@ -276,6 +280,10 @@ final class StatusSyncCoordinator {
         // rather than leaving an orphan row behind.
         guard let capture = try store.capture(id: captureId) else { return nil }
 
+        // Read before the upsert overwrites it: the stored status is what tells
+        // a first failure apart from a replay of one already seen.
+        let previousStatus = try statusStore.status(captureId: captureId)?.status
+
         try statusStore.upsert(CaptureStatusRecord(
             captureId: captureId,
             status: payload.status,
@@ -289,6 +297,29 @@ final class StatusSyncCoordinator {
             failureRetryable: payload.failureRetryable,
             updatedAt: payload.updatedAtUtc))
 
+        // A Windows-side PROCESSING failure must not touch the capture's upload
+        // state. `CaptureRecord.state` has no processing-failure case:
+        // `.failedRecoverable` means the UPLOAD failed and is upload-pending
+        // (`CaptureLifecycleState.isUploadPending`, which is exactly what
+        // `SQLiteCaptureStore.pendingUploads()` selects), so writing it here
+        // would push a capture that uploaded perfectly well back into the
+        // upload queue — re-reading and re-sending every part on every pass,
+        // forever, with a wrong pending badge to match. The failure stays
+        // visible through the status record just written, which is what History
+        // reads (`CaptureLifecycleSummary` maps `failed` to `.processingFailed`
+        // and lets it headline over the local state).
+        if payload.status == SyncCaptureStatus.failed {
+            // News only for a capture the phone believes it has handed over,
+            // and only the first time: a replayed failure is not a transition.
+            guard Self.remoteRank(capture.state) != nil,
+                  previousStatus != SyncCaptureStatus.failed
+            else { return nil }
+            logger.info("capture processing failed on windows id=\(captureId, privacy: .public)")
+            return .failed(
+                captureId: captureId,
+                reason: payload.failureReason ?? "Windows could not process this capture.")
+        }
+
         guard let next = Self.resolvedState(for: payload.status, current: capture.state) else {
             logger.debug(
                 "capture status recorded without a state change id=\(captureId, privacy: .public) status=\(payload.status, privacy: .public)")
@@ -297,12 +328,8 @@ final class StatusSyncCoordinator {
 
         var updated = capture
         updated.state = next
-        if next == .failedRecoverable {
-            updated.lastError = payload.failureReason ?? "Windows could not process this capture."
-        } else {
-            // The capture moved past whatever went wrong before.
-            updated.lastError = nil
-        }
+        // The capture moved past whatever went wrong before.
+        updated.lastError = nil
         try store.update(updated)
         logger.info(
             "capture advanced id=\(captureId, privacy: .public) state=\(next.rawValue, privacy: .public)")
@@ -312,8 +339,6 @@ final class StatusSyncCoordinator {
             return .reviewReady(captureId: captureId)
         case .completed:
             return .completed(captureId: captureId)
-        case .failedRecoverable:
-            return .failed(captureId: captureId, reason: updated.lastError)
         default:
             // `processing_remote` is progress, not news.
             return nil
@@ -325,13 +350,18 @@ final class StatusSyncCoordinator {
     ///
     /// - `local_only` / `uploading` echo what the phone already knows and never
     ///   change local state, and neither does a status this build predates.
+    /// - `failed` describes the PROCESSING leg, which `CaptureRecord.state`
+    ///   does not model — `.failedRecoverable` is the upload-failure state and
+    ///   is upload-pending. A processing failure therefore leaves the capture's
+    ///   state exactly where it was; it is recorded in the status store and the
+    ///   History screens read it from there. Leaving the state alone is also
+    ///   what keeps the rank floor honest: a failure neither lowers it (which
+    ///   would let a late `received` re-apply) nor pins it (a Windows-side
+    ///   retry reaching `review_ready` or `completed` still advances normally).
     /// - Everything else must strictly advance the capture (`remoteRank`), so a
     ///   replayed or out-of-order change can never move it backwards, and a
     ///   late status can never clobber a capture the phone still owns
     ///   (recording, saved, queued, uploading) or resurrect a cancelled one.
-    /// - A remote failure is the one exception to the ranking: it is Windows'
-    ///   latest word about a capture it demonstrably already holds, so it
-    ///   applies from any remote-side state.
     nonisolated static func resolvedState(
         for wireStatus: String,
         current: CaptureLifecycleState
@@ -344,17 +374,15 @@ final class StatusSyncCoordinator {
             target = .reviewReady
         case SyncCaptureStatus.completed:
             target = .completed
-        case SyncCaptureStatus.failed:
-            target = .failedRecoverable
         default:
             return nil
         }
 
-        guard let currentRank = remoteRank(current) else { return nil }
-        if target == .failedRecoverable {
-            return current == .failedRecoverable ? nil : target
-        }
-        guard let targetRank = remoteRank(target), targetRank > currentRank else { return nil }
+        guard
+            let currentRank = remoteRank(current),
+            let targetRank = remoteRank(target),
+            targetRank > currentRank
+        else { return nil }
         return target
     }
 
@@ -364,7 +392,8 @@ final class StatusSyncCoordinator {
     /// `.failedRecoverable` ranks lowest rather than being excluded: a status
     /// only exists because Windows holds the capture, which proves the upload
     /// landed, so a capture parked there by a failed upload attempt is free to
-    /// move forward again.
+    /// move forward again. Nothing here ever writes that state — only the
+    /// upload path does.
     nonisolated private static func remoteRank(_ state: CaptureLifecycleState) -> Int? {
         switch state {
         case .failedRecoverable: return 0

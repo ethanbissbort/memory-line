@@ -157,6 +157,173 @@ public class CaptureStatusFlowTests : IClassFixture<SyncApiFixture>
     }
 
     [Fact]
+    public async Task CaptureStatus_OlderStatusRePushedAfterNewerOnes_IsAcceptedButIgnored()
+    {
+        var (_, phoneClient) = await _fixture.RegisterClientAsync("ios", "iPhone");
+        var (_, windowsClient) = await _fixture.RegisterClientAsync("windows", "Desktop");
+        var capture = await SyncApiFixture.CreateCaptureAsync(phoneClient);
+        var baseline = await SyncApiFixture.GetCursorAsync(phoneClient);
+
+        // The publisher walks the capture to completion...
+        var processing = StatusEntry(1, capture.CaptureId, SyncCaptureStatus.Processing, payload =>
+        {
+            payload.ProcessingStage = "transcribing";
+            payload.UpdatedAtUtc = UpdatedAt;
+        });
+        await SyncApiFixture.PushAsync(windowsClient, processing);
+        await SyncApiFixture.PushAsync(
+            windowsClient,
+            StatusEntry(2, capture.CaptureId, SyncCaptureStatus.Completed, payload =>
+            {
+                payload.ProcessingStage = "completed";
+                payload.UpdatedAtUtc = UpdatedAt.AddMinutes(2);
+                payload.ApprovedEventCount = 2;
+            }));
+        var afterCompleted = await SyncApiFixture.PullAsync(phoneClient, baseline);
+        var completedChangeCount = CaptureStatusChanges(afterCompleted, capture.CaptureId).Count;
+
+        // ...then re-pushes the older entry it could not deliver first time
+        // round (rejected entries stay pending in the local outbox), under a
+        // client sequence the server has no receipt for.
+        processing.ClientSequence = 99;
+        var push = await SyncApiFixture.PushAsync(windowsClient, processing);
+        var result = push.Results.Should().ContainSingle().Which;
+        result.Accepted.Should().BeTrue("a stale entry must be consumed, not left to be re-pushed forever");
+        result.ServerChangeId.Should().BeNull();
+
+        // No change row was appended and the projection kept the newer state.
+        var pull = await SyncApiFixture.PullAsync(phoneClient, baseline);
+        var changes = CaptureStatusChanges(pull, capture.CaptureId);
+        changes.Should().HaveCount(completedChangeCount);
+        var latest = Payload(changes[^1]);
+        latest.Status.Should().Be(SyncCaptureStatus.Completed);
+        latest.ProcessingStage.Should().Be("completed");
+        latest.ApprovedEventCount.Should().Be(2);
+
+        var updated = await phoneClient.GetFromJsonAsync<CaptureResponse>(
+            $"/api/v1/captures/{capture.CaptureId}", SyncApiFixture.Json);
+        updated!.Status.Should().Be(SyncCaptureStatus.Completed);
+    }
+
+    [Fact]
+    public async Task CaptureStatus_SameStatusReplayedUnderANewSequence_AppendsNothing()
+    {
+        var (_, phoneClient) = await _fixture.RegisterClientAsync("ios", "iPhone");
+        var (_, windowsClient) = await _fixture.RegisterClientAsync("windows", "Desktop");
+        var capture = await SyncApiFixture.CreateCaptureAsync(phoneClient);
+        var baseline = await SyncApiFixture.GetCursorAsync(phoneClient);
+
+        var entry = StatusEntry(1, capture.CaptureId, SyncCaptureStatus.Processing, payload =>
+            payload.ProcessingStage = "transcribing");
+        await SyncApiFixture.PushAsync(windowsClient, entry);
+
+        // Same projection, new client sequence: the receipt cannot dedupe it,
+        // so the ordering guard has to.
+        entry.ClientSequence = 2;
+        var push = await SyncApiFixture.PushAsync(windowsClient, entry);
+        var result = push.Results.Should().ContainSingle().Which;
+        result.Accepted.Should().BeTrue();
+        result.ServerChangeId.Should().BeNull();
+
+        var pull = await SyncApiFixture.PullAsync(phoneClient, baseline);
+        var change = CaptureStatusChanges(pull, capture.CaptureId).Should().ContainSingle().Which;
+        change.Revision.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task CaptureStatus_FailedAfterCompleted_IsRecordedAndCanBeAdvancedPast()
+    {
+        var (_, phoneClient) = await _fixture.RegisterClientAsync("ios", "iPhone");
+        var (_, windowsClient) = await _fixture.RegisterClientAsync("windows", "Desktop");
+        var capture = await SyncApiFixture.CreateCaptureAsync(phoneClient);
+        var baseline = await SyncApiFixture.GetCursorAsync(phoneClient);
+
+        await SyncApiFixture.PushAsync(
+            windowsClient,
+            StatusEntry(1, capture.CaptureId, SyncCaptureStatus.Completed, payload =>
+            {
+                payload.ProcessingStage = "completed";
+                payload.UpdatedAtUtc = UpdatedAt;
+            }));
+
+        // A failure is off the ladder: it must always be recordable, even from
+        // completed (the user re-ran the capture on Windows and it broke).
+        var failure = await SyncApiFixture.PushAsync(
+            windowsClient,
+            StatusEntry(2, capture.CaptureId, SyncCaptureStatus.Failed, payload =>
+            {
+                payload.ProcessingStage = "failed_retryable";
+                payload.UpdatedAtUtc = UpdatedAt.AddMinutes(1);
+                payload.FailureReason = "Processing failed on the Windows machine; it can be retried there.";
+                payload.FailureRetryable = true;
+            }));
+        failure.Results.Should().ContainSingle().Which.Accepted.Should().BeTrue();
+
+        // And a later real advance must still get past the stored failure.
+        var recovered = await SyncApiFixture.PushAsync(
+            windowsClient,
+            StatusEntry(3, capture.CaptureId, SyncCaptureStatus.ReviewReady, payload =>
+            {
+                payload.ProcessingStage = "review_ready";
+                payload.UpdatedAtUtc = UpdatedAt.AddMinutes(2);
+                payload.PendingEventCount = 1;
+            }));
+        recovered.Results.Should().ContainSingle().Which.Accepted.Should().BeTrue();
+
+        var pull = await SyncApiFixture.PullAsync(phoneClient, baseline);
+        var changes = CaptureStatusChanges(pull, capture.CaptureId);
+        changes.Select(c => Payload(c).Status).Should().Equal(
+            SyncCaptureStatus.Completed, SyncCaptureStatus.Failed, SyncCaptureStatus.ReviewReady);
+
+        var updated = await phoneClient.GetFromJsonAsync<CaptureResponse>(
+            $"/api/v1/captures/{capture.CaptureId}", SyncApiFixture.Json);
+        updated!.Status.Should().Be(SyncCaptureStatus.ReviewReady);
+    }
+
+    [Fact]
+    public async Task CaptureStatus_AdvanceAfterAStaleReplay_StillApplies()
+    {
+        var (_, phoneClient) = await _fixture.RegisterClientAsync("ios", "iPhone");
+        var (_, windowsClient) = await _fixture.RegisterClientAsync("windows", "Desktop");
+        var capture = await SyncApiFixture.CreateCaptureAsync(phoneClient);
+        var baseline = await SyncApiFixture.GetCursorAsync(phoneClient);
+
+        await SyncApiFixture.PushAsync(
+            windowsClient,
+            StatusEntry(1, capture.CaptureId, SyncCaptureStatus.ReviewReady, payload =>
+            {
+                payload.ProcessingStage = "review_ready";
+                payload.UpdatedAtUtc = UpdatedAt.AddMinutes(1);
+                payload.PendingEventCount = 2;
+            }));
+
+        // The guard must not latch: ignoring a stale entry cannot stop the next
+        // genuine advance from landing.
+        await SyncApiFixture.PushAsync(
+            windowsClient,
+            StatusEntry(2, capture.CaptureId, SyncCaptureStatus.Received, payload =>
+            {
+                payload.ProcessingStage = "verifying";
+                payload.UpdatedAtUtc = UpdatedAt;
+            }));
+        await SyncApiFixture.PushAsync(
+            windowsClient,
+            StatusEntry(3, capture.CaptureId, SyncCaptureStatus.Completed, payload =>
+            {
+                payload.ProcessingStage = "completed";
+                payload.UpdatedAtUtc = UpdatedAt.AddMinutes(5);
+                payload.ApprovedEventCount = 2;
+            }));
+
+        var pull = await SyncApiFixture.PullAsync(phoneClient, baseline);
+        var changes = CaptureStatusChanges(pull, capture.CaptureId);
+        changes.Select(c => Payload(c).Status).Should().Equal(
+            SyncCaptureStatus.ReviewReady, SyncCaptureStatus.Completed);
+        changes.Select(c => c.Revision).Should().Equal(1, 2);
+        Payload(changes[^1]).ApprovedEventCount.Should().Be(2);
+    }
+
+    [Fact]
     public async Task CaptureStatus_PushedFromPhone_IsNotEchoedBackToIt()
     {
         var (_, phoneClient) = await _fixture.RegisterClientAsync("ios", "iPhone");
@@ -279,6 +446,16 @@ public class CaptureStatusFlowTests : IClassFixture<SyncApiFixture>
         var pull = await SyncApiFixture.PullAsync(phoneClient, baseline);
         pull.Changes.Should().NotContain(c => c.EntityId == unknownCaptureId);
     }
+
+    /// <summary>capture_status changes for one capture, in cursor order.</summary>
+    private static List<SyncChangeDto> CaptureStatusChanges(SyncPullResponse pull, string captureId) =>
+        pull.Changes
+            .Where(c => c.EntityType == SyncChangeEntityType.CaptureStatus && c.EntityId == captureId)
+            .OrderBy(c => c.ChangeId)
+            .ToList();
+
+    private static CaptureStatusChangePayload Payload(SyncChangeDto change) =>
+        JsonSerializer.Deserialize<CaptureStatusChangePayload>(change.PayloadJson!, SyncApiFixture.Json)!;
 
     /// <summary>
     /// Asserts a rejected entry left no trace: no change for the phone to pull
