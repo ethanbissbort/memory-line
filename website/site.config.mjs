@@ -166,7 +166,7 @@ export const sections = [
         source: 'docs/reviews/exhaustive-audit-2026-07.md',
         title: 'Exhaustive repo audit',
         description:
-          'A bug hunt and feature crawl across the whole repository: 27 adversarially verified findings, 61 unverified medium/low findings, and ranked improvement opportunities.',
+          'A bug hunt and feature crawl across the repository: 18 adversarially verified findings, 45 unverified medium/low findings, and ranked improvement opportunities.',
         audience: 'Developers',
         tags: ['audit', 'bug hunt', 'findings'],
       },
@@ -177,6 +177,15 @@ export const sections = [
     title: 'Design notes',
     blurb: 'Cross-cutting contracts written before implementation.',
     pages: [
+      {
+        slug: 'macos-port-plan',
+        source: 'docs/design/MACOS-PORT-PLAN.md',
+        title: 'macOS port plan',
+        description:
+          'Bringing Memory Line to macOS as a native SwiftUI app: what the iOS companion already shares, the Keychain and device-platform traps, the phased order of work, and the undecided question of how the C# service layer reaches the Mac.',
+        audience: 'Developers',
+        tags: ['design', 'macos', 'planning'],
+      },
       {
         slug: 'people-feature-contracts',
         source: 'docs/design/people-feature-contracts.md',

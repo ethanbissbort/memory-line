@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- App Sandbox is required for Mac App Store distribution and is the
+	     default posture for a local-first app handling personal recordings. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+
+	<!-- Outbound only: the app talks to the user's self-hosted sync service.
+	     It never listens, so no com.apple.security.network.server. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+
+	<!-- Recording on the Mac (port plan §4.1). Present from the start so the
+	     entitlement and its usage string are reviewed together rather than
+	     bolted on later. -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+
+	<!-- Import and export: user-selected files only, no blanket disk access. -->
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+
+	<!-- Keychain: the shared KeychainTokenStore writes generic-password items.
+	     Under the sandbox these need an explicit access group; keeping the Mac
+	     app's group separate from the iOS app's is deliberate (port plan §3.2 —
+	     the two devices pair independently and hold different tokens). -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)ca.fluxology.memoryline.mac</string>
+	</array>
+</dict>
+</plist>

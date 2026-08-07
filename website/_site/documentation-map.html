@@ -102,6 +102,8 @@
         <li class="nav-section">
           <p class="nav-section-title">Design notes</p>
           <ul class="nav-list">
+            <li><a class="nav-link" href="macos-port-plan.html">macOS port plan</a>
+            </li>
             <li><a class="nav-link" href="people-feature-contracts.html">People feature contracts</a>
             </li>
           </ul>
@@ -118,7 +120,7 @@
     <a href="index.html">Docs</a><span aria-hidden="true">/</span><span>Start here</span>
   </nav>
   <h1>All documentation</h1>
-  <p class="doc-lede">Every document covering the Windows Native app, rendered and searchable. 12 documents, 37,150 words, about 169 minutes of reading in total.</p>
+  <p class="doc-lede">Every document covering the Windows Native app, rendered and searchable. 13 documents, 39,009 words, about 177 minutes of reading in total.</p>
 </header>
 
 <div class="prose map-body">
@@ -302,7 +304,7 @@
       <h3><a href="repo-audit-2026-07.html">Exhaustive repo audit</a></h3>
       <a class="map-source" href="https://github.com/ethanbissbort/memory-line/blob/main/docs/reviews/exhaustive-audit-2026-07.md" target="_blank" rel="noopener noreferrer"><code>docs/reviews/exhaustive-audit-2026-07.md</code> ↗</a>
     </div>
-    <p class="map-desc">A bug hunt and feature crawl across the whole repository: 27 adversarially verified findings, 61 unverified medium/low findings, and ranked improvement opportunities.</p>
+    <p class="map-desc">A bug hunt and feature crawl across the repository: 18 adversarially verified findings, 45 unverified medium/low findings, and ranked improvement opportunities.</p>
     <div class="map-meta">
       <span class="tag">Developers</span>
       <span class="map-stat">10,416 words</span>
@@ -318,6 +320,22 @@
   <h2 id="design" class="anchored">Design notes<a class="heading-anchor" href="#design" aria-label="Link to this section">#</a></h2>
   <p class="section-lead">Cross-cutting contracts written before implementation.</p>
   <article class="map-entry">
+    <div class="map-entry-head">
+      <h3><a href="macos-port-plan.html">macOS port plan</a></h3>
+      <a class="map-source" href="https://github.com/ethanbissbort/memory-line/blob/main/docs/design/MACOS-PORT-PLAN.md" target="_blank" rel="noopener noreferrer"><code>docs/design/MACOS-PORT-PLAN.md</code> ↗</a>
+    </div>
+    <p class="map-desc">Bringing Memory Line to macOS as a native SwiftUI app: what the iOS companion already shares, the Keychain and device-platform traps, the phased order of work, and the undecided question of how the C# service layer reaches the Mac.</p>
+    <div class="map-meta">
+      <span class="tag">Developers</span>
+      <span class="map-stat">1,859 words</span>
+      <span class="map-stat">8 min read</span>
+      <span class="map-stat">17 sections</span>
+    </div>
+    <details class="map-toc">
+      <summary>7 top-level sections</summary>
+      <ul><li><a href="macos-port-plan.html#1-what-we-are-building-and-what-we-are-not">1. What we are building, and what we are not</a></li><li><a href="macos-port-plan.html#2-what-already-exists">2. What already exists</a></li><li><a href="macos-port-plan.html#3-decisions-and-their-consequences">3. Decisions and their consequences</a></li><li><a href="macos-port-plan.html#4-platform-capabilities-the-mac-needs">4. Platform capabilities the Mac needs</a></li><li><a href="macos-port-plan.html#5-phasing">5. Phasing</a></li><li><a href="macos-port-plan.html#6-verification">6. Verification</a></li><li><a href="macos-port-plan.html#7-open-questions">7. Open questions</a></li></ul>
+    </details>
+  </article><article class="map-entry">
     <div class="map-entry-head">
       <h3><a href="people-feature-contracts.html">People feature contracts</a></h3>
       <a class="map-source" href="https://github.com/ethanbissbort/memory-line/blob/main/docs/design/people-feature-contracts.md" target="_blank" rel="noopener noreferrer"><code>docs/design/people-feature-contracts.md</code> ↗</a>
@@ -339,7 +357,7 @@
     <footer class="site-footer">
       <div>
         <strong>Memory Timeline</strong> documentation ·
-        12 documents ·
+        13 documents ·
         generated 2026-08-07
       </div>
       <div class="footer-links">

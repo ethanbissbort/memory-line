@@ -112,6 +112,8 @@
         <li class="nav-section">
           <p class="nav-section-title">Design notes</p>
           <ul class="nav-list">
+            <li><a class="nav-link" href="macos-port-plan.html">macOS port plan</a>
+            </li>
             <li><a class="nav-link" href="people-feature-contracts.html">People feature contracts</a>
             </li>
           </ul>
@@ -155,7 +157,7 @@ way — no WinUI/WinRT types below the UI head. See
 <a href="#keeping-core-portable">Keeping Core portable</a>.</li>
 <li>A <strong>macOS app</strong> (SwiftUI) is being brought up under <a href="https://github.com/ethanbissbort/memory-line/tree/main/macos-native" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>macos-native/</code></a>,
 sharing code with <code>ios-companion/</code>. See
-<a href="https://github.com/ethanbissbort/memory-line/blob/main/docs/design/MACOS-PORT-PLAN.md" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>docs/design/MACOS-PORT-PLAN.md</code></a>.</li>
+<a href="macos-port-plan.html"><code>docs/design/MACOS-PORT-PLAN.md</code></a>.</li>
 <li>The repo also contains the <strong>sync service</strong> under <a href="https://github.com/ethanbissbort/memory-line/tree/main/services" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>services/</code></a> (ASP.NET
 Core, plain net10.0 — <strong>CAN be built/tested with the <code>dotnet</code> CLI</strong>, no VS msbuild
 needed; own Linux CI workflow <code>sync-api-build.yml</code>) and the <strong>Windows sync client
@@ -427,7 +429,7 @@ follow-up</strong>, not yet implemented. Don&#39;t describe key storage as encry
 <p><code>MemoryTimeline.Core</code>, <code>.Data</code> and <code>.Sync</code> target <strong>plain <code>net10.0</code></strong>. Only the UI head
 (<code>MemoryTimeline</code>) and the test project target <code>net10.0-windows</code>. This is load-bearing,
 not incidental: it is what lets the business layer back a non-WinUI head (see
-<a href="https://github.com/ethanbissbort/memory-line/blob/main/docs/design/MACOS-PORT-PLAN.md" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>docs/design/MACOS-PORT-PLAN.md</code></a>) and what keeps the
+<a href="macos-port-plan.html"><code>docs/design/MACOS-PORT-PLAN.md</code></a>) and what keeps the
 layering rule above enforceable by the compiler rather than by review.</p>
 <p><strong>Rules for anything under Core/Data/Sync:</strong></p>
 <ul>
@@ -485,7 +487,7 @@ head needs a path abstraction; the port plan tracks this.</li>
     <footer class="site-footer">
       <div>
         <strong>Memory Timeline</strong> documentation ·
-        12 documents ·
+        13 documents ·
         generated 2026-08-07
       </div>
       <div class="footer-links">
