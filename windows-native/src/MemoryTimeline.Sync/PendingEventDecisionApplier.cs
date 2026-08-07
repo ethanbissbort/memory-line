@@ -249,8 +249,9 @@ public class PendingEventDecisionApplier : IPendingEventDecisionApplier
 
         if (!string.IsNullOrWhiteSpace(corrections.Category))
         {
+            var requested = corrections.Category.Trim();
             var category = EventCategory.AllCategories.FirstOrDefault(
-                known => string.Equals(known, corrections.Category.Trim(), StringComparison.OrdinalIgnoreCase));
+                known => string.Equals(known, requested, StringComparison.OrdinalIgnoreCase));
             if (category == null)
             {
                 // A category the archive does not have is dropped, not
