@@ -27,9 +27,52 @@ companion, and the sync service. Source of truth:
 
 ## Client generation
 
-Swift (iOS companion) and C# (Windows Native / sync service) client code is
-**generated from these files** — they are the contract skeleton, not
-documentation of hand-written clients. Generation tooling and the contract
-compatibility CI gate arrive with Phase 1 (see the design doc's migration plan
-and Epic A). Until then, hand-written types (e.g. `RemoteCaptureEnvelope`) must
-mirror these files exactly; change the contract here first, then the code.
+The C# wire types live in
+[`dotnet/MemoryTimeline.SyncContracts`](./dotnet/MemoryTimeline.SyncContracts)
+and are used **verbatim** by both the sync service
+(`services/MemoryTimeline.SyncApi`) and the Windows sync client
+(`windows-native/src/MemoryTimeline.Sync`), serialized camelCase via
+System.Text.Json web defaults. The OpenAPI file **mirrors those shipped DTO
+wire shapes**, so a client generated from the YAML (e.g. Swift for the iOS
+companion) interoperates with the shipped service. A contract-compatibility CI
+gate that keeps the YAML and the DTOs from drifting is still planned (design
+doc migration plan, Epic A); until it exists, change the DTOs and the YAML
+together in the same commit. Hand-written types elsewhere (e.g.
+`RemoteCaptureEnvelope`) must likewise mirror these files exactly.
+
+## Changelog
+
+### v1.1 (2026-08-07)
+
+Reconciled `openapi/memory-line-sync-v1.yaml` with the wire protocol
+implemented in Phase 1 (the shared DTOs are the implemented truth):
+
+- **Sync**: push carries `entries` of `SyncPushEntry` and returns per-entry
+  `SyncPushEntryResult` receipts (`clientSequence`/`accepted`/`duplicate`/
+  `serverChangeId`/`error`); pulled `SyncChange` carries `changeId`,
+  `revision`, `sourceDeviceId`, and the payload as a JSON **string**
+  (`payloadJson`, documented by the `CaptureChangePayload` schema incl.
+  `audioArtifact`); every cursor (`cursor` query param, `nextCursor`, ack
+  `cursor`, `changeId`) is `integer`/`int64`, not string.
+- **Devices**: registration requires `pairingCode`, `platform`, and
+  `displayName` (`publicKey` is optional); the response gains `ownerId`;
+  refresh takes a `TokenRefreshRequest` body, returns a `TokenRefreshResponse`
+  with a rotated refresh token, and answers 401 — never 404 — for unknown or
+  revoked devices (anti-enumeration); added `GET /devices` returning
+  `DeviceInfo` entries.
+- **Artifacts**: initiate response is `{ artifactId, partSizeBytes,
+  expectedPartCount }`; complete takes `{ partCount, totalByteLength, sha256 }`
+  and returns `ArtifactCompleteResponse`; `ArtifactSummary` replaces the old
+  `CaptureArtifact` schema; documented the server artifact lifecycle
+  (`pending | uploading | complete | failed`, distinct from the Windows-local
+  `upload_state` vocabulary) and the actually-emitted 409/413/422 responses
+  with their error codes (`artifact_conflict`, `artifact_incomplete_parts`,
+  `artifact_part_too_large`, `artifact_*_mismatch`, `artifact_not_complete`,
+  `artifact_not_found`).
+- **Captures**: `CaptureCreateRequest` gains optional `titleHint` and
+  `userNote`; `POST /captures` documents the 200 idempotent-replay response;
+  the `Capture` response schema now matches the `CaptureResponse` DTO
+  (embedded `artifacts` summaries).
+- **Idempotency-Key** is now documented as optional everywhere — an opt-in
+  replay mechanism for authenticated mutations; sync push idempotency is
+  carried by `clientSequence` receipts instead of the header.
