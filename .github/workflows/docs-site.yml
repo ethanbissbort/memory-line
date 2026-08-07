@@ -24,9 +24,10 @@ on:
 permissions:
   contents: read
 
+# Let an in-flight Pages deployment finish rather than cancelling it midway.
 concurrency:
-  group: docs-site
-  cancel-in-progress: true
+  group: pages
+  cancel-in-progress: false
 
 jobs:
   build:
