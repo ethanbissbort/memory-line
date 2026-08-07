@@ -1040,6 +1040,35 @@ pre code {
 .doc-card p { margin: 0 0 .8rem; font-size: .82rem; color: var(--muted); line-height: 1.5; flex: 1; }
 .doc-card-meta { font-size: .74rem; color: var(--accent); font-weight: 600; }
 
+/* Documentation that stays in the repo and is not rendered here. */
+.legacy-note {
+  margin-top: 2.5rem;
+  padding: 1.15rem 1.3rem;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.legacy-title {
+  margin: 0 0 .4rem !important;
+  border: 0 !important;
+  padding: 0 !important;
+  font-family: var(--font-sans) !important;
+  font-size: 1rem !important;
+  color: var(--muted);
+}
+/* Scoped past `.prose ul` / `.prose p`, so the block looks the same on the
+   landing page and inside the documentation map's prose column. */
+.legacy-note .legacy-blurb { margin: 0 0 .8rem; font-size: .86rem; color: var(--muted); max-width: 72ch; }
+.legacy-note .legacy-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .3rem; }
+.legacy-note .legacy-list li { margin: 0; font-size: .85rem; }
+.legacy-list code {
+  font-size: .76rem;
+  color: var(--faint);
+  background: none;
+  border: 0;
+  padding: 0 0 0 .35rem;
+}
+
 /* ======================================================= documentation map */
 
 .map-body { max-width: 920px; }

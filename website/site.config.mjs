@@ -5,6 +5,11 @@
  * pages, how they are grouped in the sidebar, and the structured content used to
  * build the hand-authored landing page.
  *
+ * SCOPE: this site documents the **Windows Native** app only. The legacy Electron
+ * build is in maintenance, so its documentation deliberately stays as plain markdown
+ * in the repository — see the `legacy` export at the bottom, which renders a short
+ * pointer rather than full pages.
+ *
  * To add a new document: drop an entry into the relevant section's `pages` array.
  * `source` is repo-relative; `slug` becomes `<slug>.html`.
  */
@@ -13,7 +18,7 @@ export const site = {
   name: 'Memory Timeline',
   tagline: 'Capture memories by voice or text, let AI structure them, and explore your life as an interactive timeline.',
   description:
-    'Documentation for Memory Timeline — a local-first Windows desktop app that turns spoken and typed memories into a structured, searchable, interactive personal timeline.',
+    'Documentation for the Memory Timeline Windows Native app — a local-first .NET 8 / WinUI 3 desktop app that turns spoken and typed memories into a structured, searchable, interactive personal timeline.',
   repo: 'ethanbissbort/memory-line',
   repoUrl: 'https://github.com/ethanbissbort/memory-line',
   branch: 'main',
@@ -177,15 +182,6 @@ export const sections = [
         audience: 'Developers',
         tags: ['audit', 'bug hunt', 'findings'],
       },
-      {
-        slug: 'multi-agent-code-review',
-        source: 'docs/reviews/multi-agent-code-review.md',
-        title: 'Multi-agent code review',
-        description:
-          'A layered review of the Electron build — UI/renderer, retrieval logic, and database — headlined by a schema-contract fracture running through all three layers.',
-        audience: 'Developers',
-        tags: ['code review', 'Electron', 'schema'],
-      },
     ],
   },
   {
@@ -204,58 +200,26 @@ export const sections = [
       },
     ],
   },
-  {
-    id: 'electron',
-    title: 'Legacy Electron build',
-    blurb: 'The earlier cross-platform app, now in maintenance.',
-    pages: [
-      {
-        slug: 'electron-deployment',
-        source: 'DEPLOYMENT-INSTALL.md',
-        title: 'Electron deployment & install',
-        description:
-          'Development setup, production builds, platform installers, code signing, distribution, updates, and troubleshooting for the Electron app.',
-        audience: 'Maintainers',
-        tags: ['Electron', 'packaging', 'install'],
-      },
-      {
-        slug: 'electron-setup-scripts',
-        source: 'scripts/README.md',
-        title: 'Electron setup scripts',
-        description:
-          'setup-windows.ps1 and setup-ubuntu.sh — cross-platform dependency installation, common issues, manual steps, and verification.',
-        audience: 'Developers',
-        tags: ['Electron', 'setup', 'scripts'],
-      },
-      {
-        slug: 'electron-setup-logs',
-        source: 'scripts/logs/README.md',
-        title: 'Setup script logs',
-        description:
-          'What the setup scripts log, the log format and levels, how to use logs for troubleshooting, and the privacy note about sharing them.',
-        audience: 'Developers',
-        tags: ['Electron', 'logs', 'troubleshooting'],
-      },
-      {
-        slug: 'electron-tests',
-        source: 'tests/README.md',
-        title: 'Electron test suite',
-        description:
-          'Jest test layout, generating test databases and sample data, running suites, coverage, performance benchmarks, and templates.',
-        audience: 'Developers',
-        tags: ['Electron', 'Jest', 'testing'],
-      },
-      {
-        slug: 'electron-test-databases',
-        source: 'tests/fixtures/databases/README.md',
-        title: 'Test databases',
-        description: 'The generated SQLite fixtures used by the Electron test suite.',
-        audience: 'Developers',
-        tags: ['Electron', 'fixtures'],
-      },
-    ],
-  },
 ];
+
+/**
+ * Documentation that stays in the repository as plain markdown and is deliberately
+ * NOT rendered as pages here. Listed on the site so it stays discoverable — the
+ * legacy Electron build is in maintenance and does not warrant polished docs.
+ */
+export const legacy = {
+  title: 'Legacy Electron build',
+  blurb:
+    'The earlier cross-platform Electron app (React + Electron + SQLite) is feature-complete for its own scope but is no longer developed. Its documentation stays as plain markdown in the repository and is intentionally left out of this site.',
+  docs: [
+    { source: 'DEPLOYMENT-INSTALL.md', title: 'Deployment & installation guide' },
+    { source: 'scripts/README.md', title: 'Setup scripts (Windows / Ubuntu)' },
+    { source: 'scripts/logs/README.md', title: 'Setup script logs' },
+    { source: 'tests/README.md', title: 'Jest test suite' },
+    { source: 'tests/fixtures/databases/README.md', title: 'Test database fixtures' },
+    { source: 'docs/reviews/multi-agent-code-review.md', title: 'Multi-agent code review (Electron layers)' },
+  ],
+};
 
 /**
  * Structured content for the generated landing page.
@@ -272,6 +236,7 @@ export const landing = {
   intro: [
     'Memory Timeline is a **local-first** desktop app for recording, organizing, and rediscovering your personal history. Speak a memory — or paste and type one — and the app transcribes it on-device with Whisper, has an LLM extract a structured event, and lets you review it onto an interactive timeline.',
     'Your data lives in a local SQLite database. Embeddings run locally by default, so nothing leaves your machine except the specific text you choose to send to the providers you configure — and geocoding is off unless you opt in.',
+    'This site documents the **Windows Native** app — the primary, actively developed product, built on .NET 8 and WinUI 3.',
   ],
 
   // `key` values are filled in by the build from the real corpus.
@@ -474,21 +439,15 @@ export const landing = {
     },
     {
       icon: '🔬',
-      title: 'Quality & history',
+      title: 'Audits & follow-ups',
       body: 'What broke, why, and what is still outstanding.',
       links: ['feature-audit', 'repo-audit-2026-07', 'hardening-followups'],
     },
     {
       icon: '📐',
-      title: 'Design & planning',
-      body: 'The migration plan and the pre-implementation contracts.',
-      links: ['migration-to-native-windows', 'people-feature-contracts'],
-    },
-    {
-      icon: '📦',
-      title: 'Legacy Electron',
-      body: 'The earlier cross-platform build, kept for reference.',
-      links: ['electron-deployment', 'electron-tests', 'multi-agent-code-review'],
+      title: 'Design & history',
+      body: 'The plan that produced the native app, and the contracts written before the code.',
+      links: ['migration-to-native-windows', 'people-feature-contracts', 'development-history'],
     },
   ],
 

@@ -15,7 +15,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { landing, sections, site } from './site.config.mjs';
+import { landing, legacy, sections, site } from './site.config.mjs';
 import { renderMarkdown, toPlainText } from './lib/render.mjs';
 import {
   layout,
@@ -188,6 +188,7 @@ ${renderToc(page.toc)}
         sections: liveSections,
         pageIndex,
         totals,
+        legacy,
       }),
     })
   );
@@ -198,7 +199,7 @@ ${renderToc(page.toc)}
     layout({
       ...shellCommon,
       title: `All documentation · ${site.name}`,
-      description: `Every document in the ${site.name} repository, with size, reading time and section previews.`,
+      description: `Every ${site.name} Windows Native document, with size, reading time and section previews.`,
       bodyClass: 'page-map',
       activeSlug: 'documentation-map',
       sidebar: renderSidebar(liveSections, 'documentation-map', null),
@@ -207,6 +208,7 @@ ${renderToc(page.toc)}
         totals,
         repoUrl: site.repoUrl,
         branch: site.branch,
+        legacy,
       }),
     })
   );

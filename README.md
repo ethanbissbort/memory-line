@@ -307,9 +307,10 @@ See [`docs/reviews/`](./docs/reviews) for its code-review history and [`DEPLOYME
 ## Documentation
 
 Everything below is also published as a **browsable documentation website** — one place
-with a sidebar, cross-links, per-page tables of contents and full-text search across every
-document. Open [`website/_site/index.html`](./website/_site/index.html) locally, or build
-it with `npm run docs:install && npm run docs:build`. See [`website/README.md`](./website/README.md).
+with a sidebar, cross-links, per-page tables of contents and full-text search. It covers the
+Windows Native app only; the legacy Electron docs stay as plain markdown in the repo. Open
+[`website/_site/index.html`](./website/_site/index.html) locally, or build it with
+`npm run docs:install && npm run docs:build`. See [`website/README.md`](./website/README.md).
 
 | Document | Description |
 |----------|-------------|

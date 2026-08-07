@@ -117,29 +117,12 @@
             </li>
             <li><a class="nav-link" href="repo-audit-2026-07.html">Exhaustive repo audit</a>
             </li>
-            <li><a class="nav-link" href="multi-agent-code-review.html">Multi-agent code review</a>
-            </li>
           </ul>
         </li>
         <li class="nav-section">
           <p class="nav-section-title">Design notes</p>
           <ul class="nav-list">
             <li><a class="nav-link" href="people-feature-contracts.html">People feature contracts</a>
-            </li>
-          </ul>
-        </li>
-        <li class="nav-section">
-          <p class="nav-section-title">Legacy Electron build</p>
-          <ul class="nav-list">
-            <li><a class="nav-link" href="electron-deployment.html">Electron deployment &amp; install</a>
-            </li>
-            <li><a class="nav-link" href="electron-setup-scripts.html">Electron setup scripts</a>
-            </li>
-            <li><a class="nav-link" href="electron-setup-logs.html">Setup script logs</a>
-            </li>
-            <li><a class="nav-link" href="electron-tests.html">Electron test suite</a>
-            </li>
-            <li><a class="nav-link" href="electron-test-databases.html">Test databases</a>
             </li>
           </ul>
         </li>
@@ -160,7 +143,7 @@
   <p class="doc-lede">The repository README: what Memory Timeline is, the memory pipeline, the full feature list, tech stack, architecture, setup, configuration, and privacy model.</p>
   <div class="doc-meta">
     <span class="doc-meta-item"><b>For</b> Everyone</span>
-    <span class="doc-meta-item"><b>2,917</b> words</span>
+    <span class="doc-meta-item"><b>2,932</b> words</span>
     <span class="doc-meta-item"><b>13</b> min read</span>
     <a class="doc-meta-item doc-source" href="https://github.com/ethanbissbort/memory-line/blob/main/README.md" target="_blank" rel="noopener noreferrer">
       README.md ↗
@@ -462,13 +445,14 @@ cd memory-line/windows-native/src
 <div class="codeblock" data-lang="bash"><div class="codeblock-bar"><span class="codeblock-lang">Shell</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-bash"><span class="tok-builtin">npm</span> install
 <span class="tok-builtin">npm</span> run dev        <span class="tok-comment"># development</span>
 <span class="tok-builtin">npm</span> run package    <span class="tok-comment"># production build</span></code></pre></div>
-<p>See <a href="https://github.com/ethanbissbort/memory-line/tree/main/docs/reviews" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>docs/reviews/</code></a> for its code-review history and <a href="electron-deployment.html"><code>DEPLOYMENT-INSTALL.md</code></a> for packaging.</p>
+<p>See <a href="https://github.com/ethanbissbort/memory-line/tree/main/docs/reviews" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>docs/reviews/</code></a> for its code-review history and <a href="https://github.com/ethanbissbort/memory-line/blob/main/DEPLOYMENT-INSTALL.md" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>DEPLOYMENT-INSTALL.md</code></a> for packaging.</p>
 <hr>
 <h2 id="documentation" class="anchored">Documentation<a class="heading-anchor" href="#documentation" aria-label="Link to this section">#</a></h2>
 <p>Everything below is also published as a <strong>browsable documentation website</strong> — one place
-with a sidebar, cross-links, per-page tables of contents and full-text search across every
-document. Open <a href="https://github.com/ethanbissbort/memory-line/blob/main/website/_site/index.html" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>website/_site/index.html</code></a> locally, or build
-it with <code>npm run docs:install &amp;&amp; npm run docs:build</code>. See <a href="https://github.com/ethanbissbort/memory-line/blob/main/website/README.md" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>website/README.md</code></a>.</p>
+with a sidebar, cross-links, per-page tables of contents and full-text search. It covers the
+Windows Native app only; the legacy Electron docs stay as plain markdown in the repo. Open
+<a href="https://github.com/ethanbissbort/memory-line/blob/main/website/_site/index.html" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>website/_site/index.html</code></a> locally, or build it with
+<code>npm run docs:install &amp;&amp; npm run docs:build</code>. See <a href="https://github.com/ethanbissbort/memory-line/blob/main/website/README.md" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>website/README.md</code></a>.</p>
 <div class="table-wrap"><table><thead><tr>
 <th>Document</th>
 <th>Description</th>
@@ -568,7 +552,7 @@ it with <code>npm run docs:install &amp;&amp; npm run docs:build</code>. See <a 
     <footer class="site-footer">
       <div>
         <strong>Memory Timeline</strong> documentation ·
-        19 documents ·
+        13 documents ·
         generated 2026-08-07
       </div>
       <div class="footer-links">

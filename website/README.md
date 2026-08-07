@@ -1,11 +1,31 @@
 # Documentation website
 
 A static website generated from the markdown documentation in this repository, so the
-19 READMEs, guides, audits and design notes can be browsed, cross-linked and searched
-instead of opened one file at a time.
+13 READMEs, guides, audits and design notes covering the **Windows Native app** can be
+browsed, cross-linked and searched instead of opened one file at a time.
 
 The built site lives in [`_site/`](./_site) and is committed, so you can browse it
 without building anything: **open `website/_site/index.html` in a browser.**
+
+---
+
+## Scope: Windows Native only
+
+The site documents the Windows Native (.NET 8 / WinUI 3) app — the primary, actively
+developed product. The legacy Electron build is in maintenance, so its documentation
+stays as plain markdown in the repository and is deliberately **not** rendered here:
+
+- `DEPLOYMENT-INSTALL.md`
+- `scripts/README.md` and `scripts/logs/README.md`
+- `tests/README.md` and `tests/fixtures/databases/README.md`
+- `docs/reviews/multi-agent-code-review.md`
+
+Those files are listed in the `legacy` export of `site.config.mjs`, which renders a
+short pointer with GitHub links at the bottom of the landing page and the documentation
+map — so nothing is hidden, it just does not get page treatment. Links *to* those files
+from documents that are on the site resolve to GitHub automatically.
+
+To bring one onto the site, move it from `legacy.docs` into a section's `pages` array.
 
 ---
 
@@ -14,8 +34,8 @@ without building anything: **open `website/_site/index.html` in a browser.**
 | Page | Source |
 |------|--------|
 | `index.html` | Hand-authored landing page — pipeline diagram, feature grid, architecture, reading paths, project history (content lives in `site.config.mjs`) |
-| `documentation-map.html` | Generated index of every document with size, reading time and section previews |
-| One page per document | Every markdown file listed in `site.config.mjs` |
+| `documentation-map.html` | Generated index of every included document with size, reading time and section previews |
+| One page per document | Every markdown file listed in a section's `pages` array in `site.config.mjs` |
 
 Each document page gets a breadcrumb, description, word count and reading time, a link
 to the source file on GitHub, an "on this page" table of contents with scrollspy, and
