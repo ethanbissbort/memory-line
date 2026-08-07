@@ -104,7 +104,11 @@ final class MacAppEnvironment {
     /// Name this Mac presents to the sync service when pairing. The local host
     /// name is the closest macOS analogue to `UIDevice.current.name` and is what
     /// the user sees in Windows Settings → Sync.
-    static var deviceDisplayName: String {
+    ///
+    /// `nonisolated` because it reads only `ProcessInfo` — nothing main-actor
+    /// about it. Without this it inherits the type's `@MainActor` isolation and
+    /// cannot be read from a nonisolated context such as a plain XCTest method.
+    nonisolated static var deviceDisplayName: String {
         let host = ProcessInfo.processInfo.hostName
         // hostName is often the Bonjour form ("studio.local"); trim the suffix.
         return host.hasSuffix(".local") ? String(host.dropLast(6)) : host

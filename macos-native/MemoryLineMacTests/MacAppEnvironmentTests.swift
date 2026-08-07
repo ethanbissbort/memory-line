@@ -1,5 +1,11 @@
 import XCTest
 
+// @testable, not a plain import: every type under test is `internal` — the
+// shared sources from ios-companion compile into the app module without any
+// `public` annotations, which is the whole reason the synchronized-folder
+// approach was chosen over a Swift package (port plan §3.1).
+@testable import MemoryLineMac
+
 /// Tests for the macOS-specific parts of the composition root. The shared
 /// stores and sync client are covered by the iOS companion's own suite
 /// (`ios-companion/MemoryLineCompanionTests`); duplicating that here would test
