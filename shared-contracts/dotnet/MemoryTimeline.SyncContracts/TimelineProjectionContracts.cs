@@ -30,6 +30,23 @@ namespace MemoryTimeline.SyncContracts;
 /// reads on a timeline: titles, dates, categories, names. Full transcripts and
 /// file paths stay on Windows; media is referenced by id and fetched through
 /// the artifact endpoints if the companion wants it.</para>
+///
+/// <para><b>Every <see cref="DateTime"/> here MUST be
+/// <see cref="DateTimeKind.Utc"/> before serialization.</b> These are the only
+/// payloads built from stored archive rows rather than from
+/// <c>DateTime.UtcNow</c>, and Microsoft.Data.Sqlite returns every stored
+/// <c>DateTime</c> as <see cref="DateTimeKind.Unspecified"/>. System.Text.Json
+/// writes an Unspecified value with no time-zone designator
+/// (<c>"2003-07-14T00:00:00"</c>), which is not the RFC 3339 the wire contract
+/// specifies, and the Swift clients' <c>ISO8601DateFormatter</c> rejects it. The
+/// resulting failure is silent end to end: the client skips the change as
+/// undecodable, advances its cursor, reports a successful sync, and renders an
+/// empty timeline. <c>TimelineProjectionPublisher.Utc</c> is where this is
+/// enforced today, and its remarks explain why UTC is a restored fact for
+/// <c>UpdatedAtUtc</c> but only an encoding convention for
+/// <see cref="EventProjectionPayload.StartDate"/> and friends — which is also
+/// why clients render <see cref="EventProjectionPayload.DisplayDate"/> rather
+/// than localizing those instants.</para>
 /// </summary>
 public class EventProjectionPayload
 {

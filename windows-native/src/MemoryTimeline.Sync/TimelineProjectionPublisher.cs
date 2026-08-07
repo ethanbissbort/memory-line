@@ -209,14 +209,17 @@ public class TimelineProjectionPublisher : ITimelineProjectionPublisher
             EventId = entity.EventId,
             Title = entity.Title,
             Description = Bounded(entity.Description),
-            StartDate = entity.StartDate,
-            EndDate = entity.EndDate,
+            StartDate = Utc(entity.StartDate),
+            EndDate = Utc(entity.EndDate),
             DatePrecision = DatePrecisionParser.ToStringValue(entity.DatePrecision),
             // The SAME formatter the Windows UI binds to, so a companion renders
             // what the owning app renders instead of re-deriving the rules.
+            // Formatted from the raw value: Utc() only stamps a Kind, but taking
+            // the pre-Utc value keeps it obvious that this string is the archive's
+            // own reading of the date and owes nothing to the wire encoding.
             DisplayDate = DateDisplay.FormatPrecise(entity.StartDate, entity.DatePrecision, entity.EndDate),
-            EarliestPossible = entity.EarliestPossible,
-            LatestPossible = entity.LatestPossible,
+            EarliestPossible = Utc(entity.EarliestPossible),
+            LatestPossible = Utc(entity.LatestPossible),
             Category = entity.Category,
             EraId = entity.EraId,
             Tags = SortedDistinct(entity.EventTags.Select(et => et.Tag?.TagName)),
@@ -224,7 +227,7 @@ public class TimelineProjectionPublisher : ITimelineProjectionPublisher
             // is the only thing that can also express a merge.
             PersonIds = SortedDistinct(entity.EventPeople.Select(ep => ep.PersonId)),
             Locations = SortedDistinct(entity.EventLocations.Select(el => el.Location?.Name)),
-            UpdatedAtUtc = entity.UpdatedAt,
+            UpdatedAtUtc = Utc(entity.UpdatedAt),
         };
 
         // One pin per event: the first place that actually has coordinates. A
@@ -249,8 +252,8 @@ public class TimelineProjectionPublisher : ITimelineProjectionPublisher
         EraId = entity.EraId,
         Name = entity.Name,
         Subtitle = entity.Subtitle,
-        StartDate = entity.StartDate,
-        EndDate = entity.EndDate,
+        StartDate = Utc(entity.StartDate),
+        EndDate = Utc(entity.EndDate),
         // EffectiveColor, not ColorCode: it is the colour Windows actually
         // paints (a user's override wins over the category default), and the
         // point of a projection is that both screens agree.
@@ -258,7 +261,7 @@ public class TimelineProjectionPublisher : ITimelineProjectionPublisher
         CategoryId = entity.CategoryId,
         CategoryName = entity.Category?.Name,
         DisplayOrder = entity.DisplayOrder,
-        UpdatedAtUtc = entity.UpdatedAt,
+        UpdatedAtUtc = Utc(entity.UpdatedAt),
     };
 
     /// <summary>
@@ -281,7 +284,7 @@ public class TimelineProjectionPublisher : ITimelineProjectionPublisher
             MergedIntoId = entity.MergedIntoId,
             IsFavorite = entity.IsFavorite,
             EventCount = await _personRepository.GetEventCountForPersonAsync(entity.PersonId),
-            UpdatedAtUtc = entity.UpdatedAt,
+            UpdatedAtUtc = Utc(entity.UpdatedAt),
         };
     }
 
@@ -295,8 +298,8 @@ public class TimelineProjectionPublisher : ITimelineProjectionPublisher
             CaptureId = entity.RecordingQueue?.SourceCaptureId,
             Title = entity.Title,
             Description = Bounded(entity.Description),
-            StartDate = entity.StartDate,
-            EndDate = entity.EndDate,
+            StartDate = Utc(entity.StartDate),
+            EndDate = Utc(entity.EndDate),
             DatePrecision = DatePrecisionParser.ToStringValue(entity.DatePrecision),
             DisplayDate = DateDisplay.FormatPrecise(entity.StartDate, entity.DatePrecision, entity.EndDate),
             Category = entity.Category,
@@ -310,9 +313,44 @@ public class TimelineProjectionPublisher : ITimelineProjectionPublisher
             TranscriptPreview = Bounded(entity.Transcript),
             // Pending events have no updated_at column; the review timestamp is
             // the only moment one can change after extraction wrote it.
-            UpdatedAtUtc = entity.ReviewedAt ?? entity.CreatedAt,
+            UpdatedAtUtc = Utc(entity.ReviewedAt ?? entity.CreatedAt),
         };
     }
+
+    /// <summary>
+    /// Stamps <see cref="DateTimeKind.Utc"/> on a value read back from the
+    /// archive, so it serializes with a trailing <c>Z</c>.
+    ///
+    /// <para>This is not cosmetic. Microsoft.Data.Sqlite returns every
+    /// <c>DateTime</c> as <see cref="DateTimeKind.Unspecified"/>, and
+    /// <c>System.Text.Json</c> writes an Unspecified value with no time-zone
+    /// designator at all — <c>"2003-07-14T00:00:00"</c>. That is not valid
+    /// RFC 3339, the format the wire contract specifies, and the Swift clients
+    /// decode dates with <c>ISO8601DateFormatter</c>, which requires a
+    /// designator and returns nil without one. The failure is silent in the
+    /// worst way: the client skips the change as undecodable, the cursor still
+    /// advances, sync reports success, and the timeline stays empty. Nothing
+    /// short of reading the client's notice-level log would show why.</para>
+    ///
+    /// <para><c>capture_status</c> never hit this because
+    /// <c>CaptureStatusPublisher</c> stamps <c>DateTime.UtcNow</c>, which
+    /// already carries Kind=Utc. Every payload built from stored rows has to do
+    /// it explicitly.</para>
+    ///
+    /// <para><b>What this does and does not claim.</b> For <c>UpdatedAt</c> and
+    /// <c>CreatedAt</c> it restores the truth: those columns are written from
+    /// <c>DateTime.UtcNow</c> and only lost their Kind in transit through
+    /// SQLite. For <c>StartDate</c> and friends it is a convention, not a fact —
+    /// an event dated "Summer 2003" is a calendar date with no time zone, and
+    /// pinning it to UTC midnight is simply the encoding chosen so the value can
+    /// cross a wire that demands an offset. Clients must render
+    /// <c>DisplayDate</c>, which Windows formats, rather than localizing these
+    /// instants; doing the latter is how "July 14" becomes "July 13, 8pm" west
+    /// of Greenwich.</para>
+    /// </summary>
+    private static DateTime Utc(DateTime value) => DateTime.SpecifyKind(value, DateTimeKind.Utc);
+
+    private static DateTime? Utc(DateTime? value) => value is { } v ? Utc(v) : null;
 
     /// <summary>
     /// Tag names from the stored extraction payload. Parsed defensively and

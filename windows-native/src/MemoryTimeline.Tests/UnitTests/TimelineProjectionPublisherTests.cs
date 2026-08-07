@@ -58,7 +58,7 @@ public class TimelineProjectionPublisherTests
             },
             tagNames: new[] { "summer", "ferry" },
             peopleNames: new[] { "Dana", "Ruth" },
-            locations: new[] { ("Harbour Road", 55.9, -3.2) });
+            locations: new (string, double?, double?)[] { ("Harbour Road", 55.9, -3.2) });
 
         // Act
         await _publisher.PublishEventAsync(eventId);
@@ -555,6 +555,107 @@ public class TimelineProjectionPublisherTests
 
     #endregion
 
+    #region Wire encoding
+
+    /// <summary>
+    /// Every timestamp in every projection must serialize with a time-zone
+    /// designator.
+    ///
+    /// <para>This is the one wire detail that fails invisibly. Microsoft.Data.Sqlite
+    /// hands back <c>DateTimeKind.Unspecified</c> for every stored
+    /// <c>DateTime</c>, and <c>System.Text.Json</c> writes such a value as
+    /// <c>"2003-07-14T00:00:00"</c> with no designator at all. That is not valid
+    /// RFC 3339, and the Swift clients decode with <c>ISO8601DateFormatter</c>,
+    /// which returns nil without one — so the client would skip the change as
+    /// undecodable, advance its cursor anyway, report a healthy sync and show an
+    /// empty timeline.</para>
+    ///
+    /// <para>Note what this test can and cannot see: EF InMemory <i>preserves</i>
+    /// Kind on round-trip, so the fields seeded as UTC below would pass even if
+    /// the publisher did nothing. The fields seeded Unspecified — the realistic
+    /// shape of a row read back from the real SQLite file — are the ones that
+    /// only pass because the publisher stamps Kind explicitly.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(TimelineProjectionEntity.Event)]
+    [InlineData(TimelineProjectionEntity.Era)]
+    [InlineData(TimelineProjectionEntity.Person)]
+    [InlineData(TimelineProjectionEntity.PendingEvent)]
+    public async Task Publish_DatesReadBackFromTheArchive_CarryATimeZoneDesignator(
+        TimelineProjectionEntity entity)
+    {
+        // Arrange - deliberately Unspecified, which is what SQLite returns and
+        // what a caller writing `new DateTime(...)` produces.
+        string entityType;
+        switch (entity)
+        {
+            case TimelineProjectionEntity.Event:
+                await _publisher.PublishEventAsync(await SeedEventAsync(evt =>
+                {
+                    evt.StartDate = new DateTime(2003, 7, 14);
+                    evt.EndDate = new DateTime(2003, 7, 21);
+                    evt.EarliestPossible = new DateTime(2003, 6, 1);
+                    evt.LatestPossible = new DateTime(2003, 8, 31);
+                    evt.UpdatedAt = new DateTime(2003, 7, 15, 9, 0, 0);
+                }));
+                entityType = SyncEntityType.Event;
+                break;
+            case TimelineProjectionEntity.Era:
+                await _publisher.PublishEraAsync(await SeedEraAsync());
+                entityType = SyncEntityType.Era;
+                break;
+            case TimelineProjectionEntity.Person:
+                await SeedEventAsync(peopleNames: new[] { "Dana" });
+                await _publisher.PublishPersonAsync(await SinglePersonIdAsync());
+                entityType = SyncEntityType.Person;
+                break;
+            default:
+                var (pendingId, _) = await SeedPendingEventAsync(pending =>
+                {
+                    pending.StartDate = new DateTime(2003, 7, 14);
+                    pending.EndDate = new DateTime(2003, 7, 21);
+                    pending.CreatedAt = new DateTime(2003, 7, 15, 9, 0, 0);
+                });
+                await _publisher.PublishPendingEventAsync(pendingId);
+                entityType = SyncEntityType.PendingEvent;
+                break;
+        }
+
+        // Assert
+        var json = (await SingleRowAsync(entityType)).PayloadJson!;
+        using var document = JsonDocument.Parse(json);
+
+        var dates = document.RootElement.EnumerateObject()
+            .Where(property => property.Value.ValueKind == JsonValueKind.String
+                && LooksLikeATimestamp(property.Value.GetString()!))
+            .ToList();
+
+        // Guards the guard: a payload whose date fields all came back null would
+        // otherwise pass this test by having nothing to check.
+        dates.Should().NotBeEmpty($"{entityType} carries at least one timestamp");
+
+        foreach (var property in dates)
+        {
+            property.Value.GetString().Should().EndWith(
+                "Z",
+                "{0}.{1} must be valid RFC 3339 or the Swift clients silently skip the change",
+                entityType,
+                property.Name);
+        }
+    }
+
+    /// <summary>
+    /// True for an ISO 8601 date-time. Deliberately shape-based rather than a
+    /// hardcoded list of field names, so a field added to a projection later is
+    /// covered by this test without anyone remembering to add it here.
+    /// </summary>
+    private static bool LooksLikeATimestamp(string value) =>
+        value.Length >= 19
+        && value[4] == '-' && value[7] == '-' && value[10] == 'T'
+        && value[13] == ':' && value[16] == ':';
+
+    #endregion
+
     #region Helpers
 
     /// <summary>
@@ -611,6 +712,13 @@ public class TimelineProjectionPublisherTests
     {
         await using var context = _contextFactory.CreateDbContext();
         return await context.People.AsNoTracking().Select(p => p.PersonId).ToListAsync();
+    }
+
+    private async Task<string> SinglePersonIdAsync()
+    {
+        var ids = await AllPersonIdsAsync();
+        ids.Should().HaveCount(1);
+        return ids[0];
     }
 
     private async Task AddTagAsync(string eventId, string tagName)
