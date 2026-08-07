@@ -2,7 +2,7 @@
 
 A native Windows 11 implementation of Memory Timeline, featuring local Whisper transcription, AI-powered event extraction with honest date precision, media attachments, ask-your-timeline retrieval, narrative generation, an offline map, backup/revision history, RAG-based cross-referencing (local embeddings by default), and deep Windows integration.
 
-**This is the primary, actively developed product.** The cross-platform Electron build under the repo's `src/` directory is now in maintenance only.
+**This is the primary, actively developed product.** A native macOS app is being brought up alongside it under [`macos-native/`](../macos-native).
 
 **Platform:** Windows 11 (22H2+)
 **Framework:** .NET 10 (LTS) + WinUI 3 / Windows App SDK 2.3.1
@@ -18,21 +18,23 @@ This is the native Windows implementation of Memory Timeline: a **local-first** 
 
 It is designed to provide strong performance and to leverage Windows-specific features such as native touch/pen support (Windows Ink), toast notifications, JumpList, and Windows Timeline integration.
 
-### Advantages Over the Electron Version
+### Performance targets
 
-Native WinUI 3 replaces a Chromium runtime with the OS's own UI stack. The intended benefits are lower memory use, faster cold start, smoother timeline rendering, a smaller package, and first-class Windows integration.
+Building on the OS's own UI stack rather than a bundled web runtime is what buys low
+memory use, fast cold start, smooth timeline rendering, a small package, and first-class
+Windows integration.
 
-The table below lists **targets**, not measured/verified results — treat them as design goals for the native app while runtime validation is ongoing:
+The table below lists **targets**, not measured/verified results — treat them as design goals while runtime validation is ongoing:
 
-| Aspect | Electron | Windows Native (target) |
-|--------|----------|-------------------------|
-| Memory (idle) | ~150 MB | ~30 MB |
-| Memory (5000 events) | ~300 MB | ~100 MB |
-| Cold start | 3-5 seconds | < 2 seconds |
-| Timeline FPS | 30-45 FPS | 60 FPS |
-| Package size | ~120 MB | ~30 MB |
-| Touch/Pen | Limited | Full Windows Ink |
-| Windows Integration | Basic | Full (JumpList, Timeline, Notifications) |
+| Aspect | Target |
+|--------|--------|
+| Memory (idle) | ~30 MB |
+| Memory (5000 events) | ~100 MB |
+| Cold start | < 2 seconds |
+| Timeline FPS | 60 FPS |
+| Package size | ~30 MB |
+| Touch/Pen | Full Windows Ink |
+| Windows Integration | Full (JumpList, Timeline, Notifications) |
 
 ---
 

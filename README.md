@@ -99,8 +99,8 @@ Every hop persists its state, so a failure at any stage is recoverable and visib
 |-------|------------|
 | UI | **WinUI 3** + XAML, `x:Bind` compiled bindings |
 | MVVM | **CommunityToolkit.Mvvm** (`ObservableObject`, `[RelayCommand]`, `WeakReferenceMessenger`) |
-| Runtime | **.NET 8** (`net8.0-windows10.0.26100.0`) |
-| Data | **SQLite** via **EF Core 8**, WAL mode, `IDbContextFactory` per-operation contexts |
+| Runtime | **.NET 10** (`net10.0-windows10.0.26100.0` for the UI head; the Core/Data/Sync layers are plain `net10.0`) |
+| Data | **SQLite** via **EF Core 10**, WAL mode, `IDbContextFactory` per-operation contexts |
 | Audio | `Windows.Media.Capture` (recording), `Windows.Media.Playback` |
 | Speech-to-text | **Whisper.net** (ggml `base` model, local/offline) |
 | LLM | **Anthropic Claude** (`Anthropic.SDK`) **or** any **OpenAI-compatible endpoint** (Ollama, LM Studio, vLLM), routed per call |
@@ -113,19 +113,22 @@ Every hop persists its state, so a failure at any stage is recoverable and visib
 
 ## Architecture
 
-Clean, layered separation across four projects:
+Clean, layered separation. Only the UI head targets Windows; everything below it is
+plain `net10.0` and builds on any OS:
 
 ```
-MemoryTimeline            WinUI 3 app  — Views, ViewModels, Controls, Converters,
+MemoryTimeline            WinUI 3 app  — Views, ViewModels, Controls, Converters,   [net10.0-windows]
                                          platform services (audio, STT, notifications,
                                          jump list, navigation, theme)
-MemoryTimeline.Core       Business logic — services (events, timeline, queue, extraction,
+MemoryTimeline.Core       Business logic — services (events, timeline, queue, extraction,   [net10.0]
                                          RAG, ask/query, narrative, resurfacing, recall
                                          prompts, media, backup/revisions, export/import,
                                          settings), DTOs, timeline math
-MemoryTimeline.Data       Data access  — EF Core DbContext, entity models, repositories,
+MemoryTimeline.Data       Data access  — EF Core DbContext, entity models, repositories,    [net10.0]
                                          SchemaUpgrader
-MemoryTimeline.Tests      xUnit unit, integration, and performance tests
+MemoryTimeline.Sync       Sync client  — pairing, push/pull/ack, outbox publisher,          [net10.0]
+                                         capture-status publisher, background worker
+MemoryTimeline.Tests      xUnit unit, integration, and performance tests            [net10.0-windows]
 ```
 
 Key architectural decisions (recently reworked — see [Recent engineering](#recent-engineering-work)):
@@ -142,7 +145,7 @@ Key architectural decisions (recently reworked — see [Recent engineering](#rec
 ### Prerequisites
 - **Windows 11** (22H2 or later).
 - **Visual Studio 2022** (17.8+) with the **.NET Desktop Development** and **Windows App SDK** workloads.
-- A **.NET SDK**: the repo pins the build to the **.NET 8** SDK via `windows-native/src/global.json`. If you only have a newer major installed (e.g. .NET 9), the pin's `rollForward: "major"` lets the build use it — it just won't select the .NET 10 SDK, which is incompatible with the WindowsAppSDK PRI build task.
+- A **.NET SDK**: the repo pins the build to the **.NET 10** SDK via `windows-native/src/global.json`, to the `10.0.1xx` feature band. That band is deliberate — it declares MSBuild 17.14 as its minimum, so Visual Studio 2022 can still build it; bands `10.0.2xx`+ require MSBuild 18 / Visual Studio 2026.
 
 ### Build & run
 ```powershell
@@ -234,6 +237,7 @@ Full details: [`windows-native/FEATURE-AUDIT.md`](./windows-native/FEATURE-AUDIT
 - **Whisper model options** (larger models for accuracy; language selection UI).
 - **Analytics export** and a few remaining UI polish items.
 - MSIX packaging and Microsoft Store submission (Phase 7).
+- **macOS app** — SwiftUI head under `macos-native/`; see [`docs/design/MACOS-PORT-PLAN.md`](./docs/design/MACOS-PORT-PLAN.md).
 
 See [`windows-native/DEVELOPMENT-STATUS.md`](./windows-native/DEVELOPMENT-STATUS.md) for phase-level status.
 
@@ -258,10 +262,14 @@ memory-line/
 │   ├── DEVELOPMENT-HISTORY.md       consolidated phase reports
 │   ├── TESTING.md · DEPLOYMENT.md
 │
-├── src/                            Legacy: Electron app (React + Electron + SQLite)
-├── docs/reviews/                   multi-agent code-review reports
+├── macos-native/                   macOS app (SwiftUI) — in progress
+├── ios-companion/                  iOS roadtrip companion (SwiftUI) + widgets
+├── services/                       self-hosted sync service (ASP.NET Core)
+├── shared-contracts/               wire contracts (OpenAPI, JSON Schema, .NET DTOs)
+├── docs/design/                    system designs & port plans
+├── docs/reviews/                   code-review and audit reports
 ├── website/                        documentation website generator + built site
-├── .github/workflows/              CI (Windows Native build + test, docs site)
+├── .github/workflows/              CI (Windows + macOS builds, sync API, docs site)
 └── README.md                       this file
 ```
 
@@ -290,27 +298,28 @@ Tests cover timeline math, services, repository/integration behavior, and perfor
 
 ---
 
-## Legacy Electron app
+## macOS app (in progress)
 
-An earlier cross-platform build (React + Electron + SQLite) lives under [`src/`](./src) and is feature-complete for its own scope, but it is **no longer the focus** of development. It shares the same conceptual model and a compatible SQLite schema.
+A native **SwiftUI** macOS app is being brought up under [`macos-native/`](./macos-native),
+sharing its domain models, sync networking, persistence, and Keychain code with the
+existing iOS companion under `ios-companion/MemoryLineCompanion/Shared/`.
 
-```bash
-npm install
-npm run dev        # development
-npm run package    # production build
-```
+Groundwork already in the tree: `MemoryTimeline.Core` and `MemoryTimeline.Sync` were
+decoupled from WinUI and now target plain `net10.0`, so the business layer builds off
+Windows and the two heads can converge on one set of rules rather than drifting.
 
-See [`docs/reviews/`](./docs/reviews) for its code-review history and [`DEPLOYMENT-INSTALL.md`](./DEPLOYMENT-INSTALL.md) for packaging.
+See [`docs/design/MACOS-PORT-PLAN.md`](./docs/design/MACOS-PORT-PLAN.md) for the phased
+plan and the inventory of what is still Windows-bound.
 
 ---
 
 ## Documentation
 
 Everything below is also published as a **browsable documentation website** — one place
-with a sidebar, cross-links, per-page tables of contents and full-text search. It covers the
-Windows Native app only; the legacy Electron docs stay as plain markdown in the repo. Open
+with a sidebar, cross-links, per-page tables of contents and full-text search. Open
 [`website/_site/index.html`](./website/_site/index.html) locally, or build it with
-`npm run docs:install && npm run docs:build`. See [`website/README.md`](./website/README.md).
+`npm --prefix website install && npm --prefix website run build`.
+See [`website/README.md`](./website/README.md).
 
 | Document | Description |
 |----------|-------------|
@@ -321,6 +330,9 @@ Windows Native app only; the legacy Electron docs stay as plain markdown in the 
 | [`windows-native/DEVELOPMENT-HISTORY.md`](./windows-native/DEVELOPMENT-HISTORY.md) | Consolidated phase reports |
 | [`windows-native/TESTING.md`](./windows-native/TESTING.md) | Testing guide |
 | [`windows-native/DEPLOYMENT.md`](./windows-native/DEPLOYMENT.md) | Packaging & deployment |
+| [`docs/design/MACOS-PORT-PLAN.md`](./docs/design/MACOS-PORT-PLAN.md) | macOS port plan & Windows-bound inventory |
+| [`docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md`](./docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md) | iOS companion & sync system design |
+| [`services/README.md`](./services/README.md) | Sync service operator guide |
 | [`claude.md`](./claude.md) | AI-assistant development guide |
 
 ---

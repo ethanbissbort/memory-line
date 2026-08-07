@@ -71,7 +71,7 @@
                 <li><a class="nav-sublink" href="#data-model-shared-conceptual-schema">Data model (shared conceptual schema)</a></li>
                 <li><a class="nav-sublink" href="#security--privacy-notes">Security &amp; privacy notes</a></li>
                 <li><a class="nav-sublink" href="#key-docs-read-these-for-detail">Key docs (read these for detail)</a></li>
-                <li><a class="nav-sublink" href="#legacy-electron">Legacy Electron</a></li>
+                <li><a class="nav-sublink" href="#keeping-core-portable">Keeping Core portable</a></li>
               </ul>
             </li>
           </ul>
@@ -95,8 +95,6 @@
             <li><a class="nav-link" href="development-status.html">Development status</a>
             </li>
             <li><a class="nav-link" href="development-history.html">Development history</a>
-            </li>
-            <li><a class="nav-link" href="migration-to-native-windows.html">Migration to native Windows</a>
             </li>
           </ul>
         </li>
@@ -135,8 +133,8 @@
   <p class="doc-lede">The condensed contributor briefing: solution layout, the per-operation DbContext rule, MVVM conventions, settings keys, build reality, and how to add a feature.</p>
   <div class="doc-meta">
     <span class="doc-meta-item"><b>For</b> Contributors</span>
-    <span class="doc-meta-item"><b>1,699</b> words</span>
-    <span class="doc-meta-item"><b>8</b> min read</span>
+    <span class="doc-meta-item"><b>2,074</b> words</span>
+    <span class="doc-meta-item"><b>9</b> min read</span>
     <a class="doc-meta-item doc-source" href="https://github.com/ethanbissbort/memory-line/blob/main/claude.md" target="_blank" rel="noopener noreferrer">
       claude.md ↗
     </a>
@@ -151,10 +149,18 @@ this repo. Read it before editing. For the product-level overview, see the root
 <h2 id="tldr" class="anchored">TL;DR<a class="heading-anchor" href="#tldr" aria-label="Link to this section">#</a></h2>
 <ul>
 <li><strong>Primary product = the Windows Native app</strong> under <a href="https://github.com/ethanbissbort/memory-line/tree/main/windows-native" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>windows-native/</code></a>
-(.NET 8 / WinUI 3, clean architecture). <strong>Do all new work here.</strong></li>
-<li>The <strong>Electron app</strong> under <a href="https://github.com/ethanbissbort/memory-line/tree/main/src" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>src/</code></a> is <strong>legacy / maintenance only</strong> — it still
-exists and builds, but new features and fixes should target Windows Native unless the
-task is explicitly about Electron. See <a href="#legacy-electron">Legacy Electron</a>.</li>
+(.NET 10 / WinUI 3, clean architecture). <strong>Do all new work here.</strong></li>
+<li><strong><code>MemoryTimeline.Core</code>, <code>.Data</code> and <code>.Sync</code> target plain <code>net10.0</code></strong> and must stay that
+way — no WinUI/WinRT types below the UI head. See
+<a href="#keeping-core-portable">Keeping Core portable</a>.</li>
+<li>A <strong>macOS app</strong> (SwiftUI) is being brought up under <a href="https://github.com/ethanbissbort/memory-line/tree/main/macos-native" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>macos-native/</code></a>,
+sharing code with <code>ios-companion/</code>. See
+<a href="https://github.com/ethanbissbort/memory-line/blob/main/docs/design/MACOS-PORT-PLAN.md" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>docs/design/MACOS-PORT-PLAN.md</code></a>.</li>
+<li>The repo also contains the <strong>sync service</strong> under <a href="https://github.com/ethanbissbort/memory-line/tree/main/services" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>services/</code></a> (ASP.NET
+Core, plain net10.0 — <strong>CAN be built/tested with the <code>dotnet</code> CLI</strong>, no VS msbuild
+needed; own Linux CI workflow <code>sync-api-build.yml</code>) and the <strong>Windows sync client
+library</strong> <code>windows-native/src/MemoryTimeline.Sync</code> — the iOS roadtrip companion sync
+layer. See <a href="#sync-service-ios-companion">Sync service (iOS companion)</a>.</li>
 <li><strong>You cannot build this repo in the cloud sandbox</strong> — there is no .NET SDK, and the
 WinUI 3 app cannot be built with <code>dotnet build</code> anyway (see <a href="#build--run-reality">Build &amp; run reality</a>).
 Changes are validated by <strong>CI on a Windows runner</strong>, not by a local build. Reason
@@ -163,7 +169,7 @@ carefully and keep changes correct-by-construction.</li>
 <hr>
 <h2 id="windows-native--the-app-you-work-on" class="anchored">Windows Native — the app you work on<a class="heading-anchor" href="#windows-native--the-app-you-work-on" aria-label="Link to this section">#</a></h2>
 <h3 id="solution-layout-clean-architecture" class="anchored">Solution layout (clean architecture)<a class="heading-anchor" href="#solution-layout-clean-architecture" aria-label="Link to this section">#</a></h3>
-<p>The solution is <code>windows-native/src/MemoryTimeline.sln</code>, four projects:</p>
+<p>The solution is <code>windows-native/src/MemoryTimeline.sln</code>, six projects:</p>
 <div class="table-wrap"><table><thead><tr>
 <th>Project</th>
 <th>Role</th>
@@ -178,14 +184,23 @@ carefully and keep changes correct-by-construction.</li>
 </tr>
 <tr>
 <td><strong>MemoryTimeline.Data</strong></td>
-<td>Data access — <code>AppDbContext</code> (EF Core 8 + SQLite), entity models, repositories, and <code>SchemaUpgrader</code>.</td>
+<td>Data access — <code>AppDbContext</code> (EF Core 10 + SQLite), entity models, repositories, and <code>SchemaUpgrader</code>.</td>
 </tr>
 <tr>
 <td><strong>MemoryTimeline.Tests</strong></td>
 <td>xUnit unit, integration, and performance tests.</td>
 </tr>
+<tr>
+<td><strong>MemoryTimeline.Sync</strong></td>
+<td>Sync client library (no UI) — <code>SyncApiClient</code> (pairing, push/pull/ack), artifact download, <code>SyncBackgroundWorker</code> loop, <code>LocalOutboxPublisher</code>, <code>RemoteChangeApplier</code>, settings/cursor stores.</td>
+</tr>
+<tr>
+<td><strong>MemoryTimeline.SyncContracts</strong></td>
+<td>Shared wire DTOs; lives at <code>shared-contracts/dotnet/</code> and is referenced into both this solution and <code>services/MemoryTimeline.Services.sln</code>. CamelCase JSON per the OpenAPI contract.</td>
+</tr>
 </tbody></table></div>
-<p>Dependency direction: <code>MemoryTimeline</code> → <code>Core</code> → <code>Data</code>. Keep it that way; don&#39;t make
+<p>Dependency direction: <code>MemoryTimeline</code> → <code>Core</code> → <code>Data</code>; <code>Sync</code> sits beside them
+(<code>Sync</code> → <code>Core</code>/<code>Data</code>/<code>SyncContracts</code>). Keep it that way; don&#39;t make
 <code>Core</code> depend on WinUI types or <code>Data</code> depend on <code>Core</code>.</p>
 <h3 id="data-access--the-single-most-important-rule" class="anchored">Data access — the single most important rule<a class="heading-anchor" href="#data-access--the-single-most-important-rule" aria-label="Link to this section">#</a></h3>
 <p><strong>Every DB operation opens its own short-lived <code>AppDbContext</code> from the factory.</strong> There
@@ -261,6 +276,25 @@ the next call.</li>
 <td><strong>Opt-in and OFF by default</strong> (<code>geocoding_enabled</code>). When off, location coordinates come only from photo EXIF or manual pin drops — no place name leaves the machine.</td>
 </tr>
 </tbody></table></div>
+<h3 id="sync-service-ios-companion" class="anchored">Sync service (iOS companion)<a class="heading-anchor" href="#sync-service-ios-companion" aria-label="Link to this section">#</a></h3>
+<p>The iOS roadtrip companion sync layer (design:
+<a href="https://github.com/ethanbissbort/memory-line/blob/main/docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md</code></a>):</p>
+<ul>
+<li><strong>Server</strong> — <code>services/MemoryTimeline.SyncApi</code>: self-hosted, single owner, SQLite +
+filesystem artifact store. Devices join with a one-time <strong>pairing code</strong>
+(<code>POST /api/v1/devices/register</code>) and get a device-bound short-lived JWT plus a
+rotating refresh token; revocation (from Windows Settings → Sync) is immediate.</li>
+<li><strong>Loop</strong> — the Windows client (<code>MemoryTimeline.Sync</code>, wired in <code>App.xaml.cs</code>) runs
+<strong>pull → ingest → ack</strong>: <code>SyncBackgroundWorker</code> pulls changes after its stored
+cursor, <code>RemoteChangeApplier</code> downloads each capture&#39;s audio artifact and feeds it
+to the idempotent <code>ICaptureIngestionService</code> (a remote capture enters review
+<strong>exactly once</strong>), the cursor advances only past applied/skipped/permanently-failed
+changes, then <code>LocalOutboxPublisher</code> drains <code>sync_outbox</code> to <code>POST /api/v1/sync/push</code>.</li>
+<li>Wire DTOs: <code>shared-contracts/dotnet/MemoryTimeline.SyncContracts</code> (camelCase JSON —
+clients must use <code>JsonSerializerDefaults.Web</code>); contract source of truth:
+<code>shared-contracts/openapi/memory-line-sync-v1.yaml</code>. Operator guide (run, Docker,
+pairing, endpoints): <a href="https://github.com/ethanbissbort/memory-line/blob/main/services/README.md" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>services/README.md</code></a>.</li>
+</ul>
 <h3 id="the-memory-pipeline" class="anchored">The memory pipeline<a class="heading-anchor" href="#the-memory-pipeline" aria-label="Link to this section">#</a></h3>
 <p><code>Record (Windows MediaCapture) → recording_queue → Transcribe (local Whisper) → Extract (LLM → pending_events) → Review/approve → Timeline</code>. <strong>Text sources join audio in the
 same queue</strong>: pasted/typed text (Ctrl+Shift+V on the Queue page) becomes a
@@ -271,7 +305,11 @@ recoverable and visible in the UI. Extraction assigns a <strong>date precision</
 (<code>DatePrecision</code>: Exact/Day/Month/Season/Year/Decade/Unknown) rather than inventing exact
 days, and resolves people <strong>alias-aware</strong> (case-insensitive name → alias lookup). Approve
 is an <strong>atomic</strong> transaction writing the event plus its tags/people/locations (and
-precision/uncertainty fields) together.</p>
+precision/uncertainty fields) together.
+Recordings and text enter the queue through <code>ICaptureIngestionService</code> (idempotent by
+source capture ID, hashes the audio, and writes a sync outbox record atomically with
+the capture/artifact/queue rows) — see the iOS companion design doc for the sync
+architecture this feeds.</p>
 <hr>
 <h2 id="build--run-reality" class="anchored">Build &amp; run reality<a class="heading-anchor" href="#build--run-reality" aria-label="Link to this section">#</a></h2>
 <p>Critical for an assistant — get this wrong and you&#39;ll suggest broken commands:</p>
@@ -283,10 +321,12 @@ WinUI 3 PRI resource generation (<code>MrtCore.PriGen</code> → <code>ExpandPri
 Framework MSBuild task that loads under VS&#39;s <code>msbuild.exe</code> but <strong>fails under the
 <code>dotnet</code> CLI build engine</strong> (error <strong>MSB4062</strong>). So <code>dotnet build</code> / <code>dotnet run</code>
 cannot build or launch the app.</li>
-<li><strong>SDK pin.</strong> <code>windows-native/src/global.json</code> pins the <strong>.NET 8</strong> SDK
-(<code>8.0.100</code>, <code>rollForward: &quot;major&quot;</code>). The <code>major</code> roll-forward lets a newer major (e.g.
-.NET 9) drive the C# compile if that&#39;s all that&#39;s installed; .NET 10 is incompatible
-with the WindowsAppSDK PRI task.</li>
+<li><strong>SDK pin.</strong> <code>windows-native/src/global.json</code> pins the <strong>.NET 10</strong> SDK to its
+<code>10.0.1xx</code> feature band (<code>10.0.100</code>, <code>rollForward: &quot;latestPatch&quot;</code>). The band is
+deliberate: <code>10.0.1xx</code> declares MSBuild 17.14 as its minimum, so Visual Studio 2022
+can still build; bands <code>10.0.2xx</code>+ require MSBuild 18 / Visual Studio 2026. (An
+earlier note here claimed .NET 10 was incompatible with the WindowsAppSDK PRI task —
+that is not the case; CI builds it green via VS msbuild.)</li>
 <li><strong>CI is the validation gate.</strong> <code>.github/workflows/windows-native-build.yml</code> builds
 <strong>Release | x64</strong> on <strong>windows-latest</strong> via VS <code>msbuild</code> (<code>/t:Restore,Build</code>) and runs
 tests best-effort. Compile success is the gate.</li>
@@ -322,6 +362,12 @@ uncertainty window and <code>last_viewed_at</code>/<code>view_count</code> view 
 Junctions: <code>event_tags</code>, <code>event_people</code>, <code>event_locations</code>.
 Processing: <code>recording_queue</code> (with <code>source_type</code>, <code>source_label</code>, persisted
 <code>transcript</code>), <code>pending_events</code> (mirrors the events precision columns).
+Sync groundwork (Phase 0): <code>captures</code>, <code>capture_artifacts</code>, <code>sync_outbox</code> — the
+device-neutral capture/artifact/outbox schema from the iOS companion design
+(<a href="https://github.com/ethanbissbort/memory-line/blob/main/docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md</code></a>);
+<code>recording_queue</code> also gained device-neutral provenance columns
+(<code>source_capture_id</code> <strong>unique</strong>, <code>source_device_id</code>, <code>source_platform</code>,
+<code>audio_artifact_id</code>, <code>content_sha256</code>, <code>processing_stage</code>, <code>sync_state</code>, ...).
 Attachments &amp; history: <code>event_media</code> (managed media copies, EXIF, thumbnails, content
 hash), <code>event_revisions</code> (append-only edit history), <code>recall_prompts</code> (guided-recall
 questions, deduped forever).
@@ -334,8 +380,7 @@ a seeded setting).
 Identity: the unique name indexes on <code>people</code>/<code>tags</code>/<code>locations</code> are <strong>COLLATE NOCASE</strong>;
 <code>SchemaUpgrader</code> defensively merges pre-existing case-variant duplicates (backfilling the
 keeper&#39;s empty contact columns) before rebuilding each index.
-The Electron build uses a compatible SQLite schema (plus <code>events_fts</code> FTS5,
-Electron-only). DB file: <code>%LOCALAPPDATA%\MemoryTimeline\memory-timeline.db</code>.</p>
+DB file: <code>%LOCALAPPDATA%\MemoryTimeline\memory-timeline.db</code>.</p>
 <hr>
 <h2 id="security--privacy-notes" class="anchored">Security &amp; privacy notes<a class="heading-anchor" href="#security--privacy-notes" aria-label="Link to this section">#</a></h2>
 <ul>
@@ -378,26 +423,31 @@ follow-up</strong>, not yet implemented. Don&#39;t describe key storage as encry
 </tr>
 </tbody></table></div>
 <hr>
-<h2 id="legacy-electron" class="anchored">Legacy Electron<a class="heading-anchor" href="#legacy-electron" aria-label="Link to this section">#</a></h2>
-<p>The original cross-platform build (React + Electron + SQLite, <code>better-sqlite3</code>, FTS5)
-lives under <a href="https://github.com/ethanbissbort/memory-line/tree/main/src" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>src/</code></a>. It is <strong>feature-complete for its own scope but no longer the
-focus</strong> — treat it as maintenance. Only touch it for an explicitly Electron-scoped task.</p>
+<h2 id="keeping-core-portable" class="anchored">Keeping Core portable<a class="heading-anchor" href="#keeping-core-portable" aria-label="Link to this section">#</a></h2>
+<p><code>MemoryTimeline.Core</code>, <code>.Data</code> and <code>.Sync</code> target <strong>plain <code>net10.0</code></strong>. Only the UI head
+(<code>MemoryTimeline</code>) and the test project target <code>net10.0-windows</code>. This is load-bearing,
+not incidental: it is what lets the business layer back a non-WinUI head (see
+<a href="https://github.com/ethanbissbort/memory-line/blob/main/docs/design/MACOS-PORT-PLAN.md" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>docs/design/MACOS-PORT-PLAN.md</code></a>) and what keeps the
+layering rule above enforceable by the compiler rather than by review.</p>
+<p><strong>Rules for anything under Core/Data/Sync:</strong></p>
 <ul>
-<li>Structure: <code>src/main/</code> (main process, IPC handlers, <code>main.js</code>/<code>preload.js</code>),
-<code>src/renderer/</code> (React components, Zustand stores, CSS), <code>src/database/</code>
-(<code>database.js</code>, <code>schemas/schema.sql</code>).</li>
-<li>Run: <code>npm install</code>, then <code>npm run dev</code> (development) or <code>npm run package</code> (production).</li>
-<li>Conventions: components PascalCase <code>.jsx</code>, utilities camelCase, one CSS file per
-component, handlers prefixed <code>handle</code>. Renderer never uses <code>require()</code> directly — it
-goes through the <code>preload.js</code> bridge; DB access is centralized in <code>database.js</code> and
-exposed over IPC.</li>
-<li>Adding a feature: <code>schema.sql</code> → <code>database.js</code> → IPC handler in <code>main.js</code> → expose in
-<code>preload.js</code> → React component → Zustand store.</li>
-<li>Packaging: see <a href="https://github.com/ethanbissbort/memory-line/blob/main/DEPLOYMENT-INSTALL.md" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>DEPLOYMENT-INSTALL.md</code></a>; review history under
-<a href="https://github.com/ethanbissbort/memory-line/tree/main/docs/reviews" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>docs/reviews/</code></a>.</li>
+<li><strong>No WinUI or WinRT types.</strong> No <code>Microsoft.UI.*</code>, no <code>Windows.*</code>. That includes
+presentation types that look harmless: <code>SolidColorBrush</code>, <code>Visibility</code>, <code>Color</code>,
+<code>Point</code>. Colors cross the boundary as <code>&quot;#RRGGBB&quot;</code> strings and become brushes in the
+view via <code>HexToBrushConverter</code> / <code>HexToUncertaintyBrushConverter</code>.</li>
+<li><strong>No Windows-only packages.</strong> Core takes <code>Microsoft.ML.OnnxRuntime</code>, <em>not</em> the
+<code>.DirectML</code> variant — <code>OnnxEmbeddingService</code> deliberately uses default (CPU) session
+options, so the DirectML EP was never registered.</li>
+<li><strong>Platform capabilities enter through a port.</strong> Declare the interface in Core and put
+the platform implementation in the head — <code>IThumbnailGenerator</code> →
+<code>WindowsThumbnailGenerator</code>, <code>ICaptureStatusPublisher</code> → <code>CaptureStatusPublisher</code>.
+Follow that shape rather than reaching for a <code>Windows.*</code> API inside Core.</li>
+<li><strong>Watch <code>Environment.SpecialFolder.LocalApplicationData</code>.</strong> It compiles everywhere but
+resolves to <code>~/.local/share</code> on macOS, not <code>~/Library/Application Support</code>. Any new
+head needs a path abstraction; the port plan tracks this.</li>
 </ul>
 <hr>
-<p><strong>Last Updated:</strong> 2026-08-06<br><strong>Primary target:</strong> Windows Native (.NET 8 / WinUI 3) — <code>windows-native/</code><br><strong>Legacy:</strong> Electron — <code>src/</code>  </p>
+<p><strong>Last Updated:</strong> 2026-08-07<br><strong>Primary target:</strong> Windows Native (.NET 10 / WinUI 3) — <code>windows-native/</code><br><strong>In progress:</strong> macOS (SwiftUI) — <code>macos-native/</code>  </p>
 
 <nav class="pager" aria-label="Document navigation">
   <a class="pager-link pager-prev" href="overview.html">
@@ -420,13 +470,14 @@ exposed over IPC.</li>
 <li class="toc-item toc-h3"><a href="#mvvm--ui-conventions" data-toc-link>MVVM &amp; UI conventions</a></li>
 <li class="toc-item toc-h3"><a href="#settings" data-toc-link>Settings</a></li>
 <li class="toc-item toc-h3"><a href="#external-integrations" data-toc-link>External integrations</a></li>
+<li class="toc-item toc-h3"><a href="#sync-service-ios-companion" data-toc-link>Sync service (iOS companion)</a></li>
 <li class="toc-item toc-h3"><a href="#the-memory-pipeline" data-toc-link>The memory pipeline</a></li>
 <li class="toc-item toc-h2"><a href="#build--run-reality" data-toc-link>Build &amp; run reality</a></li>
 <li class="toc-item toc-h2"><a href="#adding-a-feature-in-windows-native" data-toc-link>Adding a feature in Windows Native</a></li>
 <li class="toc-item toc-h2"><a href="#data-model-shared-conceptual-schema" data-toc-link>Data model (shared conceptual schema)</a></li>
 <li class="toc-item toc-h2"><a href="#security--privacy-notes" data-toc-link>Security &amp; privacy notes</a></li>
 <li class="toc-item toc-h2"><a href="#key-docs-read-these-for-detail" data-toc-link>Key docs (read these for detail)</a></li>
-<li class="toc-item toc-h2"><a href="#legacy-electron" data-toc-link>Legacy Electron</a></li>
+<li class="toc-item toc-h2"><a href="#keeping-core-portable" data-toc-link>Keeping Core portable</a></li>
   </ul>
   <a class="toc-top" href="#main">↑ Back to top</a>
 </aside>
@@ -434,7 +485,7 @@ exposed over IPC.</li>
     <footer class="site-footer">
       <div>
         <strong>Memory Timeline</strong> documentation ·
-        13 documents ·
+        12 documents ·
         generated 2026-08-07
       </div>
       <div class="footer-links">

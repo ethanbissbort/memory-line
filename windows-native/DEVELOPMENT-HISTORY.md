@@ -58,7 +58,6 @@ Established complete project structure, solution configuration, and foundational
 - AppDbContext with EF Core configuration
 - Repository pattern with generic and specialized interfaces
 - Initial migrations created
-- Schema compatibility with Electron version verified
 
 **WinUI 3 Application Shell:**
 - App.xaml / App.xaml.cs with DI setup
@@ -116,16 +115,6 @@ Implemented complete database layer, settings system, navigation framework, and 
 ### Statistics
 - ~2,500 lines of code added
 - 22 unit tests covering services and repositories
-
-### Electron vs Windows Native Comparison
-
-| Component | Electron | Windows Native |
-|-----------|----------|----------------|
-| Database | better-sqlite3 | EF Core 8 + SQLite |
-| State | Zustand | CommunityToolkit.Mvvm |
-| Settings | app_settings table | Windows.Storage + DB |
-| Navigation | React Router-style | Frame-based navigation |
-| Theme | CSS variables | WinUI 3 ThemeResource |
 
 ---
 

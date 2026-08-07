@@ -9,23 +9,17 @@ without building anything: **open `website/_site/index.html` in a browser.**
 
 ---
 
-## Scope: Windows Native only
+## Scope
 
-The site documents the Windows Native (.NET 8 / WinUI 3) app — the primary, actively
-developed product. The legacy Electron build is in maintenance, so its documentation
-stays as plain markdown in the repository and is deliberately **not** rendered here:
+The site documents the Windows Native (.NET 10 / WinUI 3) app — the primary, actively
+developed product — plus the shared design and audit documents.
 
-- `DEPLOYMENT-INSTALL.md`
-- `scripts/README.md` and `scripts/logs/README.md`
-- `tests/README.md` and `tests/fixtures/databases/README.md`
-- `docs/reviews/multi-agent-code-review.md`
+Not every markdown file in the repository becomes a page. `site.config.mjs` decides:
+a document is on the site only if it appears in some section's `pages` array. Links
+*to* a repository file that is not on the site resolve to GitHub automatically, so
+nothing is unreachable — it just does not get page treatment.
 
-Those files are listed in the `legacy` export of `site.config.mjs`, which renders a
-short pointer with GitHub links at the bottom of the landing page and the documentation
-map — so nothing is hidden, it just does not get page treatment. Links *to* those files
-from documents that are on the site resolve to GitHub automatically.
-
-To bring one onto the site, move it from `legacy.docs` into a section's `pages` array.
+To add a document, drop an entry into the relevant section's `pages` array.
 
 ---
 
@@ -67,8 +61,8 @@ There are no runtime dependencies and no external requests: the output works ove
 
 ## Building
 
-The docs toolchain is deliberately separate from the Electron app's dependencies, so
-building the site does not require installing Electron.
+The docs toolchain is self-contained: `website/` carries its own `package.json`, and
+the site has one small dependency (`marked`).
 
 ```bash
 cd website
@@ -80,9 +74,9 @@ npm run serve        # preview at http://localhost:4173
 Or from the repository root:
 
 ```bash
-npm run docs:install
-npm run docs:build
-npm run docs:serve
+npm --prefix website install
+npm --prefix website run build
+npm --prefix website run serve
 ```
 
 `npm run build` accepts `--out DIR` if you want the output somewhere else.

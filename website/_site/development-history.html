@@ -103,8 +103,6 @@
                 <li><a class="nav-sublink" href="#references">References</a></li>
               </ul>
             </li>
-            <li><a class="nav-link" href="migration-to-native-windows.html">Migration to native Windows</a>
-            </li>
           </ul>
         </li>
         <li class="nav-section">
@@ -142,7 +140,7 @@
   <p class="doc-lede">Consolidated phase completion reports (Phase 0 through Phase 6) with deliverables, statistics, and architecture achievements.</p>
   <div class="doc-meta">
     <span class="doc-meta-item"><b>For</b> Everyone</span>
-    <span class="doc-meta-item"><b>2,198</b> words</span>
+    <span class="doc-meta-item"><b>2,156</b> words</span>
     <span class="doc-meta-item"><b>10</b> min read</span>
     <a class="doc-meta-item doc-source" href="https://github.com/ethanbissbort/memory-line/blob/main/windows-native/DEVELOPMENT-HISTORY.md" target="_blank" rel="noopener noreferrer">
       windows-native/DEVELOPMENT-HISTORY.md ↗
@@ -247,7 +245,6 @@
 <li>AppDbContext with EF Core configuration</li>
 <li>Repository pattern with generic and specialized interfaces</li>
 <li>Initial migrations created</li>
-<li>Schema compatibility with Electron version verified</li>
 </ul>
 <p><strong>WinUI 3 Application Shell:</strong></p>
 <ul>
@@ -309,38 +306,6 @@
 <li>~2,500 lines of code added</li>
 <li>22 unit tests covering services and repositories</li>
 </ul>
-<h3 id="electron-vs-windows-native-comparison" class="anchored">Electron vs Windows Native Comparison<a class="heading-anchor" href="#electron-vs-windows-native-comparison" aria-label="Link to this section">#</a></h3>
-<div class="table-wrap"><table><thead><tr>
-<th>Component</th>
-<th>Electron</th>
-<th>Windows Native</th>
-</tr>
-</thead><tbody><tr>
-<td>Database</td>
-<td>better-sqlite3</td>
-<td>EF Core 8 + SQLite</td>
-</tr>
-<tr>
-<td>State</td>
-<td>Zustand</td>
-<td>CommunityToolkit.Mvvm</td>
-</tr>
-<tr>
-<td>Settings</td>
-<td>app_settings table</td>
-<td>Windows.Storage + DB</td>
-</tr>
-<tr>
-<td>Navigation</td>
-<td>React Router-style</td>
-<td>Frame-based navigation</td>
-</tr>
-<tr>
-<td>Theme</td>
-<td>CSS variables</td>
-<td>WinUI 3 ThemeResource</td>
-</tr>
-</tbody></table></div>
 <hr>
 <h2 id="phase-2-timeline-visualization" class="anchored">Phase 2: Timeline Visualization<a class="heading-anchor" href="#phase-2-timeline-visualization" aria-label="Link to this section">#</a></h2>
 <h3 id="summary-2" class="anchored">Summary<a class="heading-anchor" href="#summary-2" aria-label="Link to this section">#</a></h3>
@@ -900,9 +865,9 @@ the context factory) are tracked in <a href="hardening-followups.html"><code>HAR
       <span class="pager-kind">← Previous</span>
       <span class="pager-title">Development status</span>
     </a>
-  <a class="pager-link pager-next" href="migration-to-native-windows.html">
+  <a class="pager-link pager-next" href="feature-audit.html">
       <span class="pager-kind">Next →</span>
-      <span class="pager-title">Migration to native Windows</span>
+      <span class="pager-title">Feature audit (2026-07)</span>
     </a>
 </nav>
   </article>
@@ -919,7 +884,6 @@ the context factory) are tracked in <a href="hardening-followups.html"><code>HAR
 <li class="toc-item toc-h3"><a href="#summary-1" data-toc-link>Summary</a></li>
 <li class="toc-item toc-h3"><a href="#deliverables-1" data-toc-link>Deliverables</a></li>
 <li class="toc-item toc-h3"><a href="#statistics-1" data-toc-link>Statistics</a></li>
-<li class="toc-item toc-h3"><a href="#electron-vs-windows-native-comparison" data-toc-link>Electron vs Windows Native Comparison</a></li>
 <li class="toc-item toc-h2"><a href="#phase-2-timeline-visualization" data-toc-link>Phase 2: Timeline Visualization</a></li>
 <li class="toc-item toc-h3"><a href="#summary-2" data-toc-link>Summary</a></li>
 <li class="toc-item toc-h3"><a href="#deliverables-2" data-toc-link>Deliverables</a></li>
@@ -968,7 +932,7 @@ the context factory) are tracked in <a href="hardening-followups.html"><code>HAR
     <footer class="site-footer">
       <div>
         <strong>Memory Timeline</strong> documentation ·
-        13 documents ·
+        12 documents ·
         generated 2026-08-07
       </div>
       <div class="footer-links">

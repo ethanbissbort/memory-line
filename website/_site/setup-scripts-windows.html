@@ -96,8 +96,6 @@
             </li>
             <li><a class="nav-link" href="development-history.html">Development history</a>
             </li>
-            <li><a class="nav-link" href="migration-to-native-windows.html">Migration to native Windows</a>
-            </li>
           </ul>
         </li>
         <li class="nav-section">
@@ -135,7 +133,7 @@
   <p class="doc-lede">Setup-Dependencies.ps1 and Verify-Installation.ps1 — automated toolchain install and environment verification, plus the build reality (msbuild, not dotnet build).</p>
   <div class="doc-meta">
     <span class="doc-meta-item"><b>For</b> Developers</span>
-    <span class="doc-meta-item"><b>922</b> words</span>
+    <span class="doc-meta-item"><b>925</b> words</span>
     <span class="doc-meta-item"><b>4</b> min read</span>
     <a class="doc-meta-item doc-source" href="https://github.com/ethanbissbort/memory-line/blob/main/windows-native/scripts/README.md" target="_blank" rel="noopener noreferrer">
       windows-native/scripts/README.md ↗
@@ -187,7 +185,7 @@
 <p><strong>Development Only:</strong></p>
 <ul>
 <li>Visual Studio 2022 (Community or higher)</li>
-<li>Windows SDK (10.0.22621.0+)</li>
+<li>Windows SDK (10.0.26100.0+)</li>
 <li>Git for Windows</li>
 </ul>
 <p><strong>Optional (Development):</strong></p>
@@ -234,7 +232,7 @@
 <ul>
 <li>.NET SDK (8.0+)</li>
 <li>Visual Studio 2022 (17.8+)</li>
-<li>Windows SDK (10.0.22621.0+)</li>
+<li>Windows SDK (10.0.26100.0+)</li>
 <li>Windows App SDK (1.5+)</li>
 <li>Git</li>
 <li>PowerShell (5.0+)</li>
@@ -362,7 +360,7 @@ cd src
 <ul>
 <li><strong>Administrator privileges required</strong>: Both scripts require admin rights to install components and modify system settings</li>
 <li><strong>Internet connection required</strong>: For downloading and installing dependencies</li>
-<li><strong>Windows 11 only</strong>: These scripts are designed for Windows 11 (build 22000+)</li>
+<li><strong>Windows 11 only</strong>: These scripts are designed for Windows 11 22H2 or later (build 22621+)</li>
 <li><strong>Execution time</strong>: Initial setup may take 15-30 minutes depending on what needs to be installed</li>
 <li><strong>Restart recommended</strong>: After installation, restart your computer to ensure all environment variables are updated</li>
 </ul>
@@ -422,7 +420,7 @@ cd src
     <footer class="site-footer">
       <div>
         <strong>Memory Timeline</strong> documentation ·
-        13 documents ·
+        12 documents ·
         generated 2026-08-07
       </div>
       <div class="footer-links">

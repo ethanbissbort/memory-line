@@ -84,6 +84,10 @@
           <ul class="nav-list">
             <li><a class="nav-link is-active" href="development-status.html" aria-current="page">Development status</a>
               <ul class="nav-sub">
+                <li><a class="nav-sublink" href="#toolchain-roll-up-windows-11-24h2-sdk--net-10-lts--windows-app-sdk-231-2026-08-07">Toolchain roll-up: Windows 11 24H2 SDK + .NET 10 LTS + Windows App SDK 2.3.1 (2026-08-07)</a></li>
+                <li><a class="nav-sublink" href="#ios-roadtrip-companion--phase-3-processing-status--review-handoff-2026-08">iOS roadtrip companion — Phase 3: processing status &amp; review handoff (2026-08)</a></li>
+                <li><a class="nav-sublink" href="#ios-roadtrip-companion--phase-1-sync-service--windows-sync-client-2026-08">iOS roadtrip companion — Phase 1: sync service &amp; Windows sync client (2026-08)</a></li>
+                <li><a class="nav-sublink" href="#ios-roadtrip-companion--phase-0-contract--schema-groundwork-2026-08">iOS roadtrip companion — Phase 0: contract &amp; schema groundwork (2026-08)</a></li>
                 <li><a class="nav-sublink" href="#2026-08-feature-spec-implementation-f1f12">2026-08 feature-spec implementation (F1–F12)</a></li>
                 <li><a class="nav-sublink" href="#post-audit-hardening-2026-07">Post-audit hardening (2026-07)</a></li>
                 <li><a class="nav-sublink" href="#executive-summary">Executive Summary</a></li>
@@ -104,8 +108,6 @@
               </ul>
             </li>
             <li><a class="nav-link" href="development-history.html">Development history</a>
-            </li>
-            <li><a class="nav-link" href="migration-to-native-windows.html">Migration to native Windows</a>
             </li>
           </ul>
         </li>
@@ -144,8 +146,8 @@
   <p class="doc-lede">Phase-by-phase status, the 2026-08 F1–F12 feature wave with per-feature detail and deferred items, known limitations, and success criteria.</p>
   <div class="doc-meta">
     <span class="doc-meta-item"><b>For</b> Everyone</span>
-    <span class="doc-meta-item"><b>3,789</b> words</span>
-    <span class="doc-meta-item"><b>17</b> min read</span>
+    <span class="doc-meta-item"><b>5,791</b> words</span>
+    <span class="doc-meta-item"><b>26</b> min read</span>
     <a class="doc-meta-item doc-source" href="https://github.com/ethanbissbort/memory-line/blob/main/windows-native/DEVELOPMENT-STATUS.md" target="_blank" rel="noopener noreferrer">
       windows-native/DEVELOPMENT-STATUS.md ↗
     </a>
@@ -154,8 +156,274 @@
 </header>
 <div class="doc-grid">
   <article class="prose">
-<p><strong>Last Updated:</strong> 2026-08-06<br><strong>Current Phase:</strong> Phase 7 - Testing &amp; Deployment (plus the 2026-08 feature-spec wave, landed)<br><strong>Overall Progress:</strong> Phases 0-6 complete; F1–F12 feature spec implemented; Phase 7 in progress<br><strong>Status:</strong> 🔄 IN PROGRESS — builds green in CI, end-to-end runtime validation ongoing  </p>
+<p><strong>Last Updated:</strong> 2026-08-07<br><strong>Current Phase:</strong> Phase 7 - Testing &amp; Deployment (plus the 2026-08 feature-spec wave, landed)<br><strong>Overall Progress:</strong> Phases 0-6 complete; F1–F12 feature spec implemented; iOS companion Phases 0-3 landed; toolchain rolled to .NET 10 + Windows App SDK 2.3.1; Phase 7 in progress<br><strong>Status:</strong> 🔄 IN PROGRESS — builds green in CI, end-to-end runtime validation ongoing  </p>
 <hr>
+<h2 id="toolchain-roll-up-windows-11-24h2-sdk--net-10-lts--windows-app-sdk-231-2026-08-07" class="anchored">Toolchain roll-up: Windows 11 24H2 SDK + .NET 10 LTS + Windows App SDK 2.3.1 (2026-08-07)<a class="heading-anchor" href="#toolchain-roll-up-windows-11-24h2-sdk--net-10-lts--windows-app-sdk-231-2026-08-07" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap"><table><thead><tr>
+<th></th>
+<th>Before</th>
+<th>After</th>
+</tr>
+</thead><tbody><tr>
+<td>Windows SDK (<code>TargetFramework</code> platform)</td>
+<td>22621 (Win11 22H2)</td>
+<td><strong>26100 (Win11 24H2)</strong></td>
+</tr>
+<tr>
+<td>.NET</td>
+<td>8 (support ends 2026-11-10)</td>
+<td><strong>10 LTS (support ends 2028-11-14)</strong></td>
+</tr>
+<tr>
+<td>Windows App SDK</td>
+<td>1.5.240802000</td>
+<td><strong>2.3.1</strong> (1.8 support ended 2026-09-09)</td>
+</tr>
+<tr>
+<td>SDK BuildTools</td>
+<td>10.0.22621.3233</td>
+<td>10.0.28000.2526</td>
+</tr>
+<tr>
+<td>EF Core / Extensions / ASP.NET packages</td>
+<td>8.0.0</td>
+<td>10.0.10</td>
+</tr>
+</tbody></table></div>
+<p><code>TargetPlatformMinVersion</code> is unchanged at 10.0.22621.0 — the app still <em>runs</em> on
+Windows 11 22H2; only the compile-time SDK moved.</p>
+<p><strong>Landed as three separately bisectable commits</strong> (.NET 10, then WinAppSDK 2.3.1,
+then the perf-bound fix) because the two framework moves fail in confusingly
+similar ways — both surface as assembly-load and type-resolution errors.</p>
+<p><strong>Developer prerequisites changed</strong> — see <code>README.md</code> → Prerequisites:</p>
+<ul>
+<li>The <strong>.NET 10 SDK, <code>10.0.1xx</code> band</strong>, pinned by <code>src/global.json</code>. That band
+declares MSBuild 17.14 as its minimum, which is what keeps Visual Studio 2022
+able to build; bands <code>10.0.2xx</code>+ require MSBuild 18 / Visual Studio 2026.</li>
+<li><strong>Visual Studio 2026 is the supported IDE.</strong> Microsoft supports targeting
+.NET 10 only in VS 18.0+; VS 2022 17.14 builds with an &quot;unsupported target&quot;
+warning rather than an error. The CI runner (<code>windows-latest</code>) is already
+VS 2026 / MSBuild 18.8.2.</li>
+</ul>
+<p><strong>Notes for whoever picks this up next:</strong></p>
+<ul>
+<li>The original <code>CS1705</code> build break was caused by pinning
+<code>WindowsSdkPackageVersion</code> to <code>10.0.26100.87</code>, whose <code>WinRT.Runtime</code> ships in
+<code>lib/net9.0</code>, against a <code>net8.0</code> project — <em>not</em> by the Windows App SDK, whose
+managed assemblies all target <code>net6.0</code> and impose no .NET floor. Revision
+<code>.86</code> is the <code>lib/net8.0</code> build. The pin is now removed entirely; the .NET 10
+SDK selects a matching projection.</li>
+<li><code>Microsoft.Data.Sqlite.Pre10TimeZoneHandling</code> is set at both entry points.
+.NET 10 changed offset-less stored timestamps to read as UTC instead of local,
+which would silently shift every historical event by the local UTC offset.
+<strong>Auditing and migrating the stored values is an open follow-up</strong> — do not
+remove the switch without doing that work.</li>
+<li><code>CommunityToolkit.WinUI.UI.Controls</code> / <code>.Animations</code> 7.1.2 were removed as
+verified-unused (the <code>&lt;controls:*&gt;</code> tags resolve to <code>MemoryTimeline.Controls</code>).
+If toolkit controls are wanted later, the modern packages are the split
+<code>CommunityToolkit.WinUI.Controls.*</code> 8.x line, not the 7.x UWP-era one.</li>
+<li>FluentAssertions is deliberately held at 6.x: <strong>8.x is commercially licensed</strong>.</li>
+<li><code>SQLitePCLRaw.lib.e_sqlite3</code> 2.1.11 (transitive via EF Core 10) still carries
+GHSA-2m69-gcr7-jv3q, with no patched 2.x release; the fix is in its 3.x major,
+which EF Core 10 does not expect. Left deliberately.</li>
+<li><code>LoadTest_UpdateOperationsOnLargeDataset_PerformReasonably</code> measured 5546 /
+8109 / 10179 ms across three identical CI runs (it commits 100 separate SQLite
+transactions, so it is fsync-bound). Its bound was raised 5000 → 20000 ms as a
+gross-regression gate. It passed under .NET 8 at the old bound, so <strong>a modest
+EF Core 10 write-path slowdown is unconfirmed but not excluded</strong> — worth
+measuring on real hardware.</li>
+<li>Untested from CI: the runtime interaction between
+<code>Microsoft.ML.OnnxRuntime.DirectML</code> 1.16.3 and the ONNX runtime bundled in
+WinAppSDK 2.3.1 (two ONNX runtimes in one process is a known hazard).</li>
+</ul>
+<hr>
+<h2 id="ios-roadtrip-companion--phase-3-processing-status--review-handoff-2026-08" class="anchored">iOS roadtrip companion — Phase 3: processing status &amp; review handoff (2026-08)<a class="heading-anchor" href="#ios-roadtrip-companion--phase-3-processing-status--review-handoff-2026-08" aria-label="Link to this section">#</a></h2>
+<p><strong>Date:</strong> 2026-08-07</p>
+<p>Phase 3 of the iOS roadtrip companion plan (design doc §19 Phase 3) landed. Its
+exit criterion: <strong>the user can understand a capture&#39;s full lifecycle from the
+phone without opening Windows, while all editing and approval stay on Windows.</strong></p>
+<p><strong>Direction of flow — one way, Windows-authored:</strong></p>
+<div class="codeblock" data-lang="text"><div class="codeblock-bar"><span class="codeblock-lang">text</span><button class="codeblock-copy" type="button" data-copy aria-label="Copy code">Copy</button></div><pre><code class="language-text">IQueueService advances a processing stage
+  → ICaptureStatusPublisher writes a capture_status row into sync_outbox
+  → LocalOutboxPublisher drains it to POST /sync/push
+  → service change log + one latest-wins capture_status projection row
+  → GET /sync/pull on the originating phone
+  → applied locally; a local notification on a milestone</code></pre></div>
+<ul>
+<li><strong>New <code>capture_status</code> change type</strong> — <code>CaptureStatusChangePayload</code> and
+<code>SyncChangeEntityType.CaptureStatus</code> in the shared contracts, with the
+matching <code>SyncEntityType.CaptureStatus</code> on the Windows outbox side
+(<code>MemoryTimeline.Data/Models/SyncOutbox.cs</code>). <code>entityId</code> is the <code>captureId</code> — one status
+entity per capture — and only <code>upsert</code> is meaningful. The payload carries the
+coarse <code>SyncCaptureStatus</code>, the finer <code>QueueProcessingStage</code>, a transcript
+preview <strong>capped at 600 characters</strong> plus the full transcript&#39;s character
+count, pending/approved review counts, and a failure reason with its retry
+classification.</li>
+<li><strong>Windows publisher</strong> — <code>CaptureStatusPublisher</code> projects a queue item&#39;s state
+into an outbox row. It publishes only for captures that came from another
+device (a Windows-local recording has no phone waiting on it) and drops a
+projection identical to the last one, so the pipeline can call it after every
+transition without producing noise.</li>
+<li><strong>Service</strong> — <code>/sync/push</code> validates <code>capture_status</code> entries before they
+enter the change log and stores a <code>capture_status</code> projection row per capture;
+<code>/sync/pull</code> fans it out to the owner&#39;s other devices. Echo suppression keys
+on the <em>publishing</em> device, never on the device a capture came from, which is
+what lets a phone receive status about its own captures. The startup path
+creates the new table with idempotent DDL, so a Phase 1/2 deployment upgrades
+without deleting <code>sync.db</code>.</li>
+<li><strong>iOS</strong> — a pull-driven <code>StatusSyncCoordinator</code> applies changes to a local
+<code>capture_status</code> table, and history/detail fuse the local upload leg with the
+remote processing leg into one readable position, plus the transcript preview,
+the review counts, and where the recording currently exists.</li>
+</ul>
+<p><strong>The boundary, stated explicitly:</strong> editing and approval stay on Windows.
+Nothing in <code>capture_status</code> is an instruction — it is a read-only projection of
+Windows-side state. The phone never authors the entity type, never edits a
+transcript, and never approves or rejects an extracted event.</p>
+<p><strong>Deliberate decision — notifications are LOCAL, not APNs.</strong> Per the resolved
+§22.1/§22.2 decisions (self-hosted deployment, no user accounts), there is no
+push certificate and no notification server anywhere in this design. The phone
+posts its own local notification the moment a <em>pull</em> observes a capture becoming
+review-ready, completing, or failing. The trade-off accepted: updates arrive when
+the phone pulls — foreground, after an upload pass, or on an iOS-scheduled
+background refresh — not the instant Windows finishes.</p>
+<p><strong>What Phase 3 deliberately does NOT do:</strong></p>
+<ul>
+<li><strong>The full transcript stays on Windows.</strong> The phone gets a ≤600-character
+excerpt plus a character count, never a replica, and there is no endpoint that
+would give it one.</li>
+<li><strong>The phone cannot edit or approve.</strong> No transcript editing, no event
+approval/rejection, and no way to restart Windows-side processing from the
+phone; a capture that failed on the PC is retried on the PC.</li>
+<li><strong>Progress does not rewind on the phone.</strong> A pulled status can advance a
+capture&#39;s stored lifecycle state but never move it back, so a replayed or
+out-of-order change is harmless. A reported failure is the one transition
+allowed to reset that floor, so a Windows-side retry can move the capture
+forward again.</li>
+<li><strong>No audio flows back.</strong> The design&#39;s Phase 3 line about playback of the
+original audio is satisfied by the phone&#39;s own local file; the Windows-side
+normalized artifact is not downloadable.</li>
+<li><strong><code>processingStage</code> is forwarded unvalidated.</strong> Only <code>status</code> is checked
+against a vocabulary, so consumers must tolerate an unrecognized stage string.</li>
+</ul>
+<p><strong>Privacy (§14.5):</strong> the transcript preview, transcript counts, and failure
+reason are stored but never logged on any tier. <code>failureReason</code> is fixed
+publisher text keyed on the failure stage — never <code>RecordingQueue.ErrorMessage</code>,
+whose raw exception text can contain file paths or provider detail.</p>
+<p><strong>Contracts:</strong>
+<a href="https://github.com/ethanbissbort/memory-line/blob/main/shared-contracts/openapi/memory-line-sync-v1.yaml" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>../shared-contracts/openapi/memory-line-sync-v1.yaml</code></a>
+(v1.2, additive) and
+<a href="https://github.com/ethanbissbort/memory-line/blob/main/shared-contracts/json-schema/capture-status-payload.v1.json" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>../shared-contracts/json-schema/capture-status-payload.v1.json</code></a>.</p>
+<p><strong>Next step:</strong> Phase 4 — voice assistant (assistant sessions and streaming
+turns, STT/TTS, memory retrieval, current trip context, interruption and
+cancellation).</p>
+<hr>
+<h2 id="ios-roadtrip-companion--phase-1-sync-service--windows-sync-client-2026-08" class="anchored">iOS roadtrip companion — Phase 1: sync service &amp; Windows sync client (2026-08)<a class="heading-anchor" href="#ios-roadtrip-companion--phase-1-sync-service--windows-sync-client-2026-08" aria-label="Link to this section">#</a></h2>
+<p><strong>Date:</strong> 2026-08-07</p>
+<p>Phase 1 of the iOS roadtrip companion plan (design doc section 19; see the
+Phase 0 entry below for the groundwork it builds on) landed:</p>
+<ul>
+<li><strong>Sync service</strong> — new <code>services/MemoryTimeline.SyncApi</code> (ASP.NET Core,
+net8.0; unlike the WinUI solution it is plain cross-platform .NET and
+builds/tests/runs with the <code>dotnet</code> CLI). Self-hosted Mode A server
+(design §4.2): device pairing/registration gated by an owner pairing code,
+self-issued HMAC-SHA256 JWT access tokens with refresh-token rotation and
+immediate revocation (§14.1); idempotent capture metadata ingestion
+(replaying a <code>captureId</code> returns the existing capture); chunked artifact
+upload (initiate → PUT parts → complete with byte-length/part-count/SHA-256
+validation, §11.4) into a filesystem artifact store; and an append-only
+<code>sync_changes</code> log serving cursor-based <code>GET /sync/pull</code> (own-device echo
+suppression), per-device idempotent <code>POST /sync/push</code> (push receipts keyed
+on client sequence), and <code>POST /sync/ack</code>. SQLite metadata + artifact blobs
+live under one configurable data directory. Operator guide:
+<a href="https://github.com/ethanbissbort/memory-line/blob/main/services/README.md" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>../services/README.md</code></a>.</li>
+<li><strong>Windows sync client</strong> — new <code>MemoryTimeline.Sync</code> project in the WinUI
+solution. <code>SyncBackgroundWorker</code> runs a periodic (30 s) pull → apply →
+ack → publish-outbox loop; <code>RemoteChangeApplier</code> turns each pulled capture
+change into artifact download + idempotent <code>ICaptureIngestionService</code>
+ingestion, so a remote audio capture enters the existing review queue
+<strong>exactly once</strong>; <code>LocalOutboxPublisher</code> drains the Phase 0 <code>sync_outbox</code>
+in order to <code>/sync/push</code> and marks accepted/duplicate rows delivered. The
+cursor only advances past applied/skipped/permanently-failed changes;
+retryable failures stop the pull and retry next cycle. Settings → Sync UI:
+server URL + pairing code, enable/disable, sync-now, status line, and
+unpair/revoke. New <code>SettingKeys.Sync*</code> constants (server URL, device ID,
+tokens, cursor, auto-process); wire DTOs shared with the service via
+<code>shared-contracts/dotnet/MemoryTimeline.SyncContracts</code> (camelCase JSON,
+<code>JsonSerializerDefaults.Web</code>).</li>
+<li><strong>CI</strong> — new Linux workflow <code>.github/workflows/sync-api-build.yml</code> builds
+<code>services/MemoryTimeline.Services.sln</code> and runs the SyncApi test suite with
+the dotnet CLI on <code>ubuntu-latest</code>; the Windows workflow now also triggers
+on this branch and on <code>shared-contracts/dotnet/**</code> changes.</li>
+</ul>
+<p><strong>Exit criterion status:</strong> implemented and integration-tested at the service
+level — a test client can register, create a capture, upload its audio
+artifact, and the Windows pull → ingest path dedupes it into review exactly
+once. End-to-end validation against a real iPhone awaits the Phase 2 iOS
+client.</p>
+<p><strong>Known follow-ups (from the post-fix verification pass):</strong></p>
+<ul>
+<li>The <code>RefreshTokenHash</code> concurrency token applies to every device-row update;
+ack/revoke racing a concurrent refresh can surface a retryable 500 (only
+refresh has reload-and-retry today).</li>
+<li>Crash-orphaned <code>*.tmp</code> assembly files in the service&#39;s artifact store are
+never swept (in-process failures clean up after themselves).</li>
+<li>The register endpoint reads the <code>Idempotency-Key</code> header directly and does
+not enforce the 128-char limit the authenticated-route filter applies.</li>
+<li>Service schema is <code>EnsureCreated</code> (no migrations); pre-release upgrades
+across schema changes require deleting <code>sync.db</code> (see services/README.md).</li>
+<li>Sync tokens are stored in the Windows app&#39;s settings table like the other
+keys; DPAPI-at-rest remains the tracked hardening follow-up.</li>
+<li>Per the resolved design §22 decisions (2026-08-07): the service needs an
+artifact retention sweep (delete artifacts 14 days after Windows
+acknowledges archival, or sooner under storage pressure) — artifacts are
+currently retained indefinitely.</li>
+</ul>
+<p><strong>Design decisions:</strong> all §22 open decisions were resolved by the owner on
+2026-08-07 — self-hosted only, no user accounts (pairing-code device model),
+Windows-local transcription (GPU/NPU when available), optional on-device iOS
+Whisper, Google places within the free tier with informed Apple failover,
+CarPlay screens designed for v1 with the entitlement deferred (Siri/widget/
+Action Button carry the in-car experience), 14-day artifact retention after
+archival ack, pending transcripts excluded from the assistant unless
+explicitly included via UI, 14-day route-context retention. See the design
+doc §22 for the full records.</p>
+<p><strong>Next step:</strong> Phase 2 — iOS capture MVP (SwiftUI shell, one-touch recording,
+durable local queue, background upload, capture history/status).</p>
+<hr>
+<h2 id="ios-roadtrip-companion--phase-0-contract--schema-groundwork-2026-08" class="anchored">iOS roadtrip companion — Phase 0: contract &amp; schema groundwork (2026-08)<a class="heading-anchor" href="#ios-roadtrip-companion--phase-0-contract--schema-groundwork-2026-08" aria-label="Link to this section">#</a></h2>
+<p><strong>Date:</strong> 2026-08-06</p>
+<p>Phase 0 of the iOS roadtrip companion plan (a separate track from the app phases
+below; see
+<a href="https://github.com/ethanbissbort/memory-line/blob/main/docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md" target="_blank" rel="noopener noreferrer" class="external-link repo-link"><code>../docs/design/IOS-ROADTRIP-COMPANION-SYSTEM-DESIGN.md</code></a>,
+section 19) landed:</p>
+<ul>
+<li><strong>Device-neutral capture schema</strong> — new <code>captures</code>, <code>capture_artifacts</code>, and
+<code>sync_outbox</code> tables (EF models, <code>AppDbContext</code> configuration, idempotent
+<code>SchemaUpgrader</code> DDL); <code>recording_queue</code> extended with device-neutral
+provenance columns (<code>source_capture_id</code> <strong>unique</strong>, <code>source_device_id</code>,
+<code>source_platform</code>, <code>audio_artifact_id</code>, <code>original_file_name</code>,
+<code>content_sha256</code>, <code>sync_state</code>, <code>received_at</code>, <code>processing_stage</code>).</li>
+<li><strong>Idempotent ingestion service</strong> — <code>ICaptureIngestionService</code> /
+<code>CaptureIngestionService</code>: resolves artifacts via <code>IArtifactResolver</code>
+(Phase 0: local files), verifies declared byte length + SHA-256, dedupes by
+source capture ID (including the insert race), and writes capture + artifact +
+queue item + sync outbox record in <strong>one atomic SaveChanges</strong>
+(<code>ICaptureRepository.IngestAsync</code>).</li>
+<li><strong>Queue processing stages</strong> — <code>QueueService</code> now stamps
+<code>ProcessingStage</code>/<code>SyncState</code> through the pipeline (transcribing,
+review_ready/completed, failed_configuration, failed_retryable), gained
+<code>ProcessCaptureAsync</code>, and resets items to pending on cancellation.</li>
+<li><strong>Shared API contracts</strong> — new <code>shared-contracts/</code> directory:
+<code>openapi/memory-line-sync-v1.yaml</code> (Sync API v1 skeleton) and
+<code>json-schema/capture-envelope.v1.json</code> (remote capture ingestion envelope);
+Swift/C# clients will be generated from these (see <code>shared-contracts/README.md</code>).</li>
+</ul>
+<p>Existing Windows recordings pass through the new ingestion abstraction with no
+UI behavior change (the Phase 0 exit criterion).</p>
+<p><strong>Next step:</strong> Phase 1 — sync service (device registration/auth, capture
+metadata + artifact upload, cursor-based push/pull) and the Windows sync worker
+that drains the new <code>sync_outbox</code>.</p>
 <h2 id="2026-08-feature-spec-implementation-f1f12" class="anchored">2026-08 feature-spec implementation (F1–F12)<a class="heading-anchor" href="#2026-08-feature-spec-implementation-f1f12" aria-label="Link to this section">#</a></h2>
 <p><strong>Date:</strong> 2026-08-06</p>
 <p>Twelve features from the Memory Timeline feature spec were implemented on top of the
@@ -402,7 +670,6 @@ See the &quot;Post-audit hardening (2026-07)&quot; section above, plus <code>FEA
 <li class="task-item is-done">AppDbContext with EF Core configuration</li>
 <li class="task-item is-done">Repository pattern with generic and specialized interfaces</li>
 <li class="task-item is-done">Initial migrations created</li>
-<li class="task-item is-done">Schema compatibility with Electron version verified</li>
 </ul>
 </li>
 <li class="task-item is-done"><p><strong>WinUI 3 Application Shell</strong></p>
@@ -1140,7 +1407,7 @@ DirectML/NPU registration is deliberately deferred (can throw on non-DX12 machin
 <h2 id="success-criteria" class="anchored">Success Criteria<a class="heading-anchor" href="#success-criteria" aria-label="Link to this section">#</a></h2>
 <h3 id="completed-" class="anchored">Completed ✅<a class="heading-anchor" href="#completed-" aria-label="Link to this section">#</a></h3>
 <ul>
-<li class="task-item is-done">100% feature parity with Electron version (core features)</li>
+<li class="task-item is-done">Full feature parity across the core features</li>
 <li class="task-item is-done">All 6 phases (0-6) complete</li>
 <li class="task-item is-done">Clean architecture maintained</li>
 <li class="task-item is-done">MVVM pattern throughout</li>
@@ -1222,7 +1489,7 @@ code-sign, and prepare the Microsoft Store submission.</li>
 </li>
 </ul>
 <hr>
-<p><strong>Document Owner:</strong> Development Team<br><strong>Phase 7 Status:</strong> In progress (CI Windows build green through the F1–F12 wave pushes; runtime validation ongoing)<br><strong>Next Review:</strong> After end-to-end runtime validation<br><strong>Last Updated:</strong> 2026-08-06  </p>
+<p><strong>Document Owner:</strong> Development Team<br><strong>Phase 7 Status:</strong> In progress (CI Windows build green through the F1–F12 wave pushes; runtime validation ongoing)<br><strong>Next Review:</strong> After end-to-end runtime validation<br><strong>Last Updated:</strong> 2026-08-07  </p>
 <!-- CI retrigger 2026-08-06: runs 31117811806/31119588286/31121424093/31124292681 died (pushes a4f25ca/b9f4276 produced no runs at all — Actions event pipeline outage) to runner/Actions-service infrastructure failures before reaching the code; tree identical to 0d365b2. -->
 
 <nav class="pager" aria-label="Document navigation">
@@ -1239,6 +1506,10 @@ code-sign, and prepare the Microsoft Store submission.</li>
 <aside class="toc" aria-label="On this page">
   <p class="toc-title">On this page</p>
   <ul class="toc-list">
+<li class="toc-item toc-h2"><a href="#toolchain-roll-up-windows-11-24h2-sdk--net-10-lts--windows-app-sdk-231-2026-08-07" data-toc-link>Toolchain roll-up: Windows 11 24H2 SDK + .NET 10 LTS + Windows App SDK 2.3.1 (2026-08-07)</a></li>
+<li class="toc-item toc-h2"><a href="#ios-roadtrip-companion--phase-3-processing-status--review-handoff-2026-08" data-toc-link>iOS roadtrip companion — Phase 3: processing status &amp; review handoff (2026-08)</a></li>
+<li class="toc-item toc-h2"><a href="#ios-roadtrip-companion--phase-1-sync-service--windows-sync-client-2026-08" data-toc-link>iOS roadtrip companion — Phase 1: sync service &amp; Windows sync client (2026-08)</a></li>
+<li class="toc-item toc-h2"><a href="#ios-roadtrip-companion--phase-0-contract--schema-groundwork-2026-08" data-toc-link>iOS roadtrip companion — Phase 0: contract &amp; schema groundwork (2026-08)</a></li>
 <li class="toc-item toc-h2"><a href="#2026-08-feature-spec-implementation-f1f12" data-toc-link>2026-08 feature-spec implementation (F1–F12)</a></li>
 <li class="toc-item toc-h2"><a href="#post-audit-hardening-2026-07" data-toc-link>Post-audit hardening (2026-07)</a></li>
 <li class="toc-item toc-h2"><a href="#executive-summary" data-toc-link>Executive Summary</a></li>
@@ -1288,7 +1559,7 @@ code-sign, and prepare the Microsoft Store submission.</li>
     <footer class="site-footer">
       <div>
         <strong>Memory Timeline</strong> documentation ·
-        13 documents ·
+        12 documents ·
         generated 2026-08-07
       </div>
       <div class="footer-links">

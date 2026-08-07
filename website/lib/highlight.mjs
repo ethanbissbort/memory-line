@@ -21,7 +21,7 @@ const RULES = {
     ],
     [
       'builtin',
-      R`\b(?:npm|npx|node|yarn|pnpm|git|apt|apt-get|dnf|brew|curl|wget|dotnet|msbuild|jest|electron|chmod|mkdir|rm|cp|mv|ls|cd|echo|cat|grep|make|python3?)\b`,
+      R`\b(?:npm|npx|node|yarn|pnpm|git|apt|apt-get|dnf|brew|curl|wget|dotnet|msbuild|chmod|mkdir|rm|cp|mv|ls|cd|echo|cat|grep|make|python3?)\b`,
     ],
     ['operator', R`\|\||&&|[|&;><]`],
     ['number', R`\b\d+(?:\.\d+)*\b`],

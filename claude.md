@@ -8,9 +8,12 @@ this repo. Read it before editing. For the product-level overview, see the root
 
 - **Primary product = the Windows Native app** under [`windows-native/`](./windows-native)
   (.NET 10 / WinUI 3, clean architecture). **Do all new work here.**
-- The **Electron app** under [`src/`](./src) is **legacy / maintenance only** — it still
-  exists and builds, but new features and fixes should target Windows Native unless the
-  task is explicitly about Electron. See [Legacy Electron](#legacy-electron).
+- **`MemoryTimeline.Core`, `.Data` and `.Sync` target plain `net10.0`** and must stay that
+  way — no WinUI/WinRT types below the UI head. See
+  [Keeping Core portable](#keeping-core-portable).
+- A **macOS app** (SwiftUI) is being brought up under [`macos-native/`](./macos-native),
+  sharing code with `ios-companion/`. See
+  [`docs/design/MACOS-PORT-PLAN.md`](./docs/design/MACOS-PORT-PLAN.md).
 - The repo also contains the **sync service** under [`services/`](./services) (ASP.NET
   Core, plain net10.0 — **CAN be built/tested with the `dotnet` CLI**, no VS msbuild
   needed; own Linux CI workflow `sync-api-build.yml`) and the **Windows sync client
@@ -216,8 +219,7 @@ a seeded setting).
 Identity: the unique name indexes on `people`/`tags`/`locations` are **COLLATE NOCASE**;
 `SchemaUpgrader` defensively merges pre-existing case-variant duplicates (backfilling the
 keeper's empty contact columns) before rebuilding each index.
-The Electron build uses a compatible SQLite schema (plus `events_fts` FTS5,
-Electron-only). DB file: `%LOCALAPPDATA%\MemoryTimeline\memory-timeline.db`.
+DB file: `%LOCALAPPDATA%\MemoryTimeline\memory-timeline.db`.
 
 ---
 
@@ -248,27 +250,33 @@ Electron-only). DB file: `%LOCALAPPDATA%\MemoryTimeline\memory-timeline.db`.
 
 ---
 
-## Legacy Electron
+## Keeping Core portable
 
-The original cross-platform build (React + Electron + SQLite, `better-sqlite3`, FTS5)
-lives under [`src/`](./src). It is **feature-complete for its own scope but no longer the
-focus** — treat it as maintenance. Only touch it for an explicitly Electron-scoped task.
+`MemoryTimeline.Core`, `.Data` and `.Sync` target **plain `net10.0`**. Only the UI head
+(`MemoryTimeline`) and the test project target `net10.0-windows`. This is load-bearing,
+not incidental: it is what lets the business layer back a non-WinUI head (see
+[`docs/design/MACOS-PORT-PLAN.md`](./docs/design/MACOS-PORT-PLAN.md)) and what keeps the
+layering rule above enforceable by the compiler rather than by review.
 
-- Structure: `src/main/` (main process, IPC handlers, `main.js`/`preload.js`),
-  `src/renderer/` (React components, Zustand stores, CSS), `src/database/`
-  (`database.js`, `schemas/schema.sql`).
-- Run: `npm install`, then `npm run dev` (development) or `npm run package` (production).
-- Conventions: components PascalCase `.jsx`, utilities camelCase, one CSS file per
-  component, handlers prefixed `handle`. Renderer never uses `require()` directly — it
-  goes through the `preload.js` bridge; DB access is centralized in `database.js` and
-  exposed over IPC.
-- Adding a feature: `schema.sql` → `database.js` → IPC handler in `main.js` → expose in
-  `preload.js` → React component → Zustand store.
-- Packaging: see [`DEPLOYMENT-INSTALL.md`](./DEPLOYMENT-INSTALL.md); review history under
-  [`docs/reviews/`](./docs/reviews).
+**Rules for anything under Core/Data/Sync:**
+
+- **No WinUI or WinRT types.** No `Microsoft.UI.*`, no `Windows.*`. That includes
+  presentation types that look harmless: `SolidColorBrush`, `Visibility`, `Color`,
+  `Point`. Colors cross the boundary as `"#RRGGBB"` strings and become brushes in the
+  view via `HexToBrushConverter` / `HexToUncertaintyBrushConverter`.
+- **No Windows-only packages.** Core takes `Microsoft.ML.OnnxRuntime`, *not* the
+  `.DirectML` variant — `OnnxEmbeddingService` deliberately uses default (CPU) session
+  options, so the DirectML EP was never registered.
+- **Platform capabilities enter through a port.** Declare the interface in Core and put
+  the platform implementation in the head — `IThumbnailGenerator` →
+  `WindowsThumbnailGenerator`, `ICaptureStatusPublisher` → `CaptureStatusPublisher`.
+  Follow that shape rather than reaching for a `Windows.*` API inside Core.
+- **Watch `Environment.SpecialFolder.LocalApplicationData`.** It compiles everywhere but
+  resolves to `~/.local/share` on macOS, not `~/Library/Application Support`. Any new
+  head needs a path abstraction; the port plan tracks this.
 
 ---
 
 **Last Updated:** 2026-08-07
 **Primary target:** Windows Native (.NET 10 / WinUI 3) — `windows-native/`
-**Legacy:** Electron — `src/`
+**In progress:** macOS (SwiftUI) — `macos-native/`

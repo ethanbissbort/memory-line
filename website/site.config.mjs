@@ -5,10 +5,7 @@
  * pages, how they are grouped in the sidebar, and the structured content used to
  * build the hand-authored landing page.
  *
- * SCOPE: this site documents the **Windows Native** app only. The legacy Electron
- * build is in maintenance, so its documentation deliberately stays as plain markdown
- * in the repository — see the `legacy` export at the bottom, which renders a short
- * pointer rather than full pages.
+ * SCOPE: this site documents the **Windows Native** app.
  *
  * To add a new document: drop an entry into the relevant section's `pages` array.
  * `source` is repo-relative; `slug` becomes `<slug>.html`.
@@ -138,15 +135,6 @@ export const sections = [
         audience: 'Everyone',
         tags: ['history', 'phases'],
       },
-      {
-        slug: 'migration-to-native-windows',
-        source: 'MIGRATION-TO-NATIVE-WIN.md',
-        title: 'Migration to native Windows',
-        description:
-          'The full migration plan from Electron to .NET 8 + WinUI 3: rationale, stack decision, branch strategy, architecture comparison, all seven phases, feature-parity matrix, and checklists.',
-        audience: 'Developers',
-        tags: ['migration', 'planning', 'architecture'],
-      },
     ],
   },
   {
@@ -203,32 +191,13 @@ export const sections = [
 ];
 
 /**
- * Documentation that stays in the repository as plain markdown and is deliberately
- * NOT rendered as pages here. Listed on the site so it stays discoverable — the
- * legacy Electron build is in maintenance and does not warrant polished docs.
- */
-export const legacy = {
-  title: 'Legacy Electron build',
-  blurb:
-    'The earlier cross-platform Electron app (React + Electron + SQLite) is feature-complete for its own scope but is no longer developed. Its documentation stays as plain markdown in the repository and is intentionally left out of this site.',
-  docs: [
-    { source: 'DEPLOYMENT-INSTALL.md', title: 'Deployment & installation guide' },
-    { source: 'scripts/README.md', title: 'Setup scripts (Windows / Ubuntu)' },
-    { source: 'scripts/logs/README.md', title: 'Setup script logs' },
-    { source: 'tests/README.md', title: 'Jest test suite' },
-    { source: 'tests/fixtures/databases/README.md', title: 'Test database fixtures' },
-    { source: 'docs/reviews/multi-agent-code-review.md', title: 'Multi-agent code review (Electron layers)' },
-  ],
-};
-
-/**
  * Structured content for the generated landing page.
  * Facts here are drawn from README.md and windows-native/README.md.
  */
 export const landing = {
   status: [
     { label: 'Windows Native', tone: 'primary' },
-    { label: '.NET 8 · WinUI 3' },
+    { label: '.NET 10 · WinUI 3' },
     { label: 'Local-first' },
     { label: 'Active development' },
   ],
