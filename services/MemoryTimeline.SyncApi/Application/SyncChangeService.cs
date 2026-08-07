@@ -16,6 +16,9 @@ public sealed class SyncChangeService : ISyncChangeService
     private const int DefaultPullLimit = 100;
     private const int MaxPullLimit = 500;
 
+    /// <summary>Device platform (as canonicalized by DeviceService at registration) that owns the archive.</summary>
+    private const string WindowsPlatform = "windows";
+
     private static readonly string[] AllowedEntityTypes =
     [
         SyncChangeEntityType.Capture,
@@ -24,8 +27,53 @@ public sealed class SyncChangeService : ISyncChangeService
         SyncChangeEntityType.RecordingQueue,
         SyncChangeEntityType.PendingEvent,
         SyncChangeEntityType.Event,
+        SyncChangeEntityType.Era,
+        SyncChangeEntityType.Person,
+        SyncChangeEntityType.PendingEventDecision,
         SyncChangeEntityType.AssistantTurn,
         SyncChangeEntityType.AssistantTurnChunk,
+    ];
+
+    /// <summary>
+    /// Read-only projections of the Windows archive (TimelineProjectionContracts).
+    /// Grouped because they share one authority rule: the owner's Windows machine
+    /// publishes them and every other device consumes them. Nothing else may
+    /// author one — a companion that could push an <c>event</c> could write a
+    /// memory into someone's timeline that never happened, and because these
+    /// carry no revision history to reconcile, the forgery would simply become
+    /// the timeline.
+    /// </summary>
+    private static readonly string[] WindowsAuthoredProjections =
+    [
+        SyncChangeEntityType.Event,
+        SyncChangeEntityType.Era,
+        SyncChangeEntityType.Person,
+        SyncChangeEntityType.PendingEvent,
+    ];
+
+    /// <summary>Verdicts a pending_event_decision may carry (PendingEventDecision vocabulary).</summary>
+    private static readonly string[] AllowedPendingEventDecisions =
+    [
+        PendingEventDecision.Approve,
+        PendingEventDecision.Reject,
+    ];
+
+    /// <summary>
+    /// Date precisions a projected event may declare (EventProjectionPayload
+    /// and PendingEventProjectionPayload). Refused rather than defaulted when
+    /// unknown: precision is carried on the wire instead of derived precisely
+    /// so a consumer never invents an exact day for a memory the user dated to
+    /// a summer, and a value nobody understands is how that happens anyway.
+    /// </summary>
+    private static readonly string[] AllowedDatePrecisions =
+    [
+        "exact",
+        "day",
+        "month",
+        "season",
+        "year",
+        "decade",
+        "unknown",
     ];
 
     /// <summary>Grounding values an assistant answer may declare.</summary>
@@ -317,6 +365,47 @@ public sealed class SyncChangeService : ISyncChangeService
             // bytes are relayed unchanged; the revision carries the chunk index
             // so a consumer can spot a gap without parsing the payload.
             revision = outcome.Applied!.ChunkIndex + 1;
+        }
+        else if (WindowsAuthoredProjections.Contains(entry.EntityType))
+        {
+            var outcome = TryRelayProjection(caller, entry);
+            if (outcome.Rejection is not null)
+            {
+                return outcome.Rejection;
+            }
+
+            // Relayed verbatim, like an assistant chunk and unlike
+            // capture_status: the service stores no copy of the archive, so
+            // there is no row whose re-serialization could be more
+            // authoritative than the publisher's own bytes — and passing them
+            // through unchanged is also what lets a newer Windows build add a
+            // field to a projection without this service having to learn it
+            // first. Revision therefore stays 1: with nothing stored to
+            // version, the change ID is the only ordering that means anything,
+            // and it already orders these correctly (see the entity-id note on
+            // TryRelayProjection).
+            _logger.LogDebug(
+                "Projection {EntityType} {EntityId} ({Operation}) relayed from device {DeviceId}.",
+                entry.EntityType, outcome.Applied, entry.Operation, caller.DeviceId);
+        }
+        else if (entry.EntityType == SyncChangeEntityType.PendingEventDecision)
+        {
+            var outcome = TryRelayPendingEventDecision(caller, entry);
+            if (outcome.Rejection is not null)
+            {
+                return outcome.Rejection;
+            }
+
+            // Also relayed verbatim. The decision is a message to Windows, not
+            // state this service maintains: Windows performs the approval (one
+            // transaction over the event, its tags, people and locations) and
+            // drops verdicts for reviews it has already resolved, so a copy
+            // held here could only ever be a second opinion that disagrees.
+            // The verdict is a vocabulary value, like a capture status, so it is
+            // logged; the corrections that may ride with it are not (§14.5).
+            _logger.LogInformation(
+                "Pending event {PendingEventId} decided {Decision} by device {DeviceId}.",
+                entry.EntityId, outcome.Applied!.Decision, caller.DeviceId);
         }
 
         var change = new SyncChangeRow
@@ -831,6 +920,325 @@ public sealed class SyncChangeService : ISyncChangeService
             ? PushEntryOutcome<AssistantTurnChunkPayload>.Ignore()
             : PushEntryOutcome<AssistantTurnChunkPayload>.Apply(payload);
     }
+
+    /// <summary>
+    /// Validates a pushed timeline projection (<c>event</c>, <c>era</c>,
+    /// <c>person</c>, <c>pending_event</c>) and returns the canonical entity ID
+    /// it targets. Nothing is stored: the entry is relayed onto the change feed
+    /// as published (see the call site for why).
+    ///
+    /// <para><b>Authority.</b> Only the owner's Windows device may publish one.
+    /// This is the check that keeps a companion from writing into a timeline it
+    /// merely displays — a phone can hold a valid token (it needs one to upload
+    /// captures) and would otherwise be able to push an <c>event</c> that every
+    /// other device would render as a memory.</para>
+    ///
+    /// <para><b>Entity IDs.</b> <c>entityId</c> is the projected row's own key —
+    /// eventId, eraId, personId or pendingEventId — and must be a UUID in
+    /// canonical lowercase "D" form. Consumers key latest-wins state on that
+    /// string, so an upsert of <c>{A1B2...}</c> and a later delete of
+    /// <c>a1b2...</c> must not read as two different rows: the deletion would
+    /// tombstone nothing and the event would stay on the timeline forever.
+    /// Pinning one spelling here is cheaper than asking every consumer to
+    /// normalize, and refusing the other spellings is what makes it a pin.</para>
+    ///
+    /// <para><b>Deletes.</b> Accepted, and deliberately not required to carry a
+    /// payload: a deleted event has nothing left to describe, and the tombstone
+    /// exists precisely so a companion can drop the row it already rendered.</para>
+    /// </summary>
+    private static PushEntryOutcome<string> TryRelayProjection(Device caller, SyncPushEntry entry)
+    {
+        if (!string.Equals(caller.Platform, WindowsPlatform, StringComparison.Ordinal))
+        {
+            return PushEntryOutcome<string>.Reject(Rejected(
+                entry,
+                SyncApiErrorCodes.ChangeNotPermitted,
+                $"{entry.EntityType} is a read-only projection; only the owner's Windows device may publish it."));
+        }
+
+        if (CanonicalEntityId(entry.EntityId) is not { } entityId)
+        {
+            return PushEntryOutcome<string>.Reject(Rejected(
+                entry, "entityId must be a UUID in canonical lowercase \"D\" form."));
+        }
+
+        if (entry.Operation == SyncOperation.Delete)
+        {
+            return PushEntryOutcome<string>.Apply(entityId);
+        }
+
+        return entry.EntityType switch
+        {
+            SyncChangeEntityType.Event => ValidateEventProjection(entry, entityId),
+            SyncChangeEntityType.Era => ValidateEraProjection(entry, entityId),
+            SyncChangeEntityType.Person => ValidatePersonProjection(entry, entityId),
+            _ => ValidatePendingEventProjection(entry, entityId),
+        };
+    }
+
+    /// <summary>
+    /// Validates an <c>event</c> upsert. The date fields get the attention
+    /// because they are the ones a consumer draws with: an unknown precision
+    /// would let it place a bubble on a day the user never claimed.
+    /// </summary>
+    private static PushEntryOutcome<string> ValidateEventProjection(SyncPushEntry entry, string entityId)
+    {
+        var parsed = TryParseProjection<EventProjectionPayload>(entry, entityId, p => p.EventId, "eventId");
+        if (parsed.Rejection is not null)
+        {
+            return PushEntryOutcome<string>.Reject(parsed.Rejection);
+        }
+
+        var payload = parsed.Applied!;
+        if (!AllowedDatePrecisions.Contains(payload.DatePrecision ?? string.Empty))
+        {
+            return PushEntryOutcome<string>.Reject(Rejected(entry, DatePrecisionMessage("datePrecision")));
+        }
+
+        if (payload.MediaCount < 0)
+        {
+            return PushEntryOutcome<string>.Reject(Rejected(entry, "mediaCount must not be negative."));
+        }
+
+        return PushEntryOutcome<string>.Apply(entityId);
+    }
+
+    /// <summary>
+    /// Validates an <c>era</c> upsert. The colour is checked because it crosses
+    /// as a string for the consumer to turn into a brush, and a value that is
+    /// not hex at all ("cornflower") throws in that parser. It is checked
+    /// loosely on purpose: the contract says <c>#RRGGBB</c>, but the Windows
+    /// column is wide enough for <c>#AARRGGBB</c> and both are unambiguous, so
+    /// both pass. Dropping a whole era — the background of a period of
+    /// someone's life — over an alpha channel would cost far more than the
+    /// stricter check buys. A missing colour is fine too; the consumer falls
+    /// back to its own default.
+    /// </summary>
+    private static PushEntryOutcome<string> ValidateEraProjection(SyncPushEntry entry, string entityId)
+    {
+        var parsed = TryParseProjection<EraProjectionPayload>(entry, entityId, p => p.EraId, "eraId");
+        if (parsed.Rejection is not null)
+        {
+            return PushEntryOutcome<string>.Reject(parsed.Rejection);
+        }
+
+        var colorCode = parsed.Applied!.ColorCode;
+        if (!string.IsNullOrWhiteSpace(colorCode) && !IsHexColorCode(colorCode))
+        {
+            return PushEntryOutcome<string>.Reject(
+                Rejected(entry, "colorCode must be a hex colour (\"#RRGGBB\")."));
+        }
+
+        return PushEntryOutcome<string>.Apply(entityId);
+    }
+
+    /// <summary>
+    /// Validates a <c>person</c> upsert. <c>mergedIntoId</c> is checked as an ID
+    /// rather than ignored: it is a redirection every consumer is expected to
+    /// follow, so an unparseable one would leave a duplicate contact on screen
+    /// with no way to reach the person it was merged into.
+    /// </summary>
+    private static PushEntryOutcome<string> ValidatePersonProjection(SyncPushEntry entry, string entityId)
+    {
+        var parsed = TryParseProjection<PersonProjectionPayload>(entry, entityId, p => p.PersonId, "personId");
+        if (parsed.Rejection is not null)
+        {
+            return PushEntryOutcome<string>.Reject(parsed.Rejection);
+        }
+
+        var payload = parsed.Applied!;
+        if (!string.IsNullOrWhiteSpace(payload.MergedIntoId) && !Guid.TryParse(payload.MergedIntoId, out _))
+        {
+            return PushEntryOutcome<string>.Reject(Rejected(entry, "mergedIntoId must be a UUID when present."));
+        }
+
+        if (payload.EventCount < 0)
+        {
+            return PushEntryOutcome<string>.Reject(Rejected(entry, "eventCount must not be negative."));
+        }
+
+        return PushEntryOutcome<string>.Apply(entityId);
+    }
+
+    /// <summary>
+    /// Validates a <c>pending_event</c> upsert. The transcript preview is held
+    /// to the same bound as the capture status preview (§14.5): both are
+    /// excerpts of the same recording leaving the machine that holds it, so one
+    /// bound governs both, and — as there — an over-long preview is refused
+    /// rather than trimmed, because deciding what to leave out is the
+    /// publisher's job and quietly cutting it here would hide the bug.
+    /// </summary>
+    private static PushEntryOutcome<string> ValidatePendingEventProjection(SyncPushEntry entry, string entityId)
+    {
+        var parsed = TryParseProjection<PendingEventProjectionPayload>(
+            entry, entityId, p => p.PendingEventId, "pendingEventId");
+        if (parsed.Rejection is not null)
+        {
+            return PushEntryOutcome<string>.Reject(parsed.Rejection);
+        }
+
+        var payload = parsed.Applied!;
+        if (!AllowedDatePrecisions.Contains(payload.DatePrecision ?? string.Empty))
+        {
+            return PushEntryOutcome<string>.Reject(Rejected(entry, DatePrecisionMessage("datePrecision")));
+        }
+
+        if (payload.ConfidenceScore is < 0 or > 1)
+        {
+            return PushEntryOutcome<string>.Reject(Rejected(entry, "confidenceScore must be between 0 and 1."));
+        }
+
+        if (payload.TranscriptPreview is { Length: > CaptureStatusChangePayload.TranscriptPreviewMaxChars })
+        {
+            return PushEntryOutcome<string>.Reject(Rejected(
+                entry,
+                $"transcriptPreview must be at most {CaptureStatusChangePayload.TranscriptPreviewMaxChars} characters."));
+        }
+
+        return PushEntryOutcome<string>.Apply(entityId);
+    }
+
+    /// <summary>
+    /// Validates a pushed <c>pending_event_decision</c> — the one entity a
+    /// companion may author — and returns the payload to relay.
+    ///
+    /// <para><b>Why this one is safe from any device.</b> It is a verdict, not
+    /// an edit: it carries no field values to merge, applying it twice is the
+    /// same as applying it once, and two devices sending the same answer agree
+    /// by construction. Accepting it therefore does not make the system
+    /// multi-writer.</para>
+    ///
+    /// <para><b>Attribution.</b> <c>decidedByDeviceId</c> must be the calling
+    /// device. Windows keeps this as the audit trail of who reviewed what, and
+    /// a trail a device can write another device's name into records fiction.
+    /// It is also the field that would let a companion make a decision look like
+    /// it came from the machine that holds the archive.</para>
+    ///
+    /// <para><b>Append-only.</b> <c>delete</c> is refused. A verdict is a fact
+    /// about a review that happened; there is no meaning to retracting it, and
+    /// accepting one would hand a companion a way to reach back into a review
+    /// Windows has already completed. Changing one's mind is a new decision,
+    /// which is exactly what a second upsert is.</para>
+    ///
+    /// <para><b>No server-side target check.</b> Unlike capture_status and
+    /// assistant_turn there is no stored row to validate against — this service
+    /// holds no pending events — so an unknown <c>pendingEventId</c> is relayed
+    /// and dropped by Windows, which is the only participant that knows whether
+    /// the review is still open.</para>
+    /// </summary>
+    private static PushEntryOutcome<PendingEventDecisionPayload> TryRelayPendingEventDecision(
+        Device caller, SyncPushEntry entry)
+    {
+        if (entry.Operation != SyncOperation.Upsert)
+        {
+            return PushEntryOutcome<PendingEventDecisionPayload>.Reject(Rejected(
+                entry, "pending_event_decision is append-only; it supports upsert only."));
+        }
+
+        if (CanonicalEntityId(entry.EntityId) is not { } entityId)
+        {
+            return PushEntryOutcome<PendingEventDecisionPayload>.Reject(Rejected(
+                entry, "entityId must be a UUID in canonical lowercase \"D\" form."));
+        }
+
+        var payload = TryParsePayload<PendingEventDecisionPayload>(entry.PayloadJson);
+        if (payload is null)
+        {
+            return PushEntryOutcome<PendingEventDecisionPayload>.Reject(Rejected(
+                entry, "pending_event_decision requires a well-formed payload."));
+        }
+
+        if (string.IsNullOrWhiteSpace(payload.PendingEventId))
+        {
+            return PushEntryOutcome<PendingEventDecisionPayload>.Reject(Rejected(
+                entry, "pendingEventId is required."));
+        }
+
+        // The decision is keyed on the pending event it answers, so Windows can
+        // match verdict to review without a second identifier and a consumer can
+        // collapse repeats of the same answer.
+        if (!Guid.TryParse(payload.PendingEventId, out var pendingEventGuid)
+            || pendingEventGuid.ToString("D") != entityId)
+        {
+            return PushEntryOutcome<PendingEventDecisionPayload>.Reject(Rejected(
+                entry, "payload pendingEventId must be a UUID equal to entityId."));
+        }
+
+        if (!AllowedPendingEventDecisions.Contains(payload.Decision ?? string.Empty))
+        {
+            return PushEntryOutcome<PendingEventDecisionPayload>.Reject(Rejected(
+                entry, "decision must be one of: approve, reject."));
+        }
+
+        if (!Guid.TryParse(payload.DecidedByDeviceId, out var decidedByGuid)
+            || decidedByGuid.ToString("D") != caller.DeviceId)
+        {
+            return PushEntryOutcome<PendingEventDecisionPayload>.Reject(Rejected(
+                entry,
+                SyncApiErrorCodes.ChangeNotPermitted,
+                "decidedByDeviceId must be the device pushing the decision."));
+        }
+
+        // Corrections ride the decision because fixing a title while approving
+        // is one act, not two — but they are still a companion's write, so the
+        // one field that changes how a date is *read* is held to the vocabulary.
+        var correctedPrecision = payload.Corrections?.DatePrecision;
+        if (!string.IsNullOrWhiteSpace(correctedPrecision) && !AllowedDatePrecisions.Contains(correctedPrecision))
+        {
+            return PushEntryOutcome<PendingEventDecisionPayload>.Reject(
+                Rejected(entry, DatePrecisionMessage("corrections.datePrecision")));
+        }
+
+        return PushEntryOutcome<PendingEventDecisionPayload>.Apply(payload);
+    }
+
+    /// <summary>
+    /// Parses a projection payload and pins its identity to the entry. The
+    /// payload's own ID must denote the same UUID as <paramref name="entityId"/>
+    /// — the two are the same row's key written twice, and a change whose two
+    /// spellings disagree would be applied to one row and looked up under
+    /// another. The payload copy is compared as a UUID rather than as text: the
+    /// key is the string consumers match on, so only it has to be canonical.
+    /// </summary>
+    private static PushEntryOutcome<TPayload> TryParseProjection<TPayload>(
+        SyncPushEntry entry,
+        string entityId,
+        Func<TPayload, string?> idSelector,
+        string idFieldName)
+        where TPayload : class
+    {
+        var payload = TryParsePayload<TPayload>(entry.PayloadJson);
+        if (payload is null)
+        {
+            return PushEntryOutcome<TPayload>.Reject(
+                Rejected(entry, $"{entry.EntityType} requires a well-formed payload."));
+        }
+
+        if (!Guid.TryParse(idSelector(payload), out var payloadGuid) || payloadGuid.ToString("D") != entityId)
+        {
+            return PushEntryOutcome<TPayload>.Reject(
+                Rejected(entry, $"payload {idFieldName} must be a UUID equal to entityId."));
+        }
+
+        return PushEntryOutcome<TPayload>.Apply(payload);
+    }
+
+    /// <summary>
+    /// The entity ID in canonical lowercase "D" form, or null when it is not a
+    /// UUID or was written some other way (braces, "N" form, upper case). Only
+    /// the canonical spelling is accepted so every device keys the same row the
+    /// same way; see <see cref="TryRelayProjection"/> for what goes wrong
+    /// otherwise.
+    /// </summary>
+    private static string? CanonicalEntityId(string entityId)
+        => Guid.TryParse(entityId, out var parsed) && parsed.ToString("D") == entityId ? entityId : null;
+
+    /// <summary>True for "#RRGGBB" (the contract's form) or "#AARRGGBB" (what the Windows column can hold).</summary>
+    private static bool IsHexColorCode(string value)
+        => value.Length is 7 or 9 && value[0] == '#' && value.Skip(1).All(Uri.IsHexDigit);
+
+    private static string DatePrecisionMessage(string field)
+        => $"{field} must be one of: exact, day, month, season, year, decade, unknown.";
 
     /// <summary>Trims and lowercases a wire vocabulary value; null and blank become empty, which no vocabulary contains.</summary>
     private static string Normalize(string? value)

@@ -198,8 +198,17 @@ public class PendingEventDecisionPayload
 {
     public string PendingEventId { get; set; } = string.Empty;
 
-    /// <summary>One of <see cref="PendingEventDecision"/>.</summary>
-    public string Decision { get; set; } = PendingEventDecision.Approve;
+    /// <summary>
+    /// One of <see cref="PendingEventDecision"/>.
+    ///
+    /// Deliberately defaulted to empty rather than to
+    /// <see cref="PendingEventDecision.Approve"/>: a defaulted verdict means an
+    /// omitted or truncated field deserializes into "approve" and silently
+    /// writes an extracted event into the user's timeline. The failure mode of
+    /// a missing field must never be a write to the archive, so an empty value
+    /// is rejected by the service and the caller has to say what it meant.
+    /// </summary>
+    public string Decision { get; set; } = string.Empty;
 
     /// <summary>Device that decided, for the audit trail Windows keeps.</summary>
     public string DecidedByDeviceId { get; set; } = string.Empty;

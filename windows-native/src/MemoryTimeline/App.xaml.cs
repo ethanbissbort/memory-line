@@ -160,6 +160,14 @@ public partial class App : Application
                     // no capture_status at all — the phone would never learn
                     // what happened to a capture after upload.
                     services.AddSingleton<ICaptureStatusPublisher, CaptureStatusPublisher>();
+                    // Phase 3 timeline projection: the read-only archive feed a
+                    // companion renders from, and the one write that comes back.
+                    // RemoteChangeApplier takes the decision applier as an
+                    // optional parameter, so without this registration a
+                    // companion's approve/reject is silently skipped instead of
+                    // failing the sync cycle.
+                    services.AddSingleton<ITimelineProjectionPublisher, TimelineProjectionPublisher>();
+                    services.AddSingleton<IPendingEventDecisionApplier, PendingEventDecisionApplier>();
                     services.AddSingleton<ILocalOutboxPublisher, LocalOutboxPublisher>();
                     services.AddSingleton<ISyncBackgroundWorker, SyncBackgroundWorker>();
 
