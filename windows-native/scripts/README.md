@@ -55,7 +55,7 @@ Automatically checks and installs all required dependencies for development or p
 
 **Development Only:**
 - Visual Studio 2022 (Community or higher)
-- Windows SDK (10.0.22621.0+)
+- Windows SDK (10.0.26100.0+)
 - Git for Windows
 
 **Optional (Development):**
@@ -104,7 +104,7 @@ Verifies that all dependencies are correctly installed and configured.
 **Development Tools:**
 - .NET SDK (8.0+)
 - Visual Studio 2022 (17.8+)
-- Windows SDK (10.0.22621.0+)
+- Windows SDK (10.0.26100.0+)
 - Windows App SDK (1.5+)
 - Git
 - PowerShell (5.0+)
@@ -260,7 +260,7 @@ For Memory Timeline issues:
 
 - **Administrator privileges required**: Both scripts require admin rights to install components and modify system settings
 - **Internet connection required**: For downloading and installing dependencies
-- **Windows 11 only**: These scripts are designed for Windows 11 (build 22000+)
+- **Windows 11 only**: These scripts are designed for Windows 11 22H2 or later (build 22621+)
 - **Execution time**: Initial setup may take 15-30 minutes depending on what needs to be installed
 - **Restart recommended**: After installation, restart your computer to ensure all environment variables are updated
 

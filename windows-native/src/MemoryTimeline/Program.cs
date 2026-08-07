@@ -38,6 +38,15 @@ public static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        // .NET 10 changed Microsoft.Data.Sqlite's timezone handling: reading a
+        // stored timestamp that carries no offset now assumes UTC rather than
+        // local time, and one that carries an offset comes back as UTC. Every
+        // date in an existing memory-timeline.db was written under the old
+        // rules, so adopting the new ones silently shifts historical events by
+        // the local UTC offset. Keep the pre-10 behaviour until the stored
+        // values are audited and, if needed, migrated.
+        AppContext.SetSwitch("Microsoft.Data.Sqlite.Pre10TimeZoneHandling", true);
+
         Log("=== Application Starting ===");
         Log($"Args: {string.Join(", ", args)}");
         Log($"Current directory: {Environment.CurrentDirectory}");

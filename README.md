@@ -99,7 +99,7 @@ Every hop persists its state, so a failure at any stage is recoverable and visib
 |-------|------------|
 | UI | **WinUI 3** + XAML, `x:Bind` compiled bindings |
 | MVVM | **CommunityToolkit.Mvvm** (`ObservableObject`, `[RelayCommand]`, `WeakReferenceMessenger`) |
-| Runtime | **.NET 8** (`net8.0-windows10.0.22621.0`) |
+| Runtime | **.NET 8** (`net8.0-windows10.0.26100.0`) |
 | Data | **SQLite** via **EF Core 8**, WAL mode, `IDbContextFactory` per-operation contexts |
 | Audio | `Windows.Media.Capture` (recording), `Windows.Media.Playback` |
 | Speech-to-text | **Whisper.net** (ggml `base` model, local/offline) |

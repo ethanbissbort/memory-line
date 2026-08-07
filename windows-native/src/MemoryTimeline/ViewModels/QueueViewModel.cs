@@ -276,6 +276,25 @@ public partial class QueueViewModel : ObservableObject, IDisposable
                 _logger.LogError("Failed to ingest recording {QueueId}: {Reason}",
                     recording.QueueId, result.FailureReason);
                 StatusText = $"Recording saved, but could not be queued: {result.FailureReason}";
+                // Nothing reached the queue, so there is no row to stamp as a
+                // prompt answer - drop the recall link (mirrors the catch below)
+                // so the NEXT successful recording is not stamped as this
+                // prompt's answer.
+                _answeringRecallPromptId = null;
+            }
+            else if (result.QueueId is string queueId)
+            {
+                // Ingestion is the point where the queue row id first exists,
+                // so a recording started from the recall card can be linked to
+                // its prompt right here.
+                await LinkRecallAnswerAsync(queueId);
+            }
+            else
+            {
+                // Success without a queue row: an idempotent replay of a capture
+                // whose queue item was deliberately deleted (design §12.2).
+                // Nothing exists to link, so drop the recall link.
+                _answeringRecallPromptId = null;
             }
 
             await RefreshQueueAsync();

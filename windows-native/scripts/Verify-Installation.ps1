@@ -65,7 +65,7 @@ Write-Host "Checking Windows Version..." -ForegroundColor Yellow
 $osVersion = [System.Environment]::OSVersion.Version
 $osName = (Get-CimInstance -ClassName Win32_OperatingSystem).Caption
 
-if ($osVersion.Build -ge 22000) {
+if ($osVersion.Build -ge 22621) {
     Write-Pass "Windows 11 detected: $osName (Build $($osVersion.Build))"
     Add-ReportLine "[PASS] Windows: $osName (Build $($osVersion.Build))"
     $passCount++

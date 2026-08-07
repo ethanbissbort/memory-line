@@ -22,6 +22,24 @@ public static class SettingKeys
     public const string EmbeddingDimension = "embedding_dimension"; // matches DB seed
     public const string LocalModelPath = "local_model_path";   // overrides the local ONNX model directory when non-empty; matches DB seed
     public const string Theme = "theme";                       // matches DB seed
+    public const string AskTopK = "ask_top_k";                 // matches DB seed
+    public const string AskIncludeTranscripts = "ask_include_transcripts"; // matches DB seed
+    public const string HomeIsDefaultPage = "home_is_default_page"; // matches DB seed
+    public const string DailyToastEnabled = "daily_toast_enabled";  // matches DB seed
+    public const string WeeklyDigestEnabled = "weekly_digest_enabled"; // matches DB seed
+    public const string LastToastDate = "last_toast_date";     // NOT seeded: absent = toast never shown
+
+    // Backup & revision history (2026-08 F12)
+    public const string BackupDestination = "backup_destination";           // matches DB seed ("")
+    public const string BackupIncludeMedia = "backup_include_media";        // matches DB seed ("true")
+    public const string BackupSchedule = "backup_schedule";                 // matches DB seed: "off" | "daily" | "weekly"
+    public const string LastBackupAt = "last_backup_at";                    // NOT seeded: absent = never backed up; invariant "o" round-trip format
+    public const string RevisionHistoryEnabled = "revision_history_enabled"; // matches DB seed ("true")
+
+    // Map / geocoding (2026-08 F10)
+    public const string GeocodingEnabled = "geocoding_enabled";   // matches DB seed; "false" = no place name leaves the machine
+    public const string GeocodingProvider = "geocoding_provider"; // matches DB seed ("nominatim")
+    public const string MapDefaultZoom = "map_default_zoom";      // matches DB seed ("1.0" = whole world)
 
     // --- Sync (iOS companion Phase 1) ---
     // Tokens live in app_settings like the other keys for now; DPAPI encryption

@@ -6,6 +6,12 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
+// .NET 10 changed Microsoft.Data.Sqlite's timezone handling (offset-less stored
+// timestamps now read as UTC rather than local). Every timestamp in an existing
+// sync.db was written under the old rules, so keep them until the stored values
+// are audited — see the Windows app's Program.cs for the same switch.
+AppContext.SetSwitch("Microsoft.Data.Sqlite.Pre10TimeZoneHandling", true);
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Bootstrap runs before the host is built: the signing key must exist for JWT
