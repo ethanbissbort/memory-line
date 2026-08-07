@@ -13,9 +13,12 @@ name: Windows Native Build
 
 on:
   push:
-    branches: [ claude/multi-agent-code-review-bVmNX ]
+    branches:
+      - claude/multi-agent-code-review-bVmNX
+      - claude/design-document-ingestion-27bl5z
     paths:
       - 'windows-native/**'
+      - 'shared-contracts/dotnet/**'
       - '.github/workflows/windows-native-build.yml'
   workflow_dispatch:
 

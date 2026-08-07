@@ -47,6 +47,7 @@
     <ProjectReference Include="..\MemoryTimeline\MemoryTimeline.csproj" />
     <ProjectReference Include="..\MemoryTimeline.Core\MemoryTimeline.Core.csproj" />
     <ProjectReference Include="..\MemoryTimeline.Data\MemoryTimeline.Data.csproj" />
+    <ProjectReference Include="..\MemoryTimeline.Sync\MemoryTimeline.Sync.csproj" />
   </ItemGroup>
 
 </Project>
