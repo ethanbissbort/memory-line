@@ -10,13 +10,21 @@ namespace MemoryTimeline.Sync;
 /// <summary>
 /// Shared HTTP plumbing for <see cref="SyncApiClient"/> and
 /// <see cref="ArtifactTransferClient"/>: base-URL resolution from settings,
-/// bearer-token attachment, a single transparent token refresh on 401, and
+/// bearer-token attachment, a single transparent token refresh on 401
+/// (serialized process-wide so concurrent clients never race the server's
+/// refresh-token rotation), and
 /// uniform mapping of error responses and transport failures to
 /// <see cref="SyncApiException"/>. Log lines never include tokens or payload
 /// content (design §14.5).
 /// </summary>
 internal sealed class SyncApiHttp
 {
+    // Serializes token refresh across ALL instances: the worker's and the UI's
+    // clients share one settings store, and the server rotates the stored
+    // refresh token on every refresh — two concurrent refreshes would strand
+    // whichever caller loses the race with a dead refresh token.
+    private static readonly SemaphoreSlim RefreshLock = new(1, 1);
+
     private readonly HttpClient _httpClient;
     private readonly ISyncSettingsStore _settingsStore;
     private readonly ILogger _logger;
@@ -154,6 +162,34 @@ internal sealed class SyncApiHttp
             return false;
         }
 
+        await RefreshLock.WaitAsync(cancellationToken);
+        try
+        {
+            // Another caller may have refreshed while we waited: the stored
+            // refresh token differing from the one that triggered this refresh
+            // means the pair was already rotated. Replaying our now-invalidated
+            // token would fail (and strand this client), so skip the network
+            // call — the retried request re-reads the fresh access token.
+            var storedRefreshToken = await _settingsStore.GetRefreshTokenAsync();
+            if (!string.IsNullOrWhiteSpace(storedRefreshToken) &&
+                !string.Equals(storedRefreshToken, refreshToken, StringComparison.Ordinal))
+            {
+                _logger.LogDebug(
+                    "Sync tokens for device {DeviceId} were already refreshed by a concurrent caller", deviceId);
+                return true;
+            }
+
+            return await RefreshTokensCoreAsync(baseUrl, deviceId, refreshToken, cancellationToken);
+        }
+        finally
+        {
+            RefreshLock.Release();
+        }
+    }
+
+    private async Task<bool> RefreshTokensCoreAsync(
+        string baseUrl, string deviceId, string refreshToken, CancellationToken cancellationToken)
+    {
         using var response = await SendOnceAsync(
             () => new HttpRequestMessage(
                 HttpMethod.Post,

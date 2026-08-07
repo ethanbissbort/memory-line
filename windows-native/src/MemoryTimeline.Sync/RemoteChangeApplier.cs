@@ -10,8 +10,11 @@ namespace MemoryTimeline.Sync;
 /// <summary>
 /// <see cref="IRemoteChangeApplier"/> for Phase 1 (design §7.4): capture upserts
 /// resolve to download-artifact → idempotent ingestion → optional queue
-/// processing; every other entity type/operation is skipped. Exceptions never
-/// escape <see cref="ApplyAsync"/> — each change maps to a
+/// processing; every other entity type/operation is skipped. The local audio
+/// cache path is keyed by capture AND artifact identity, so a later conflicting
+/// artifact for an already-ingested capture downloads to a different file and
+/// can never clobber the audio the ingested queue item points at. Exceptions
+/// never escape <see cref="ApplyAsync"/> — each change maps to a
 /// <see cref="ChangeApplicationResult"/> so the worker can decide whether the
 /// cursor advances.
 /// </summary>
@@ -84,6 +87,18 @@ public class RemoteChangeApplier : IRemoteChangeApplier
                     "Skipping change {ChangeId}: capture {CaptureId} has no complete audio artifact yet",
                     change.ChangeId, payload.CaptureId);
                 return ChangeApplicationResult.Skipped;
+            }
+
+            // The artifact ID becomes part of a local cache file name (like the
+            // capture ID, validated in ParsePayload) — reject anything that
+            // could escape the cache directory.
+            if (string.IsNullOrWhiteSpace(audioArtifact.ArtifactId) ||
+                audioArtifact.ArtifactId.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            {
+                _logger.LogError(
+                    "Change {ChangeId} artifact ID for capture {CaptureId} is missing or contains invalid file name characters; permanently skipped",
+                    change.ChangeId, payload.CaptureId);
+                return ChangeApplicationResult.FailedPermanent;
             }
 
             var localPath = BuildLocalAudioPath(payload.CaptureId, audioArtifact);
@@ -203,6 +218,13 @@ public class RemoteChangeApplier : IRemoteChangeApplier
         return payload;
     }
 
+    /// <summary>
+    /// Cache path keyed by capture AND artifact identity: replays of the same
+    /// artifact reuse the cached file, while a conflicting artifact for an
+    /// already-ingested capture writes a different file instead of overwriting
+    /// the audio the existing queue item's AudioFilePath/StorageLocator point at
+    /// (the download runs before ingestion's same-ID/different-content check).
+    /// </summary>
     private static string BuildLocalAudioPath(string captureId, ArtifactSummary artifact)
     {
         var cacheDirectory = Path.Combine(
@@ -210,7 +232,7 @@ public class RemoteChangeApplier : IRemoteChangeApplier
             "MemoryTimeline",
             "SyncedAudio");
         Directory.CreateDirectory(cacheDirectory);
-        return Path.Combine(cacheDirectory, captureId + ExtensionFor(artifact));
+        return Path.Combine(cacheDirectory, $"{captureId}_{artifact.ArtifactId}{ExtensionFor(artifact)}");
     }
 
     private static string ExtensionFor(ArtifactSummary artifact)

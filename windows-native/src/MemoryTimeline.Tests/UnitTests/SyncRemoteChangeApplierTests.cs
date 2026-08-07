@@ -70,7 +70,7 @@ public class SyncRemoteChangeApplierTests : IDisposable
         queueItem.SourceCaptureId.Should().Be(payload.CaptureId);
         queueItem.SourcePlatform.Should().Be(CapturePlatform.Ios);
         queueItem.SyncState.Should().Be(QueueSyncState.Received);
-        queueItem.AudioFilePath.Should().Be(ExpectedAudioPath(payload.CaptureId));
+        queueItem.AudioFilePath.Should().Be(ExpectedAudioPath(payload.CaptureId, payload.AudioArtifact!.ArtifactId));
         File.Exists(queueItem.AudioFilePath).Should().BeTrue();
 
         _queueService.Verify(
@@ -282,6 +282,51 @@ public class SyncRemoteChangeApplierTests : IDisposable
     }
 
     [Fact]
+    public async Task ApplyAsync_ConflictingArtifactForIngestedCapture_FailsPermanentAndLeavesIngestedAudioIntact()
+    {
+        // Arrange - capture X ingested with artifact A (bytes a)
+        var change = CreateCaptureChange(out var payload, out var contentA);
+        _transferClient.Content = contentA;
+        (await _applier.ApplyAsync(change)).Should().Be(ChangeApplicationResult.Applied);
+
+        var artifactAPath = ExpectedAudioPath(payload.CaptureId, payload.AudioArtifact!.ArtifactId);
+        var artifactASha = payload.AudioArtifact.Sha256;
+
+        // A later change for X carrying a DIFFERENT artifact B with different
+        // bytes; its download runs before ingestion's conflict check.
+        var contentB = new byte[640];
+        Random.Shared.NextBytes(contentB);
+        payload.AudioArtifact = new ArtifactSummary
+        {
+            ArtifactId = Guid.NewGuid().ToString(),
+            ArtifactType = "audio_original",
+            MediaType = "audio/mp4",
+            OriginalFileName = "roadtrip-clip.m4a",
+            ByteLength = contentB.Length,
+            Sha256 = Convert.ToHexString(SHA256.HashData(contentB)).ToLowerInvariant(),
+            State = ArtifactState.Complete,
+        };
+        change.ChangeId = 2;
+        change.PayloadJson = JsonSerializer.Serialize(payload, WireJson);
+        _transferClient.Content = contentB;
+        _tempFiles.Add(ExpectedAudioPath(payload.CaptureId, payload.AudioArtifact.ArtifactId));
+
+        // Act
+        var result = await _applier.ApplyAsync(change);
+
+        // Assert - the conflict is rejected and artifact A's audio is untouched:
+        // artifact B downloaded to its own path instead of clobbering the file
+        // the ingested queue item points at.
+        result.Should().Be(ChangeApplicationResult.FailedPermanent);
+        File.ReadAllBytes(artifactAPath).Should().Equal(contentA);
+
+        await using var context = _contextFactory.CreateDbContext();
+        var queueItem = await context.RecordingQueues.SingleAsync();
+        queueItem.AudioFilePath.Should().Be(artifactAPath);
+        queueItem.ContentSha256.Should().Be(artifactASha);
+    }
+
+    [Fact]
     public async Task ApplyAsync_ProcessingFailure_DoesNotFailTheApply()
     {
         // Arrange - processing failures are visible queue states, not sync errors
@@ -343,7 +388,7 @@ public class SyncRemoteChangeApplierTests : IDisposable
             },
         };
 
-        _tempFiles.Add(ExpectedAudioPath(payload.CaptureId));
+        _tempFiles.Add(ExpectedAudioPath(payload.CaptureId, payload.AudioArtifact.ArtifactId));
 
         return new SyncChangeDto
         {
@@ -358,12 +403,16 @@ public class SyncRemoteChangeApplierTests : IDisposable
         };
     }
 
-    /// <summary>The applier's deterministic local cache path for a capture's audio.</summary>
-    private static string ExpectedAudioPath(string captureId) => Path.Combine(
+    /// <summary>
+    /// The applier's deterministic local cache path for one capture's artifact:
+    /// keyed by capture AND artifact identity so a conflicting artifact never
+    /// overwrites an ingested capture's audio.
+    /// </summary>
+    private static string ExpectedAudioPath(string captureId, string artifactId) => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "MemoryTimeline",
         "SyncedAudio",
-        captureId + ".m4a");
+        $"{captureId}_{artifactId}.m4a");
 
     private async Task AssertNoRowsWrittenAsync()
     {

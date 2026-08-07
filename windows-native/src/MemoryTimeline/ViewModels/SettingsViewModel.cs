@@ -524,7 +524,10 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         {
             SyncEnabled = await _settingsService.GetSettingAsync<bool>(SettingKeys.SyncEnabled, false);
             SyncServerUrl = await _settingsService.GetSettingAsync<string>(SettingKeys.SyncServerUrl, string.Empty) ?? string.Empty;
-            SyncAutoProcess = await _settingsService.GetSettingAsync<bool>(SettingKeys.SyncAutoProcess, false);
+            // Default must match SyncSettingsStore.IsAutoProcessEnabledAsync (true):
+            // on a fresh install the pipeline auto-processes, so the toggle must
+            // show On until the user persists a different choice.
+            SyncAutoProcess = await _settingsService.GetSettingAsync<bool>(SettingKeys.SyncAutoProcess, true);
             SyncDeviceDisplayName = await _settingsService.GetSettingAsync<string>(SettingKeys.SyncDeviceDisplayName, string.Empty) ?? string.Empty;
 
             var deviceId = await _syncSettingsStore.GetDeviceIdAsync();
@@ -583,6 +586,17 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             SyncPairingCode = string.Empty;
             SyncServerUrl = serverUrl;
             SyncDeviceDisplayName = Environment.MachineName;
+            // SaveRegistrationAsync already persisted sync_enabled=true; reflect
+            // it in the toggle without writing it back.
+            _suppressSyncPersistence = true;
+            try
+            {
+                SyncEnabled = true;
+            }
+            finally
+            {
+                _suppressSyncPersistence = false;
+            }
             IsSyncPaired = true;
             SyncStatusText = $"Paired as {Environment.MachineName}";
             StatusMessage = "Sync device paired";
@@ -617,6 +631,17 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         try
         {
             await _syncSettingsStore.ClearRegistrationAsync();
+            // ClearRegistrationAsync already persisted sync_enabled=false;
+            // reflect it in the toggle without writing it back.
+            _suppressSyncPersistence = true;
+            try
+            {
+                SyncEnabled = false;
+            }
+            finally
+            {
+                _suppressSyncPersistence = false;
+            }
             IsSyncPaired = false;
             SyncDeviceDisplayName = string.Empty;
             SyncStatusText = "Not paired";
