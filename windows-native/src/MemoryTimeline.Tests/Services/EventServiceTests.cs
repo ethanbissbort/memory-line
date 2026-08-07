@@ -462,6 +462,107 @@ public class EventServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task AddPersonToEventAsync_PublishesTheEventThenThePersonWhoseCountMoved()
+    {
+        // Arrange - a person projection's EventCount is derived from the
+        // event_people junction this method writes, so publishing only the
+        // event leaves the companion's "Dana — 4 memories" frozen at four
+        var projected = new List<string>();
+        var publisher = CreateRecordingPublisherMock(projected);
+        var service = CreateServiceWithPublisher(publisher.Object);
+        var created = await service.CreateEventAsync(new Event
+        {
+            Title = "Event With People",
+            StartDate = DateTime.UtcNow
+        });
+        var personId = await SeedPersonAsync("Dana");
+        projected.Clear();
+
+        // Act
+        await service.AddPersonToEventAsync(created.EventId, personId);
+
+        // Assert - both, and the event first. Outbox delivery is ordered, so a
+        // batch that truncates should leave a count trailing the timeline
+        // rather than a count that disagrees with the events sitting next to it.
+        projected.Should().Equal($"event:{created.EventId}", $"person:{personId}");
+    }
+
+    [Fact]
+    public async Task RemovePersonFromEventAsync_PublishesTheEventThenThePersonWhoseCountMoved()
+    {
+        // Arrange
+        var projected = new List<string>();
+        var publisher = CreateRecordingPublisherMock(projected);
+        var service = CreateServiceWithPublisher(publisher.Object);
+        var created = await service.CreateEventAsync(new Event
+        {
+            Title = "Event With People",
+            StartDate = DateTime.UtcNow
+        });
+        var personId = await SeedPersonAsync("Dana");
+        await service.AddPersonToEventAsync(created.EventId, personId);
+        projected.Clear();
+
+        // Act
+        await service.RemovePersonFromEventAsync(created.EventId, personId);
+
+        // Assert - unlinking moves the count exactly as linking did
+        projected.Should().Equal($"event:{created.EventId}", $"person:{personId}");
+    }
+
+    [Fact]
+    public async Task AddPersonToEventAsync_AlreadyLinked_PublishesNeitherASecondTime()
+    {
+        // Arrange - the cost bound for the person publishes: they are paid per
+        // junction row that actually moved, and a re-link writes nothing
+        var projected = new List<string>();
+        var publisher = CreateRecordingPublisherMock(projected);
+        var service = CreateServiceWithPublisher(publisher.Object);
+        var created = await service.CreateEventAsync(new Event
+        {
+            Title = "Event With People",
+            StartDate = DateTime.UtcNow
+        });
+        var personId = await SeedPersonAsync("Dana");
+        await service.AddPersonToEventAsync(created.EventId, personId);
+        projected.Clear();
+
+        // Act
+        await service.AddPersonToEventAsync(created.EventId, personId);
+
+        // Assert
+        projected.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task UpdateEventAsync_WithLinkedPeople_PublishesTheEventAndNobodyElse()
+    {
+        // Arrange - the other half of the cost bound. Only the paths that WRITE
+        // event_people publish people, so an event with many of them still
+        // costs one outbox row for an ordinary edit; a title never moved a count.
+        var projected = new List<string>();
+        var publisher = CreateRecordingPublisherMock(projected);
+        var service = CreateServiceWithPublisher(publisher.Object);
+        var created = await service.CreateEventAsync(new Event
+        {
+            Title = "Original Title",
+            StartDate = DateTime.UtcNow
+        });
+        foreach (var name in new[] { "Dana", "Sarah", "Robert" })
+        {
+            await service.AddPersonToEventAsync(created.EventId, await SeedPersonAsync(name));
+        }
+        projected.Clear();
+
+        // Act
+        created.Title = "Updated Title";
+        await service.UpdateEventAsync(created);
+
+        // Assert
+        projected.Should().Equal($"event:{created.EventId}");
+    }
+
+    [Fact]
     public async Task NoProjectionPublisher_CrudAndAssociationsStillWork()
     {
         // The fixture's service is built WITHOUT a publisher — the shape every
@@ -475,9 +576,12 @@ public class EventServiceTests : IDisposable
         var tagId = await SeedTagAsync("private");
 
         await _eventService.AddTagToEventAsync(created.EventId, tagId);
+        var personId = await SeedPersonAsync("Unprojected");
+        await _eventService.AddPersonToEventAsync(created.EventId, personId);
         created.Title = "Still Unpublished";
         await _eventService.UpdateEventAsync(created);
         await _eventService.RemoveTagFromEventAsync(created.EventId, tagId);
+        await _eventService.RemovePersonFromEventAsync(created.EventId, personId);
         await _eventService.DeleteEventAsync(created.EventId);
 
         var fetched = await _eventService.GetEventByIdAsync(created.EventId);
@@ -500,6 +604,33 @@ public class EventServiceTests : IDisposable
         publisher
             .Setup(p => p.PublishDeletedAsync(
                 It.IsAny<TimelineProjectionEntity>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        return publisher;
+    }
+
+    /// <summary>
+    /// A publisher that appends every call to <paramref name="projected"/> as a
+    /// string. Recorded in ONE list because the order is as much of the contract
+    /// as the contents: the outbox delivers in id order, so which of an event
+    /// and its people arrives first decides what a half-delivered batch looks
+    /// like on a companion.
+    /// </summary>
+    private static Mock<ITimelineProjectionPublisher> CreateRecordingPublisherMock(List<string> projected)
+    {
+        var publisher = new Mock<ITimelineProjectionPublisher>();
+        publisher
+            .Setup(p => p.PublishEventAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<string, CancellationToken>((id, _) => projected.Add($"event:{id}"))
+            .Returns(Task.CompletedTask);
+        publisher
+            .Setup(p => p.PublishPersonAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<string, CancellationToken>((id, _) => projected.Add($"person:{id}"))
+            .Returns(Task.CompletedTask);
+        publisher
+            .Setup(p => p.PublishDeletedAsync(
+                It.IsAny<TimelineProjectionEntity>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<TimelineProjectionEntity, string, CancellationToken>(
+                (entity, id, _) => projected.Add($"delete:{entity}:{id}"))
             .Returns(Task.CompletedTask);
         return publisher;
     }
@@ -528,5 +659,186 @@ public class EventServiceTests : IDisposable
     {
         using var context = _contextFactory.CreateDbContext();
         context.Database.EnsureDeleted();
+    }
+}
+
+/// <summary>
+/// The one projection case above that a shared in-memory fixture cannot state:
+/// deleting an event must republish the people it linked, and their ids have to
+/// be read BEFORE the delete because the junction rows are cascade-deleted.
+///
+/// <para>This needs a FILE-BASED SQLite database, and that is the whole point
+/// rather than an incidental preference. Both of <c>event_people</c>'s foreign
+/// keys are configured <c>ON DELETE CASCADE</c> and the repository removes a
+/// DETACHED event, so nothing ever loads the junction into the change tracker
+/// and SQLite performs the cascade itself. The EF InMemory provider has no
+/// foreign keys to enforce and cascades only what is tracked, so it would leave
+/// the junction rows sitting there — and a version of this service that read
+/// the ids one line too late would pass an in-memory test while publishing
+/// nothing at all in production. That is exactly the failure this file is here
+/// to catch, so the test has to run where the cascade is real.</para>
+/// </summary>
+public class EventServiceDeleteCascadeProjectionTests : IDisposable
+{
+    private readonly string _databasePath;
+    private readonly TestDbContextFactory _contextFactory;
+    private readonly EventRepository _repository;
+    private readonly List<string> _projected = new();
+    private readonly Mock<ITimelineProjectionPublisher> _publisher = new();
+    private readonly EventService _service;
+
+    public EventServiceDeleteCascadeProjectionTests()
+    {
+        _databasePath = Path.Combine(
+            Path.GetTempPath(), $"EventServiceDeleteCascadeTests_{Guid.NewGuid()}.db");
+        _contextFactory = TestDbContextFactory.CreateSqliteFile(_databasePath);
+        using (var context = _contextFactory.CreateDbContext())
+        {
+            context.Database.EnsureCreated();
+        }
+
+        _publisher
+            .Setup(p => p.PublishEventAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<string, CancellationToken>((id, _) => _projected.Add($"event:{id}"))
+            .Returns(Task.CompletedTask);
+        _publisher
+            .Setup(p => p.PublishPersonAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<string, CancellationToken>((id, _) => _projected.Add($"person:{id}"))
+            .Returns(Task.CompletedTask);
+        _publisher
+            .Setup(p => p.PublishDeletedAsync(
+                It.IsAny<TimelineProjectionEntity>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<TimelineProjectionEntity, string, CancellationToken>(
+                (entity, id, _) => _projected.Add($"delete:{entity}:{id}"))
+            .Returns(Task.CompletedTask);
+
+        _repository = new EventRepository(_contextFactory);
+        _service = new EventService(
+            _repository,
+            _contextFactory,
+            new Mock<ILogger<EventService>>().Object,
+            projectionPublisher: _publisher.Object);
+    }
+
+    [Fact]
+    public async Task DeleteEventAsync_CapturesLinkedPeopleBeforeTheCascadeAndRepublishesThem()
+    {
+        // Arrange - one event, three people on it
+        var created = await _service.CreateEventAsync(new Event
+        {
+            Title = "Weekend away",
+            StartDate = new DateTime(2024, 7, 1)
+        });
+        var danaId = await SeedPersonAsync("Dana");
+        var sarahId = await SeedPersonAsync("Sarah");
+        var robertId = await SeedPersonAsync("Robert");
+        foreach (var personId in new[] { danaId, sarahId, robertId })
+        {
+            await _service.AddPersonToEventAsync(created.EventId, personId);
+        }
+
+        _projected.Clear();
+
+        // Act
+        await _service.DeleteEventAsync(created.EventId);
+
+        // Assert - the junction really is empty, so the ids could only have come
+        // from a read taken before the delete
+        await using (var context = _contextFactory.CreateDbContext())
+        {
+            (await context.EventPeople.AsNoTracking()
+                .CountAsync(ep => ep.EventId == created.EventId)).Should().Be(0);
+            (await context.People.AsNoTracking().CountAsync()).Should()
+                .Be(3, "a cascade takes the links, never the contacts");
+        }
+
+        // ...and the tombstone leads: a count that drops while the companion is
+        // still drawing the event contradicts data the companion can see, while
+        // a count that lags a removed event is the staleness that already existed.
+        _projected.Should().HaveCount(4);
+        _projected[0].Should().Be($"delete:{TimelineProjectionEntity.Event}:{created.EventId}");
+        _projected.Skip(1).Should().BeEquivalentTo(new[]
+        {
+            $"person:{danaId}", $"person:{sarahId}", $"person:{robertId}"
+        });
+    }
+
+    [Fact]
+    public async Task DeleteEventAsync_WithNoLinkedPeople_PublishesOnlyTheTombstone()
+    {
+        // Arrange
+        var created = await _service.CreateEventAsync(new Event
+        {
+            Title = "A quiet afternoon",
+            StartDate = new DateTime(2024, 7, 1)
+        });
+        _projected.Clear();
+
+        // Act
+        await _service.DeleteEventAsync(created.EventId);
+
+        // Assert - nobody's count moved, so nobody is published
+        _projected.Should().Equal($"delete:{TimelineProjectionEntity.Event}:{created.EventId}");
+    }
+
+    [Fact]
+    public async Task DeleteEventAsync_PersonPublishFails_StillDeletesAndPublishesTheRest()
+    {
+        // Arrange - each publish is guarded on its own, and the delete has
+        // already committed by the time any of them runs
+        var created = await _service.CreateEventAsync(new Event
+        {
+            Title = "Weekend away",
+            StartDate = new DateTime(2024, 7, 1)
+        });
+        var danaId = await SeedPersonAsync("Dana");
+        var sarahId = await SeedPersonAsync("Sarah");
+        await _service.AddPersonToEventAsync(created.EventId, danaId);
+        await _service.AddPersonToEventAsync(created.EventId, sarahId);
+        _projected.Clear();
+        _publisher
+            .Setup(p => p.PublishPersonAsync(danaId, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("database is locked"));
+
+        // Act
+        await _service.DeleteEventAsync(created.EventId);
+
+        // Assert - the memory is gone regardless, and Sarah still got published
+        (await _service.GetEventByIdAsync(created.EventId)).Should().BeNull();
+        _projected.Should().Equal(
+            $"delete:{TimelineProjectionEntity.Event}:{created.EventId}",
+            $"person:{sarahId}");
+    }
+
+    private async Task<string> SeedPersonAsync(string name)
+    {
+        await using var context = _contextFactory.CreateDbContext();
+        var person = new Person
+        {
+            PersonId = Guid.NewGuid().ToString(),
+            Name = name,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        context.People.Add(person);
+        await context.SaveChangesAsync();
+        return person.PersonId;
+    }
+
+    public void Dispose()
+    {
+        using (var context = _contextFactory.CreateDbContext())
+        {
+            context.Database.EnsureDeleted();
+        }
+
+        foreach (var suffix in new[] { "", "-wal", "-shm" })
+        {
+            var path = _databasePath + suffix;
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
     }
 }

@@ -74,7 +74,8 @@ public class ReviewCaptureStatusTests : IDisposable
 
         // Recorded as strings in one list because the ORDER matters as much as
         // the contents: an approval's event upsert has to reach a companion
-        // before the tombstone that empties the queue entry.
+        // before the people it names, and both before the tombstone that empties
+        // the queue entry.
         _projectionPublisher
             .Setup(p => p.PublishPendingEventAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Callback<string, CancellationToken>((id, _) => _projected.Add($"pending_event:{id}"))
@@ -82,6 +83,10 @@ public class ReviewCaptureStatusTests : IDisposable
         _projectionPublisher
             .Setup(p => p.PublishEventAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Callback<string, CancellationToken>((id, _) => _projected.Add($"event:{id}"))
+            .Returns(Task.CompletedTask);
+        _projectionPublisher
+            .Setup(p => p.PublishPersonAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<string, CancellationToken>((id, _) => _projected.Add($"person:{id}"))
             .Returns(Task.CompletedTask);
         _projectionPublisher
             .Setup(p => p.PublishDeletedAsync(
@@ -302,6 +307,60 @@ public class ReviewCaptureStatusTests : IDisposable
     }
 
     [Fact]
+    public async Task ApprovePendingEventAsync_PublishesLinkedPeopleBetweenTheEventAndTheTombstone()
+    {
+        // Arrange - an extraction that named two people. Approval is where they
+        // first reach the archive: one is created outright here, and both gain
+        // an event_people row the person projection's EventCount is derived from.
+        var queueId = await SeedQueueItemAsync(QueueProcessingStage.ReviewReady);
+        var pendingId = await SeedPendingEventAsync(
+            queueId, "Ferry to the island", new[] { "Dana", "Sarah" });
+
+        // Act
+        var approved = await _extractionService.ApprovePendingEventAsync(pendingId);
+
+        // Assert - the people the approval actually linked
+        List<string> personIds;
+        await using (var context = _contextFactory.CreateDbContext())
+        {
+            personIds = await context.EventPeople.AsNoTracking()
+                .Where(ep => ep.EventId == approved.EventId)
+                .Select(ep => ep.PersonId)
+                .ToListAsync();
+        }
+        personIds.Should().HaveCount(2);
+
+        // ...published between the event and the tombstone. An event payload
+        // carries person IDS only — names come from the person projection — so a
+        // batch truncated after the tombstone would leave a companion with a
+        // settled-looking timeline entry naming contacts it cannot resolve and
+        // nothing pending to suggest more is coming. Truncated after the people
+        // it shows a duplicate queue item, the cost already accepted above.
+        _projected.Should().HaveCount(4);
+        _projected[0].Should().Be($"event:{approved.EventId}");
+        _projected.Skip(1).Take(2).Should()
+            .BeEquivalentTo(personIds.Select(id => $"person:{id}"));
+        _projected[3].Should().Be($"delete:{TimelineProjectionEntity.PendingEvent}:{pendingId}");
+    }
+
+    [Fact]
+    public async Task ApprovePendingEventAsync_WithNoExtractedPeople_PublishesNoPersonProjections()
+    {
+        // Arrange - the cost bound: people are published only where the junction
+        // was actually written
+        var queueId = await SeedQueueItemAsync(QueueProcessingStage.ReviewReady);
+        var pendingId = await SeedPendingEventAsync(queueId, "A quiet afternoon", Array.Empty<string>());
+
+        // Act
+        var approved = await _extractionService.ApprovePendingEventAsync(pendingId);
+
+        // Assert
+        _projected.Should().Equal(
+            $"event:{approved.EventId}",
+            $"delete:{TimelineProjectionEntity.PendingEvent}:{pendingId}");
+    }
+
+    [Fact]
     public async Task RejectPendingEventAsync_TombstonesTheQueueEntryAndPublishesNoEvent()
     {
         // Arrange
@@ -448,8 +507,22 @@ public class ReviewCaptureStatusTests : IDisposable
     /// empty so approval skips tag/person/location mapping — the subject here is
     /// the status republish, not metadata.
     /// </summary>
-    private async Task<string> SeedPendingEventAsync(string queueId, string title)
+    private async Task<string> SeedPendingEventAsync(
+        string queueId, string title, string[]? people = null)
     {
+        // An empty ExtractedData is the "no metadata to map" case the ordering
+        // tests above want; passing people opts into the junction writes.
+        var extractedData = people == null
+            ? string.Empty
+            : System.Text.Json.JsonSerializer.Serialize(new ExtractedEvent
+            {
+                Title = title,
+                StartDate = new DateTime(2024, 7, 1),
+                Category = "other",
+                People = people.ToList(),
+                Confidence = 0.9,
+            });
+
         var pending = new PendingEvent
         {
             PendingId = Guid.NewGuid().ToString(),
@@ -457,7 +530,7 @@ public class ReviewCaptureStatusTests : IDisposable
             Title = title,
             StartDate = new DateTime(2024, 7, 1),
             Category = "other",
-            ExtractedData = string.Empty,
+            ExtractedData = extractedData,
             Status = PendingStatus.PendingReview.ToStringValue(),
             IsApproved = false,
             CreatedAt = DateTime.UtcNow,

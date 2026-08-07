@@ -316,9 +316,10 @@ public class EventExtractionService : IEventExtractionService
 
             dbContext.Events.Add(realEvent);
 
+            IReadOnlyCollection<string> linkedPersonIds = Array.Empty<string>();
             if (extracted != null)
             {
-                await MapExtractedMetadataAsync(dbContext, realEvent, extracted);
+                linkedPersonIds = await MapExtractedMetadataAsync(dbContext, realEvent, extracted);
             }
 
             // Flip pending-event status inside the same transaction
@@ -352,14 +353,26 @@ public class EventExtractionService : IEventExtractionService
                 _logger.LogWarning(msgEx, "Failed to publish EventCreatedMessage for {EventId}", realEvent.EventId);
             }
 
-            // An approval moves a memory between two projected collections, so
-            // it publishes twice — and in this order.
+            // An approval moves a memory between two projected collections and
+            // touches the contact book on the way, so it publishes the event,
+            // then its people, then the tombstone — in that order.
             //
             // The event upsert goes first: if only one of the two reaches the
             // companion, an item that lingers in the review queue while also
             // appearing on the timeline is a stale duplicate the next decision
             // clears, whereas a queue entry that vanishes with no event to
             // replace it is indistinguishable from losing the memory.
+            //
+            // The people go between the two, not after, because outbox delivery
+            // is ordered and an event payload carries person IDS only — names
+            // come from the person projection. A batch truncated after the
+            // tombstone would leave a companion with a settled-looking timeline
+            // entry naming people it cannot resolve, and nothing pending to
+            // suggest more is coming; truncated after the people it shows a
+            // duplicate queue item, which is the cost already accepted above.
+            // Approval is also the moment these contacts first become
+            // publishable: a person minted here has never been projected, and
+            // an existing one's EventCount just moved with the junction row.
             //
             // The tombstone is what removes it from the queue. The row itself
             // survives carrying IsApproved/Status, but the pending-event
@@ -375,6 +388,18 @@ public class EventExtractionService : IEventExtractionService
             // nothing to coalesce.
             await PublishProjectionAsync(
                 publisher => publisher.PublishEventAsync(realEvent.EventId), "event", realEvent.EventId);
+            foreach (var personId in linkedPersonIds)
+            {
+                // Always an upsert. A merged-away contact keeps its row and its
+                // MergedIntoId pointer, and the resolution above deliberately
+                // follows a broken chain back to a tombstone rather than mint a
+                // colliding name — so a tombstone id can legitimately land here,
+                // and publishing it as anything but an upsert would strand the
+                // events that reference it.
+                await PublishProjectionAsync(
+                    publisher => publisher.PublishPersonAsync(personId), "person", personId);
+            }
+
             await PublishProjectionAsync(
                 publisher => publisher.PublishDeletedAsync(
                     TimelineProjectionEntity.PendingEvent, pendingEventId),
@@ -901,8 +926,14 @@ public class EventExtractionService : IEventExtractionService
     /// Upserts Tag/Person/Location by name (checking both the database and rows
     /// already added to this context), then adds junction rows. All work happens
     /// on the caller's context so it participates in the approve transaction.
+    ///
+    /// Returns the person ids this linked to the event, resolved and
+    /// de-duplicated. The caller needs them to project those people once the
+    /// transaction commits: a person created here exists on no companion at
+    /// all, and an existing one's linked-event count just moved.
     /// </summary>
-    private async Task MapExtractedMetadataAsync(Data.AppDbContext dbContext, Event realEvent, ExtractedEvent extracted)
+    private async Task<IReadOnlyCollection<string>> MapExtractedMetadataAsync(
+        Data.AppDbContext dbContext, Event realEvent, ExtractedEvent extracted)
     {
         // Tags -> tags + event_tags
         foreach (var rawTag in DistinctNames(extracted.Tags))
@@ -1040,6 +1071,8 @@ public class EventExtractionService : IEventExtractionService
                 CreatedAt = DateTime.UtcNow
             });
         }
+
+        return linkedPersonIds;
     }
 
     /// <summary>

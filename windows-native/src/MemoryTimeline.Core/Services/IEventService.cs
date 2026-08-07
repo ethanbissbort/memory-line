@@ -290,6 +290,36 @@ public class EventService : IEventService
                 }
             }
 
+            // The linked people are captured BEFORE the delete for the same
+            // reason the media rows are, and it is even less recoverable: both
+            // of event_people's foreign keys are configured ON DELETE CASCADE
+            // (AppDbContext), and the repository removes a DETACHED root, so
+            // nothing loads the junction into the change tracker and SQLite
+            // does the cascade itself. Read it afterwards and it is already
+            // empty — the affected counts would silently never be republished,
+            // which is exactly the kind of miss that shows up as nothing at all.
+            // Skipped when no publisher is registered: the ids would have no
+            // reader, and a delete should not pay for a query nobody wants.
+            IReadOnlyList<string> linkedPersonIds = Array.Empty<string>();
+            if (_projectionPublisher != null)
+            {
+                try
+                {
+                    await using var context = await _contextFactory.CreateDbContextAsync();
+                    linkedPersonIds = await context.EventPeople
+                        .AsNoTracking()
+                        .Where(ep => ep.EventId == eventId)
+                        .Select(ep => ep.PersonId)
+                        .ToListAsync();
+                }
+                catch (Exception peopleEx)
+                {
+                    _logger.LogWarning(peopleEx,
+                        "Could not enumerate the people linked to event {EventId} before delete; their event counts stay stale on companions until something else touches them.",
+                        eventId);
+                }
+            }
+
             await _eventRepository.DeleteAsync(eventToDelete);
             _logger.LogInformation("Event deleted: {EventId}", eventId);
 
@@ -314,6 +344,18 @@ public class EventService : IEventService
             // PublishEventAsync would find nothing to project and the companion
             // would keep showing a memory the user deleted.
             await PublishEventDeletionAsync(eventId);
+
+            // The cascade dropped one junction row per person, so every one of
+            // them is now showing a memory too many. Published AFTER the
+            // tombstone because outbox delivery is ordered: a batch that
+            // truncates should take the deleted memory away before any count
+            // moves. A count that drops while the event is still listed is a
+            // contradiction the companion can see in its own data; a count that
+            // lags the deletion is the same staleness that existed a moment ago.
+            foreach (var personId in linkedPersonIds)
+            {
+                await PublishPersonProjectionAsync(personId);
+            }
         }
         catch (Exception ex)
         {
@@ -563,6 +605,13 @@ public class EventService : IEventService
             // The event projection carries its people inline; who was there is
             // half of what a timeline entry says.
             await PublishEventProjectionAsync(eventId);
+
+            // ...and the person's own projection carries the count derived from
+            // the junction row just written, so the event alone is only half the
+            // change. The early return above writes nothing and publishes
+            // nothing, which is why this costs exactly one extra outbox row per
+            // link that actually moved.
+            await PublishPersonProjectionAsync(personId);
         }
         catch (Exception ex)
         {
@@ -592,6 +641,7 @@ public class EventService : IEventService
                 _logger.LogInformation("Person {PersonId} removed from event {EventId}", personId, eventId);
 
                 await PublishEventProjectionAsync(eventId);
+                await PublishPersonProjectionAsync(personId);
             }
         }
         catch (Exception ex)
@@ -819,6 +869,45 @@ public class EventService : IEventService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to publish the timeline projection for event {EventId}", eventId);
+        }
+    }
+
+    /// <summary>
+    /// Projects a person whose linked-event count this service just changed.
+    ///
+    /// <para>A person projection's <c>EventCount</c> is derived from the
+    /// event_people junction, and this service — not PersonService — is its
+    /// main writer. Publishing only the event therefore leaves a companion
+    /// reading "Dana — 4 memories" indefinitely after Dana was added to a
+    /// fifth. Only the paths that actually write the junction call this: a
+    /// title edit or a tag link moves nobody's count, so an event with ten
+    /// people still costs one outbox row for an ordinary edit.</para>
+    ///
+    /// <para>Always an upsert, never a tombstone, even for a merged-away
+    /// person: that row survives carrying its MergedIntoId, which is how a
+    /// companion resolves the old id an earlier event projection still names.
+    /// A person who was genuinely deleted is tombstoned by PersonService, and
+    /// the publisher no-ops on the missing row rather than resurrecting it as
+    /// an upsert from here.</para>
+    ///
+    /// <para>Same swallow-and-warn as
+    /// <see cref="PublishEventProjectionAsync"/>, and for the same reason: the
+    /// junction write has already committed.</para>
+    /// </summary>
+    private async Task PublishPersonProjectionAsync(string personId)
+    {
+        if (_projectionPublisher == null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _projectionPublisher.PublishPersonAsync(personId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to publish the person projection for {PersonId}", personId);
         }
     }
 
