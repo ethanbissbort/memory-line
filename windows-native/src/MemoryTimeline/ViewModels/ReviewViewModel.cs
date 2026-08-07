@@ -339,21 +339,32 @@ public partial class ReviewViewModel : ObservableObject
             StatusMessage = "Approving all events...";
 
             var eventsToApprove = PendingEvents.ToList();
+            var affectedQueues = new HashSet<string>(StringComparer.Ordinal);
             int approvedCount = 0;
 
             foreach (var evt in eventsToApprove)
             {
                 try
                 {
-                    await _extractionService.ApprovePendingEventAsync(evt.PendingEventId);
+                    // Publishing is deferred: a batch must produce one capture
+                    // status per capture, not one per event.
+                    await _extractionService.ApprovePendingEventAsync(
+                        evt.PendingEventId, publishCaptureStatus: false);
                     PendingEvents.Remove(evt);
                     approvedCount++;
+
+                    if (!string.IsNullOrWhiteSpace(evt.QueueId))
+                    {
+                        affectedQueues.Add(evt.QueueId);
+                    }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Failed to approve event: {Title}", evt.Title);
                 }
             }
+
+            await PublishCaptureStatusesAsync(affectedQueues);
 
             OnPropertyChanged(nameof(HasPendingEvents));
             OnPropertyChanged(nameof(IsEmpty));
@@ -401,21 +412,32 @@ public partial class ReviewViewModel : ObservableObject
             StatusMessage = "Rejecting all events...";
 
             var eventsToReject = PendingEvents.ToList();
+            var affectedQueues = new HashSet<string>(StringComparer.Ordinal);
             int rejectedCount = 0;
 
             foreach (var evt in eventsToReject)
             {
                 try
                 {
-                    await _extractionService.RejectPendingEventAsync(evt.PendingEventId);
+                    // Publishing is deferred: a batch must produce one capture
+                    // status per capture, not one per event.
+                    await _extractionService.RejectPendingEventAsync(
+                        evt.PendingEventId, publishCaptureStatus: false);
                     PendingEvents.Remove(evt);
                     rejectedCount++;
+
+                    if (!string.IsNullOrWhiteSpace(evt.QueueId))
+                    {
+                        affectedQueues.Add(evt.QueueId);
+                    }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Failed to reject event: {Title}", evt.Title);
                 }
             }
+
+            await PublishCaptureStatusesAsync(affectedQueues);
 
             OnPropertyChanged(nameof(HasPendingEvents));
             OnPropertyChanged(nameof(IsEmpty));
@@ -465,6 +487,20 @@ public partial class ReviewViewModel : ObservableObject
         if (value == null)
         {
             IsEditing = false;
+        }
+    }
+
+    /// <summary>
+    /// Republishes the processing status of every capture a bulk approve/reject
+    /// touched — once per capture, after the batch, rather than once per event
+    /// (design §19 Phase 3). The service swallows its own publish failures, so
+    /// this cannot break the review flow.
+    /// </summary>
+    private async Task PublishCaptureStatusesAsync(IEnumerable<string> queueIds)
+    {
+        foreach (var queueId in queueIds)
+        {
+            await _extractionService.PublishCaptureStatusAsync(queueId);
         }
     }
 

@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://memory-line.dev/schemas/capture-status-payload.v1.json",
+  "title": "CaptureStatusChangePayload",
+  "description": "Windows-authored processing status for one capture, carried as the payloadJson of a capture_status sync change (design doc section 19, Phase 3). Mirrors the C# DTO MemoryTimeline.SyncContracts.CaptureStatusChangePayload and its Swift mirror in ios-companion. Direction is one-way — Windows publishes into its sync outbox, POST /sync/push records it, and the capture's phone receives it on GET /sync/pull — so nothing here is an instruction: it is a read-only projection of Windows-side state, and transcript editing and event approval stay on Windows. Payloads are camelCase and do not strip nulls, so an absent optional value is present as null. additionalProperties is false because this validates what a publisher emits at this schema version; consumers still ignore fields they do not recognize, per the additive versioning rules in ../README.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "captureId",
+    "status",
+    "updatedAtUtc",
+    "transcriptAvailable"
+  ],
+  "properties": {
+    "captureId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Capture this status belongs to. Must equal the change's entityId; a mismatch rejects the push entry."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["local_only", "uploading", "received", "processing", "review_ready", "completed", "failed"],
+      "description": "Coarse lifecycle state (the SyncCaptureStatus vocabulary, same as Capture.status). A value outside this list rejects the push entry."
+    },
+    "processingStage": {
+      "type": ["string", "null"],
+      "description": "Finer-grained position inside status, from the Windows queue's stage vocabulary: pending_download, verifying, ready_for_transcription, transcribing, extracting, review_ready, completed, failed_retryable, failed_configuration, failed_permanent. Null when the publisher has no detail finer than the status. Deliberately not constrained to an enum, unlike status: the service forwards the stage without validating it, so consumers keep it as a string and tolerate an unrecognized value."
+    },
+    "updatedAtUtc": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When Windows produced this status, UTC ISO 8601. Display only — changes are applied in changeId order, never by this clock."
+    },
+    "transcriptAvailable": {
+      "type": "boolean",
+      "description": "True once a transcript exists for the capture on Windows."
+    },
+    "transcriptPreview": {
+      "type": ["string", "null"],
+      "maxLength": 600,
+      "description": "Leading excerpt of the transcript, truncated by the publisher. The full transcript deliberately stays on Windows in this phase — this is a preview, not a replica. The service refuses an over-long preview rather than truncating it, so truncation stays the publisher's decision."
+    },
+    "transcriptCharCount": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "Character count of the complete Windows-side transcript, so the phone can show how much the preview omits without holding the text."
+    },
+    "pendingEventCount": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "Events extracted from this capture that are awaiting review on Windows. Null before extraction has run — null rather than an invented zero."
+    },
+    "approvedEventCount": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "Events from this capture already approved onto the timeline."
+    },
+    "failureReason": {
+      "type": ["string", "null"],
+      "description": "User-facing reason when status is failed; null otherwise. By contract it never carries transcript content, file paths, or credentials (design doc section 14.5), so publishers send fixed text keyed on the failure stage rather than raw error output."
+    },
+    "failureRetryable": {
+      "type": ["boolean", "null"],
+      "description": "True when the failure is expected to clear on retry (design doc section 16.2). Null when the publisher cannot classify it, which is not evidence either way."
+    }
+  }
+}

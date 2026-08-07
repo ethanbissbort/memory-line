@@ -20,6 +20,9 @@ final class AppEnvironment {
     let api: SyncAPIClient
     let uploads: UploadCoordinator
     let recorder: AudioRecorderService
+    /// Windows-authored processing status per capture (design §19 Phase 3).
+    let statuses: SQLiteCaptureStatusStore
+    let statusSync: StatusSyncCoordinator
 
     private let logger = AppLog.logger(category: "environment")
 
@@ -30,6 +33,13 @@ final class AppEnvironment {
         let tokens = KeychainTokenStore()
         let api = SyncAPIClient(settings: settings, tokens: tokens)
         let uploads = UploadCoordinator(store: captures, settings: settings, tokens: tokens, api: api)
+        let statuses = Self.openStatusStore(database: database)
+        let statusSync = StatusSyncCoordinator(
+            store: captures, settings: settings, api: api, statusStore: statuses)
+        // The upload pass pulls status when it finishes, so a manual "sync now"
+        // also refreshes what Windows has done. Held weakly there; this
+        // environment owns both coordinators for the process lifetime.
+        uploads.statusSync = statusSync
 
         self.database = database
         self.captures = captures
@@ -37,6 +47,8 @@ final class AppEnvironment {
         self.tokens = tokens
         self.api = api
         self.uploads = uploads
+        self.statuses = statuses
+        self.statusSync = statusSync
         // Capture the local `uploads` (not self) so the closure is valid before
         // `self` is fully initialized. Every finalized recording immediately
         // enters the upload pipeline (design §16.1).
@@ -106,6 +118,23 @@ final class AppEnvironment {
     /// reports success) flows through this database. Limping on without it
     /// would accept recordings whose metadata silently vanishes, which is
     /// strictly worse than a visible crash at launch.
+    /// Opens the Phase 3 status projection over the already-open capture
+    /// database. Its migration is plain DDL against a database that has just
+    /// opened and migrated successfully, so a failure here means that same
+    /// database — the one holding every capture — is unusable, which is the
+    /// case `openDatabaseRecoveringFromCorruptWAL` already treats as fatal.
+    /// Failing loudly here rather than degrading keeps that policy in one
+    /// place instead of leaving a half-working app.
+    private static func openStatusStore(database: SQLiteDatabase) -> SQLiteCaptureStatusStore {
+        do {
+            return try SQLiteCaptureStatusStore(database: database)
+        } catch {
+            fatalError(
+                "Memory Line could not prepare its capture-status table on an otherwise healthy "
+                + "database: \(error)")
+        }
+    }
+
     private static func openDatabaseRecoveringFromCorruptWAL() -> SQLiteDatabase {
         let url: URL
         do {

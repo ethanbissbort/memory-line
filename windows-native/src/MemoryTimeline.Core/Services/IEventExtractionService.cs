@@ -25,11 +25,17 @@ public interface IEventExtractionService
     Task<List<PendingEvent>> ExtractAndCreatePendingEventsAsync(string queueId, string transcript);
 
     /// <summary>
-    /// Approves a pending event and creates it as a real event.
+    /// Approves a pending event and creates it as a real event, then republishes
+    /// the owning capture's status so the phone sees the new review counts.
     /// </summary>
     /// <param name="pendingEventId">Pending event ID</param>
+    /// <param name="publishCaptureStatus">
+    /// False for bulk review, where the caller publishes once per affected
+    /// capture via <see cref="PublishCaptureStatusAsync"/> instead of once per
+    /// event.
+    /// </param>
     /// <returns>Created event</returns>
-    Task<Event> ApprovePendingEventAsync(string pendingEventId);
+    Task<Event> ApprovePendingEventAsync(string pendingEventId, bool publishCaptureStatus = true);
 
     /// <summary>
     /// Updates a pending event before approval.
@@ -39,10 +45,25 @@ public interface IEventExtractionService
     Task<PendingEvent> UpdatePendingEventAsync(PendingEvent pendingEvent);
 
     /// <summary>
-    /// Rejects and deletes a pending event.
+    /// Rejects and deletes a pending event, then republishes the owning
+    /// capture's status so the phone sees the new review counts.
     /// </summary>
     /// <param name="pendingEventId">Pending event ID</param>
-    Task RejectPendingEventAsync(string pendingEventId);
+    /// <param name="publishCaptureStatus">
+    /// False for bulk review, where the caller publishes once per affected
+    /// capture via <see cref="PublishCaptureStatusAsync"/> instead of once per
+    /// event.
+    /// </param>
+    Task RejectPendingEventAsync(string pendingEventId, bool publishCaptureStatus = true);
+
+    /// <summary>
+    /// Republishes one capture's processing status after its review moved:
+    /// refreshed review counts, and `completed` once no event is left to review.
+    /// A no-op when no capture-status publisher is registered; never throws
+    /// (design §19 Phase 3).
+    /// </summary>
+    /// <param name="queueId">Queue item that owns the reviewed events</param>
+    Task PublishCaptureStatusAsync(string queueId);
 
     /// <summary>
     /// Gets all pending events for a queue item.

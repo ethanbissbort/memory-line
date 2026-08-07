@@ -16,6 +16,7 @@ public class QueueService : IQueueService
     private readonly IRecordingQueueRepository _queueRepository;
     private readonly IEventExtractionService _extractionService;
     private readonly INotificationService _notificationService;
+    private readonly ICaptureStatusPublisher? _statusPublisher;
     private readonly ILogger<QueueService> _logger;
     private readonly SemaphoreSlim _processingSemaphore = new(1, 1);
 
@@ -26,12 +27,14 @@ public class QueueService : IQueueService
         IRecordingQueueRepository queueRepository,
         IEventExtractionService extractionService,
         ILogger<QueueService> logger,
-        INotificationService notificationService)
+        INotificationService notificationService,
+        ICaptureStatusPublisher? statusPublisher = null)
     {
         _queueRepository = queueRepository;
         _extractionService = extractionService;
         _logger = logger;
         _notificationService = notificationService ?? throw new ArgumentNullException(nameof(notificationService));
+        _statusPublisher = statusPublisher;
     }
 
     /// <summary>
@@ -185,6 +188,11 @@ public class QueueService : IQueueService
                 queueId, oldStatus, status);
 
             RaiseStatusChanged(queueId, oldStatus, status, errorMessage);
+
+            // Every stage transition of a device capture is news on the phone
+            // that recorded it (design §19 Phase 3). This is the single funnel
+            // for stage changes — the import service routes through here too.
+            await TryPublishCaptureStatusAsync(item);
         }
         catch (Exception ex)
         {
@@ -377,6 +385,10 @@ public class QueueService : IQueueService
             _logger.LogInformation("Retrying failed item: {QueueId}", queueId);
 
             RaiseStatusChanged(queueId, QueueStatus.Failed, QueueStatus.Pending);
+
+            // A retry moves the capture back out of "failed" — the phone must
+            // stop showing the failure it was told about.
+            await TryPublishCaptureStatusAsync(item);
         }
         catch (Exception ex)
         {
@@ -538,6 +550,29 @@ public class QueueService : IQueueService
         }
 
         return (false, 0);
+    }
+
+    /// <summary>
+    /// Projects the item's new state toward the device that captured it. The
+    /// publisher itself decides what is worth publishing (device captures only,
+    /// unchanged projections dropped). Publishing failure must never break
+    /// processing — the next transition republishes.
+    /// </summary>
+    private async Task TryPublishCaptureStatusAsync(RecordingQueue item)
+    {
+        if (_statusPublisher == null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _statusPublisher.PublishAsync(item);
+        }
+        catch (Exception publishEx)
+        {
+            _logger.LogWarning(publishEx, "Failed to publish capture status for queue item {QueueId}", item.QueueId);
+        }
     }
 
     private void RaiseStatusChanged(string queueId, string oldStatus, string newStatus, string? errorMessage = null)

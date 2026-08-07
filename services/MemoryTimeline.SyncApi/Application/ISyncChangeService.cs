@@ -17,7 +17,10 @@ public interface ISyncChangeService
     /// <summary>
     /// Applies pushed outbox entries with per-entry results. Entries are
     /// deduplicated by (device, clientSequence); one bad entry never fails the
-    /// batch. Capture-entity payloads update the capture status and revision.
+    /// batch. Capture-entity payloads update the capture status and revision;
+    /// capture_status entries (design §19 Phase 3) are validated against
+    /// CaptureStatusChangePayload and update the capture's status projection,
+    /// and a malformed one is rejected rather than repaired.
     /// </summary>
     Task<ServiceResult<SyncPushResponse>> PushAsync(Device caller, SyncPushRequest request, CancellationToken cancellationToken);
 

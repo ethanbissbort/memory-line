@@ -5,6 +5,8 @@ using MemoryTimeline.Core.DTOs;
 using MemoryTimeline.Core.Services;
 using MemoryTimeline.Data.Models;
 using MemoryTimeline.Data.Repositories;
+using MemoryTimeline.Sync;
+using MemoryTimeline.SyncContracts;
 using System.Security.Cryptography;
 using Xunit;
 
@@ -184,6 +186,53 @@ public class CaptureIngestionServiceTests : IDisposable
         var artifact = await context.CaptureArtifacts.SingleAsync();
         artifact.UploadState.Should().Be(CaptureArtifactUploadState.Downloaded);
         artifact.ByteLength.Should().Be(content.Length);
+    }
+
+    [Fact]
+    public async Task IngestRemoteCaptureAsync_WithStatusPublisher_AlsoPublishesReceivedStatus()
+    {
+        // Arrange - the capturing phone is waiting to hear Windows has it
+        var service = CreateServiceWithStatusPublisher();
+        var audioPath = CreateTempAudioFile(out var content);
+        var envelope = CreateValidEnvelope(audioPath, content);
+        envelope.SourceDeviceId = "iphone-15-pro";
+
+        // Act
+        var result = await service.IngestRemoteCaptureAsync(envelope);
+
+        // Assert
+        result.Success.Should().BeTrue();
+
+        await using var context = _contextFactory.CreateDbContext();
+        var statusEntry = await context.SyncOutboxEntries
+            .SingleAsync(o => o.EntityType == SyncEntityType.CaptureStatus);
+        statusEntry.EntityId.Should().Be(envelope.CaptureId);
+        statusEntry.PayloadJson.Should().Contain(SyncCaptureStatus.Received);
+    }
+
+    [Fact]
+    public async Task IngestLocalRecordingAsync_WithStatusPublisher_PublishesNoCaptureStatus()
+    {
+        // Arrange - a recording made on Windows has no phone waiting on it
+        var service = CreateServiceWithStatusPublisher();
+        var audioPath = CreateTempAudioFile(out _);
+        var recording = new AudioRecordingDto
+        {
+            QueueId = Guid.NewGuid().ToString(),
+            AudioFilePath = audioPath,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        // Act
+        var result = await service.IngestLocalRecordingAsync(recording);
+
+        // Assert - only the capture row, no status noise
+        result.Success.Should().BeTrue();
+
+        await using var context = _contextFactory.CreateDbContext();
+        (await context.SyncOutboxEntries.CountAsync(o => o.EntityType == SyncEntityType.CaptureStatus))
+            .Should().Be(0);
+        (await context.SyncOutboxEntries.CountAsync()).Should().Be(1);
     }
 
     [Fact]
@@ -450,6 +499,20 @@ public class CaptureIngestionServiceTests : IDisposable
         Random.Shared.NextBytes(content);
         return CreateTempAudioFileWithContent(content);
     }
+
+    /// <summary>
+    /// Same service over the same database, plus the real capture status
+    /// publisher (an optional dependency: absent in the shared instance above).
+    /// </summary>
+    private CaptureIngestionService CreateServiceWithStatusPublisher() => new(
+        new CaptureRepository(_contextFactory),
+        new RecordingQueueRepository(_contextFactory),
+        new LocalFileArtifactResolver(),
+        NullLogger<CaptureIngestionService>.Instance,
+        new CaptureStatusPublisher(
+            new SyncOutboxRepository(_contextFactory),
+            new PendingEventRepository(_contextFactory),
+            NullLogger<CaptureStatusPublisher>.Instance));
 
     /// <summary>Writes the given bytes to a fresh temp "audio" file and tracks it for cleanup.</summary>
     private string CreateTempAudioFileWithContent(byte[] content)

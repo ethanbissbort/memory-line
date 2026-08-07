@@ -89,6 +89,32 @@ internal static class EntityMappers
         };
     }
 
+    /// <summary>
+    /// Serializes the stored status projection as the payload of a
+    /// capture_status change (camelCase JSON, design §19 Phase 3). The change
+    /// log carries what the server persisted rather than the publisher's raw
+    /// bytes, so a pulled payload can never disagree with the stored row.
+    /// </summary>
+    public static string SerializeCaptureStatusPayload(CaptureStatusRow status)
+    {
+        var payload = new CaptureStatusChangePayload
+        {
+            CaptureId = status.CaptureId,
+            Status = status.Status,
+            ProcessingStage = status.ProcessingStage,
+            UpdatedAtUtc = status.UpdatedAtUtc,
+            TranscriptAvailable = status.TranscriptAvailable,
+            TranscriptPreview = status.TranscriptPreview,
+            TranscriptCharCount = status.TranscriptCharCount,
+            PendingEventCount = status.PendingEventCount,
+            ApprovedEventCount = status.ApprovedEventCount,
+            FailureReason = status.FailureReason,
+            FailureRetryable = status.FailureRetryable,
+        };
+
+        return JsonSerializer.Serialize(payload, SyncJson.Options);
+    }
+
     /// <summary>Whether the artifact carries capture audio (its completion triggers ingestion).</summary>
     public static bool IsAudioArtifact(ServerArtifact artifact)
         => artifact.ArtifactType is "audio_original" or "audio_normalized";

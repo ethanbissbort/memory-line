@@ -49,6 +49,13 @@ final class UploadCoordinator {
     /// external trigger.
     @ObservationIgnored private var pendingRerun = false
 
+    /// Status pull to run after each upload pass, so the phone learns what
+    /// Windows did with the captures it just sent (design §19 Phase 3). Weak
+    /// because `AppEnvironment` owns both coordinators; the status side never
+    /// calls back here, so the pull can neither form a cycle nor re-enter the
+    /// upload pipeline.
+    @ObservationIgnored weak var statusSync: StatusSyncCoordinator?
+
     init(store: any CaptureStore, settings: any SettingsStore, tokens: any TokenStore, api: any SyncAPI) {
         self.store = store
         self.settings = settings
@@ -166,8 +173,21 @@ final class UploadCoordinator {
 
     // MARK: - Upload pass
 
+    /// One trigger's worth of work: the upload sweep, then a status pull on the
+    /// same trigger so the user's "sync now" also refreshes what Windows has
+    /// done (design §19 Phase 3). The pull runs after `runUploadPass` has
+    /// released the in-flight guard, so it neither blocks a capture finalized
+    /// mid-pull nor re-enters this pass.
     private func run(manual: Bool) async {
-        guard !isRunning else { return }
+        guard await runUploadPass(manual: manual) else { return }
+        await statusSync?.pullNow()
+    }
+
+    /// Runs the upload sweep. Returns false when the pass never started (sync
+    /// off, auto-upload off, or not paired) — the same conditions that make a
+    /// status pull pointless.
+    private func runUploadPass(manual: Bool) async -> Bool {
+        guard !isRunning else { return false }
         isRunning = true
         defer { isRunning = false }
 
@@ -177,10 +197,10 @@ final class UploadCoordinator {
             if manual {
                 lastSyncError = "Sync is turned off. Enable it in Settings."
             }
-            return
+            return false
         }
         if !manual, !settings.bool(AppSettingsKey.autoUpload, default: true) {
-            return
+            return false
         }
         guard
             let deviceId = settings.string(AppSettingsKey.deviceId), !deviceId.isEmpty,
@@ -189,7 +209,7 @@ final class UploadCoordinator {
             if manual || pendingCount > 0 {
                 lastSyncError = "Not paired with a sync server yet. Pair in Settings."
             }
-            return
+            return false
         }
 
         // Captures stranded in `.uploading` by a crash/kill rejoin the queue.
@@ -245,6 +265,7 @@ final class UploadCoordinator {
         publishWidgetState()
         scheduleUploadRetry()
         logger.info("upload pass finished pending=\(self.pendingCount) failed=\(passError != nil)")
+        return true
     }
 
     /// True when the queue holds captures this invocation has not attempted

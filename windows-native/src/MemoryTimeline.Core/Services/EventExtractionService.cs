@@ -23,6 +23,7 @@ public class EventExtractionService : IEventExtractionService
     private readonly IDbContextFactory<Data.AppDbContext> _contextFactory;
     private readonly ILogger<EventExtractionService> _logger;
     private readonly EventRevisionWriter? _revisionWriter;
+    private readonly ICaptureStatusPublisher? _statusPublisher;
 
     private const string MissingApiKeyMessage = "Anthropic API key not configured — add it in Settings";
     private const string MissingBaseUrlMessage = "LLM base URL not configured — add it in Settings (e.g. http://localhost:11434/v1 for Ollama)";
@@ -36,7 +37,8 @@ public class EventExtractionService : IEventExtractionService
         IPersonService personService,
         IDbContextFactory<Data.AppDbContext> contextFactory,
         ILogger<EventExtractionService> logger,
-        EventRevisionWriter? revisionWriter = null)
+        EventRevisionWriter? revisionWriter = null,
+        ICaptureStatusPublisher? statusPublisher = null)
     {
         _llmService = llmService;
         _sttService = sttService;
@@ -47,6 +49,7 @@ public class EventExtractionService : IEventExtractionService
         _contextFactory = contextFactory;
         _logger = logger;
         _revisionWriter = revisionWriter;
+        _statusPublisher = statusPublisher;
     }
 
     /// <summary>
@@ -230,8 +233,11 @@ public class EventExtractionService : IEventExtractionService
     /// status flip are all written in a single transaction on one context, so a
     /// failure part-way can never leave a half-approved state or duplicate events
     /// on re-approve.
+    /// Once committed, the owning capture's status is republished with fresh
+    /// review counts unless <paramref name="publishCaptureStatus"/> says the
+    /// caller will do it itself after a batch.
     /// </summary>
-    public async Task<Event> ApprovePendingEventAsync(string pendingEventId)
+    public async Task<Event> ApprovePendingEventAsync(string pendingEventId, bool publishCaptureStatus = true)
     {
         try
         {
@@ -330,6 +336,13 @@ public class EventExtractionService : IEventExtractionService
                 _logger.LogWarning(msgEx, "Failed to publish EventCreatedMessage for {EventId}", realEvent.EventId);
             }
 
+            // The phone is watching this capture's review counts (design §19
+            // Phase 3); nothing else republishes them once extraction is done.
+            if (publishCaptureStatus)
+            {
+                await PublishCaptureStatusAsync(pendingEvent.QueueId ?? string.Empty);
+            }
+
             // Kick off embedding generation in the background; it must never
             // affect the approve flow and logs its own errors.
             var approvedEventId = realEvent.EventId;
@@ -396,10 +409,15 @@ public class EventExtractionService : IEventExtractionService
     }
 
     /// <summary>
-    /// Rejects and deletes a pending event.
+    /// Rejects and deletes a pending event. Once committed, the owning capture's
+    /// status is republished with fresh review counts unless
+    /// <paramref name="publishCaptureStatus"/> says the caller will do it itself
+    /// after a batch.
     /// </summary>
-    public async Task RejectPendingEventAsync(string pendingEventId)
+    public async Task RejectPendingEventAsync(string pendingEventId, bool publishCaptureStatus = true)
     {
+        string? queueId = null;
+
         try
         {
             await using var dbContext = await _contextFactory.CreateDbContextAsync();
@@ -409,6 +427,7 @@ public class EventExtractionService : IEventExtractionService
 
             if (pendingEvent != null)
             {
+                queueId = pendingEvent.QueueId;
                 dbContext.PendingEvents.Remove(pendingEvent);
                 await dbContext.SaveChangesAsync();
 
@@ -419,6 +438,65 @@ public class EventExtractionService : IEventExtractionService
         {
             _logger.LogError(ex, "Error rejecting pending event");
             throw;
+        }
+
+        // Rejecting the last pending event finishes the review just as approving
+        // it does, so the capture reaches `completed` either way.
+        if (publishCaptureStatus && queueId != null)
+        {
+            await PublishCaptureStatusAsync(queueId);
+        }
+    }
+
+    /// <summary>
+    /// Republishes one capture's processing status after its review moved:
+    /// refreshed pending/approved counts, and — once nothing is left to review —
+    /// the queue item advanced to <see cref="QueueProcessingStage.Completed"/>
+    /// so the phone stops showing "Ready for review" for a review that is over
+    /// (design §19 Phase 3).
+    ///
+    /// Bulk review paths call this once per affected capture after the batch
+    /// instead of once per event. The publisher is an optional dependency: with
+    /// none registered this is a no-op, and a publish that fails is logged and
+    /// swallowed — approving an event must never fail because a status could not
+    /// be projected, and the next transition republishes anyway.
+    /// </summary>
+    public async Task PublishCaptureStatusAsync(string queueId)
+    {
+        if (_statusPublisher == null || string.IsNullOrWhiteSpace(queueId))
+        {
+            return;
+        }
+
+        try
+        {
+            var queueItem = await _queueRepository.GetByIdAsync(queueId);
+            if (queueItem == null)
+            {
+                _logger.LogDebug("Queue item {QueueId} no longer exists; no status is published", queueId);
+                return;
+            }
+
+            // Only review_ready is ours to finish. A failed or still-processing
+            // item is the queue pipeline's business, and forcing it to completed
+            // here would tell the phone the capture is done when it is not.
+            if (queueItem.ProcessingStage == QueueProcessingStage.ReviewReady &&
+                await CountPendingReviewAsync(queueId) == 0)
+            {
+                queueItem.Status = QueueStatus.Completed;
+                queueItem.ProcessingStage = QueueProcessingStage.Completed;
+                queueItem.ProcessedAt ??= DateTime.UtcNow;
+                await _queueRepository.UpdateAsync(queueItem);
+
+                _logger.LogInformation(
+                    "Queue item {QueueId} has no events left to review; marked completed", queueId);
+            }
+
+            await _statusPublisher.PublishAsync(queueItem);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to publish capture status for queue item {QueueId}", queueId);
         }
     }
 
@@ -648,6 +726,21 @@ public class EventExtractionService : IEventExtractionService
     }
 
     #region Private Methods
+
+    /// <summary>
+    /// Events still awaiting review for one queue item. Counts by
+    /// <see cref="PendingEvent.Status"/> rather than
+    /// <see cref="PendingEvent.IsApproved"/> so it agrees with the publisher's
+    /// own pending/approved split (rejected rows are deleted outright).
+    /// </summary>
+    private async Task<int> CountPendingReviewAsync(string queueId)
+    {
+        var pendingReview = PendingStatus.PendingReview.ToStringValue();
+
+        await using var dbContext = await _contextFactory.CreateDbContextAsync();
+        return await dbContext.PendingEvents
+            .CountAsync(pe => pe.QueueId == queueId && pe.Status == pendingReview);
+    }
 
     /// <summary>
     /// Verifies the ACTIVE LLM provider is configured; throws a non-retryable

@@ -72,6 +72,7 @@ public static class SyncApiBootstrapper
         var factory = services.GetRequiredService<IDbContextFactory<SyncDbContext>>();
         await using var db = await factory.CreateDbContextAsync();
         await db.Database.EnsureCreatedAsync();
+        await EnsureCaptureStatusTableAsync(db);
 
         var retentionCutoffUtc = DateTime.UtcNow.AddHours(-IdempotencyRetentionHours);
         await db.IdempotencyRecords
@@ -91,6 +92,39 @@ public static class SyncApiBootstrapper
         }
 
         return owner.OwnerId;
+    }
+
+    /// <summary>
+    /// Creates the capture_status projection table (design §19 Phase 3) on
+    /// databases created before it existed: EnsureCreated builds the whole
+    /// schema on first run but leaves an existing database untouched, so a
+    /// later table has to be created explicitly. Both statements are
+    /// idempotent, so the fresh-database path is a no-op. Column names and
+    /// types mirror the CaptureStatusRow mapping in <see cref="SyncDbContext"/>.
+    /// </summary>
+    private static async Task EnsureCaptureStatusTableAsync(SyncDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            CREATE TABLE IF NOT EXISTS capture_status (
+                capture_id TEXT NOT NULL CONSTRAINT PK_capture_status PRIMARY KEY,
+                owner_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                processing_stage TEXT NULL,
+                updated_at_utc TEXT NOT NULL,
+                transcript_available INTEGER NOT NULL,
+                transcript_preview TEXT NULL,
+                transcript_char_count INTEGER NULL,
+                pending_event_count INTEGER NULL,
+                approved_event_count INTEGER NULL,
+                failure_reason TEXT NULL,
+                failure_retryable INTEGER NULL,
+                revision INTEGER NOT NULL,
+                received_at_utc TEXT NOT NULL
+            )
+            """);
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE INDEX IF NOT EXISTS IX_capture_status_owner_id ON capture_status (owner_id)");
     }
 
     private static byte[] ResolveSigningKey(SyncApiOptions options, string dataDir)

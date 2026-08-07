@@ -72,4 +72,8 @@ public static class SyncEntityType
     public const string RecordingQueue = "recording_queue";
     public const string PendingEvent = "pending_event";
     public const string Event = "event";
+
+    /// <summary>Windows-authored capture processing status (Phase 3); must match
+    /// SyncChangeEntityType.CaptureStatus in the shared contracts.</summary>
+    public const string CaptureStatus = "capture_status";
 }

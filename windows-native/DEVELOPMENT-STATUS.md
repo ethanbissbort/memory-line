@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-08-07
 **Current Phase:** Phase 7 - Testing & Deployment (plus the 2026-08 feature-spec wave, landed)
-**Overall Progress:** Phases 0-6 complete; F1–F12 feature spec implemented; iOS companion Phases 0-2 landed; toolchain rolled to .NET 10 + Windows App SDK 2.3.1; Phase 7 in progress
+**Overall Progress:** Phases 0-6 complete; F1–F12 feature spec implemented; iOS companion Phases 0-3 landed; toolchain rolled to .NET 10 + Windows App SDK 2.3.1; Phase 7 in progress
 **Status:** 🔄 IN PROGRESS — builds green in CI, end-to-end runtime validation ongoing
 
 ---
@@ -64,6 +64,99 @@ similar ways — both surface as assembly-load and type-resolution errors.
 - Untested from CI: the runtime interaction between
   `Microsoft.ML.OnnxRuntime.DirectML` 1.16.3 and the ONNX runtime bundled in
   WinAppSDK 2.3.1 (two ONNX runtimes in one process is a known hazard).
+
+---
+
+## iOS roadtrip companion — Phase 3: processing status & review handoff (2026-08)
+
+**Date:** 2026-08-07
+
+Phase 3 of the iOS roadtrip companion plan (design doc §19 Phase 3) landed. Its
+exit criterion: **the user can understand a capture's full lifecycle from the
+phone without opening Windows, while all editing and approval stay on Windows.**
+
+**Direction of flow — one way, Windows-authored:**
+
+```text
+IQueueService advances a processing stage
+  → ICaptureStatusPublisher writes a capture_status row into sync_outbox
+  → LocalOutboxPublisher drains it to POST /sync/push
+  → service change log + one latest-wins capture_status projection row
+  → GET /sync/pull on the originating phone
+  → applied locally; a local notification on a milestone
+```
+
+- **New `capture_status` change type** — `CaptureStatusChangePayload` and
+  `SyncChangeEntityType.CaptureStatus` in the shared contracts, with the
+  matching `SyncEntityType.CaptureStatus` on the Windows outbox side
+  (`MemoryTimeline.Data/Models/SyncOutbox.cs`). `entityId` is the `captureId` — one status
+  entity per capture — and only `upsert` is meaningful. The payload carries the
+  coarse `SyncCaptureStatus`, the finer `QueueProcessingStage`, a transcript
+  preview **capped at 600 characters** plus the full transcript's character
+  count, pending/approved review counts, and a failure reason with its retry
+  classification.
+- **Windows publisher** — `CaptureStatusPublisher` projects a queue item's state
+  into an outbox row. It publishes only for captures that came from another
+  device (a Windows-local recording has no phone waiting on it) and drops a
+  projection identical to the last one, so the pipeline can call it after every
+  transition without producing noise.
+- **Service** — `/sync/push` validates `capture_status` entries before they
+  enter the change log and stores a `capture_status` projection row per capture;
+  `/sync/pull` fans it out to the owner's other devices. Echo suppression keys
+  on the *publishing* device, never on the device a capture came from, which is
+  what lets a phone receive status about its own captures. The startup path
+  creates the new table with idempotent DDL, so a Phase 1/2 deployment upgrades
+  without deleting `sync.db`.
+- **iOS** — a pull-driven `StatusSyncCoordinator` applies changes to a local
+  `capture_status` table, and history/detail fuse the local upload leg with the
+  remote processing leg into one readable position, plus the transcript preview,
+  the review counts, and where the recording currently exists.
+
+**The boundary, stated explicitly:** editing and approval stay on Windows.
+Nothing in `capture_status` is an instruction — it is a read-only projection of
+Windows-side state. The phone never authors the entity type, never edits a
+transcript, and never approves or rejects an extracted event.
+
+**Deliberate decision — notifications are LOCAL, not APNs.** Per the resolved
+§22.1/§22.2 decisions (self-hosted deployment, no user accounts), there is no
+push certificate and no notification server anywhere in this design. The phone
+posts its own local notification the moment a *pull* observes a capture becoming
+review-ready, completing, or failing. The trade-off accepted: updates arrive when
+the phone pulls — foreground, after an upload pass, or on an iOS-scheduled
+background refresh — not the instant Windows finishes.
+
+**What Phase 3 deliberately does NOT do:**
+
+- **The full transcript stays on Windows.** The phone gets a ≤600-character
+  excerpt plus a character count, never a replica, and there is no endpoint that
+  would give it one.
+- **The phone cannot edit or approve.** No transcript editing, no event
+  approval/rejection, and no way to restart Windows-side processing from the
+  phone; a capture that failed on the PC is retried on the PC.
+- **Progress does not rewind on the phone.** A pulled status can advance a
+  capture's stored lifecycle state but never move it back, so a replayed or
+  out-of-order change is harmless. A reported failure is the one transition
+  allowed to reset that floor, so a Windows-side retry can move the capture
+  forward again.
+- **No audio flows back.** The design's Phase 3 line about playback of the
+  original audio is satisfied by the phone's own local file; the Windows-side
+  normalized artifact is not downloadable.
+- **`processingStage` is forwarded unvalidated.** Only `status` is checked
+  against a vocabulary, so consumers must tolerate an unrecognized stage string.
+
+**Privacy (§14.5):** the transcript preview, transcript counts, and failure
+reason are stored but never logged on any tier. `failureReason` is fixed
+publisher text keyed on the failure stage — never `RecordingQueue.ErrorMessage`,
+whose raw exception text can contain file paths or provider detail.
+
+**Contracts:**
+[`../shared-contracts/openapi/memory-line-sync-v1.yaml`](../shared-contracts/openapi/memory-line-sync-v1.yaml)
+(v1.2, additive) and
+[`../shared-contracts/json-schema/capture-status-payload.v1.json`](../shared-contracts/json-schema/capture-status-payload.v1.json).
+
+**Next step:** Phase 4 — voice assistant (assistant sessions and streaming
+turns, STT/TTS, memory retrieval, current trip context, interruption and
+cancellation).
 
 ---
 
