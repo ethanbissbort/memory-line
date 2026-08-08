@@ -28,5 +28,19 @@ public static class SyncApiErrorCodes
     public const string AssistantSessionNotFound = "assistant_session_not_found";
     public const string AssistantTurnNotFound = "assistant_turn_not_found";
     public const string AssistantTurnConflict = "assistant_turn_conflict";
+
+    /// <summary>
+    /// The caller is authenticated but may not author this change: a companion
+    /// publishing a Windows-authored timeline projection, or a device
+    /// attributing a review decision to a different device.
+    ///
+    /// Deliberately not <see cref="Unauthorized"/>. That code tells a client its
+    /// credentials are the problem, and a sync client that reads it re-registers
+    /// or refreshes its token — pointless here, because the token is fine and
+    /// the same entry would be refused again. This code says the opposite: drop
+    /// the entry from the outbox, it will never be accepted.
+    /// </summary>
+    public const string ChangeNotPermitted = "change_not_permitted";
+
     public const string InternalError = "internal_error";
 }

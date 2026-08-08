@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MemoryTimeline.Core.Services;
 using MemoryTimeline.Data.Models;
@@ -317,7 +318,206 @@ public class EventRevisionTests : IDisposable
 
     #endregion
 
+    #region Restore projections
+
+    [Fact]
+    public async Task RestoreRevisionAsync_ScalarOnlyChange_PublishesTheRestoredEvent()
+    {
+        // Arrange - the case that published nothing at all. ApplyScalarFieldsAsync
+        // writes through its own context specifically to dodge UpdateEventAsync's
+        // revision hook, and it took the projection with it, so a companion kept
+        // showing the pre-restore title indefinitely.
+        var projected = new List<string>();
+        var (eventService, revisionService) = BuildPublishingServices(projected);
+        var created = await eventService.CreateEventAsync(new Event
+        {
+            Title = "V1",
+            StartDate = new DateTime(2020, 1, 1),
+            Category = EventCategory.Other
+        });
+        created.Title = "V2";
+        await eventService.UpdateEventAsync(created);
+        var v1Revision = (await _revisionRepository.GetForEventAsync(created.EventId))
+            .Single(r => r.RevisionKind == RevisionKind.Created);
+        projected.Clear();
+
+        // Act - no junction moves, so nothing else in this path would publish
+        await revisionService.RestoreRevisionAsync(created.EventId, v1Revision.RevisionId);
+
+        // Assert
+        projected.Should().Equal($"event:{created.EventId}");
+
+        var stored = await eventService.GetEventByIdAsync(created.EventId);
+        stored!.Title.Should().Be("V1", "the publish must describe a restore that really happened");
+    }
+
+    [Fact]
+    public async Task RestoreRevisionAsync_CreatingAPerson_PublishesThatPersonAndTheEvent()
+    {
+        // Arrange - a snapshot naming somebody who no longer has a row. The
+        // restore mints one, and an event payload carries person IDS only, so
+        // without a person projection the restored event names an id no
+        // companion can resolve to a name.
+        var projected = new List<string>();
+        var (eventService, revisionService) = BuildPublishingServices(projected);
+        var created = await eventService.CreateEventAsync(new Event
+        {
+            Title = "Weekend away",
+            StartDate = new DateTime(2020, 1, 1),
+            Category = EventCategory.Other
+        });
+        var danaId = await SeedPersonAsync("Dana");
+        await eventService.AddPersonToEventAsync(created.EventId, danaId);
+
+        // Edit so the pre-edit revision captures Dana, then unlink and delete
+        // her, leaving the snapshot's name with nothing behind it.
+        created.Title = "Weekend away (edited)";
+        await eventService.UpdateEventAsync(created);
+        await eventService.RemovePersonFromEventAsync(created.EventId, danaId);
+        await using (var context = _contextFactory.CreateDbContext())
+        {
+            context.People.Remove(await context.People.SingleAsync(p => p.PersonId == danaId));
+            await context.SaveChangesAsync();
+        }
+
+        var withDana = (await _revisionRepository.GetForEventAsync(created.EventId))
+            .Single(r => r.RevisionKind == RevisionKind.Edited);
+        projected.Clear();
+
+        // Act
+        await revisionService.RestoreRevisionAsync(created.EventId, withDana.RevisionId);
+
+        // Assert - a new Dana exists and was projected
+        string newDanaId;
+        await using (var context = _contextFactory.CreateDbContext())
+        {
+            var dana = await context.People.AsNoTracking().SingleAsync(p => p.Name == "Dana");
+            newDanaId = dana.PersonId;
+            newDanaId.Should().NotBe(danaId, "the original row was deleted, so this is a new contact");
+        }
+
+        // The exact sequence, because each entry is a separate decision: the
+        // contact is published the moment it exists rather than left to the
+        // link that follows (a row in the archive should not wait on a later
+        // step to become visible), the link then republishes both the event and
+        // Dana's now-nonzero count, and the restore's own publish closes it out
+        // — that last one carries the restored scalars, and is the entire
+        // projection when a restore moves no junction at all.
+        projected.Should().Equal(
+            $"person:{newDanaId}",
+            $"event:{created.EventId}",
+            $"person:{newDanaId}",
+            $"event:{created.EventId}");
+    }
+
+    [Fact]
+    public async Task RestoreRevisionAsync_ProjectionPublisherThrows_StillRestores()
+    {
+        // Arrange - the restore has already committed by the time anything is
+        // published, so a failed publish must not report a failure for it
+        var projected = new List<string>();
+        var publisher = CreateRecordingPublisher(projected);
+        publisher
+            .Setup(p => p.PublishEventAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("database is locked"));
+        var (eventService, revisionService) = BuildPublishingServices(publisher.Object);
+
+        var created = await eventService.CreateEventAsync(new Event
+        {
+            Title = "V1",
+            StartDate = new DateTime(2020, 1, 1),
+            Category = EventCategory.Other
+        });
+        created.Title = "V2";
+        await eventService.UpdateEventAsync(created);
+        var v1Revision = (await _revisionRepository.GetForEventAsync(created.EventId))
+            .Single(r => r.RevisionKind == RevisionKind.Created);
+
+        // Act
+        await revisionService.RestoreRevisionAsync(created.EventId, v1Revision.RevisionId);
+
+        // Assert
+        var stored = await eventService.GetEventByIdAsync(created.EventId);
+        stored!.Title.Should().Be("V1");
+    }
+
+    [Fact]
+    public async Task RestoreRevisionAsync_WithoutAProjectionPublisher_StillRestores()
+    {
+        // The fixture's services are built WITHOUT a publisher — the shape every
+        // pre-existing construction uses, and the reason the parameter is a
+        // trailing optional one.
+        var created = await _eventService.CreateEventAsync(new Event
+        {
+            Title = "V1",
+            StartDate = new DateTime(2020, 1, 1),
+            Category = EventCategory.Other
+        });
+        created.Title = "V2";
+        await _eventService.UpdateEventAsync(created);
+        var v1Revision = (await _revisionRepository.GetForEventAsync(created.EventId))
+            .Single(r => r.RevisionKind == RevisionKind.Created);
+
+        // Act
+        await _revisionService.RestoreRevisionAsync(created.EventId, v1Revision.RevisionId);
+
+        // Assert
+        var stored = await _eventService.GetEventByIdAsync(created.EventId);
+        stored!.Title.Should().Be("V1");
+    }
+
+    #endregion
+
     #region Helpers
+
+    /// <summary>
+    /// A second EventService/RevisionService pair over the SAME database as the
+    /// fixture's, both wired to a publisher that records its calls in order.
+    /// Both need it: the restore's junction reconciliation runs through
+    /// IEventService, so leaving that one unpublished would credit RevisionService
+    /// with projections it never made.
+    /// </summary>
+    private (EventService, RevisionService) BuildPublishingServices(List<string> projected)
+        => BuildPublishingServices(CreateRecordingPublisher(projected).Object);
+
+    private (EventService, RevisionService) BuildPublishingServices(
+        ITimelineProjectionPublisher publisher)
+    {
+        var eventService = new EventService(
+            _eventRepository,
+            _contextFactory,
+            new Mock<ILogger<EventService>>().Object,
+            revisionWriter: _revisionWriter,
+            projectionPublisher: publisher);
+        var revisionService = new RevisionService(
+            _revisionRepository,
+            eventService,
+            _contextFactory,
+            _revisionWriter,
+            new Mock<ILogger<RevisionService>>().Object,
+            projectionPublisher: publisher);
+        return (eventService, revisionService);
+    }
+
+    private static Mock<ITimelineProjectionPublisher> CreateRecordingPublisher(List<string> projected)
+    {
+        var publisher = new Mock<ITimelineProjectionPublisher>();
+        publisher
+            .Setup(p => p.PublishEventAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<string, CancellationToken>((id, _) => projected.Add($"event:{id}"))
+            .Returns(Task.CompletedTask);
+        publisher
+            .Setup(p => p.PublishPersonAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<string, CancellationToken>((id, _) => projected.Add($"person:{id}"))
+            .Returns(Task.CompletedTask);
+        publisher
+            .Setup(p => p.PublishDeletedAsync(
+                It.IsAny<TimelineProjectionEntity>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<TimelineProjectionEntity, string, CancellationToken>(
+                (entity, id, _) => projected.Add($"delete:{entity}:{id}"))
+            .Returns(Task.CompletedTask);
+        return publisher;
+    }
 
     private async Task<string> SeedTagAsync(string name)
     {

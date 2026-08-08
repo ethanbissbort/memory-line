@@ -1,19 +1,27 @@
 import SwiftUI
 
 /// Top-level navigation. The sidebar sections mirror the Windows app's
-/// navigation so the two heads stay conceptually aligned; only Library is
-/// implemented today, and the rest render an honest "not built yet" state
+/// navigation so the two heads stay conceptually aligned.
+///
+/// Capture and Library are this Mac's own: it records, and it holds the
+/// recordings it made. Timeline, Search, Review and People render the read-only
+/// projection Windows publishes — this Mac shows a copy of that archive and
+/// never edits it, with one exception: Review sends approve/reject verdicts,
+/// the single write the contract admits from a companion. Ask is still a
+/// placeholder, and renders an honest "not built yet" state naming the section
 /// rather than an empty page that looks broken.
 ///
 /// See `docs/design/MACOS-PORT-PLAN.md` §5 for the order these are being filled
 /// in and which ones need a decision first.
 struct RootView: View {
     @Environment(MacAppEnvironment.self) private var environment
-    @State private var selection: Section? = .library
+    @State private var selection: Section? = .capture
 
     enum Section: String, CaseIterable, Identifiable, Hashable {
+        case capture = "Capture"
         case library = "Library"
         case timeline = "Timeline"
+        case search = "Search"
         case review = "Review"
         case people = "People"
         case ask = "Ask"
@@ -22,16 +30,20 @@ struct RootView: View {
 
         var symbol: String {
             switch self {
+            case .capture: return "mic.circle"
             case .library: return "waveform"
             case .timeline: return "calendar.day.timeline.left"
+            case .search: return "magnifyingglass"
             case .review: return "checkmark.circle"
             case .people: return "person.2"
             case .ask: return "bubble.left.and.text.bubble.right"
             }
         }
 
-        /// Whether the section has a real implementation yet.
-        var isImplemented: Bool { self == .library }
+        /// Whether the section has a real implementation yet. Only `ask` is
+        /// still a placeholder: it needs the Phase 4 assistant contract, whose
+        /// responder modes are not built on either side yet.
+        var isImplemented: Bool { self != .ask }
     }
 
     var body: some View {
@@ -45,8 +57,25 @@ struct RootView: View {
             .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 260)
         } detail: {
             switch selection {
-            case .library, nil:
+            case .capture, nil:
+                CaptureView(
+                    recorder: environment.recorder,
+                    inputs: environment.inputs,
+                    settings: environment.settings,
+                    // The seam carries no capture-type channel, so the
+                    // composition root is the only place that can tell the
+                    // recorder what the picker just chose.
+                    onCaptureTypeChanged: { environment.recorder.currentType = $0 })
+            case .library:
                 LibraryView()
+            case .timeline:
+                ArchiveTimelineView()
+            case .search:
+                SearchView()
+            case .review:
+                ReviewView()
+            case .people:
+                PeopleView()
             case .some(let section):
                 NotBuiltYetView(section: section)
             }

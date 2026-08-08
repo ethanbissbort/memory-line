@@ -24,6 +24,7 @@ public class EventExtractionService : IEventExtractionService
     private readonly ILogger<EventExtractionService> _logger;
     private readonly EventRevisionWriter? _revisionWriter;
     private readonly ICaptureStatusPublisher? _statusPublisher;
+    private readonly ITimelineProjectionPublisher? _projectionPublisher;
 
     private const string MissingApiKeyMessage = "Anthropic API key not configured — add it in Settings";
     private const string MissingBaseUrlMessage = "LLM base URL not configured — add it in Settings (e.g. http://localhost:11434/v1 for Ollama)";
@@ -38,7 +39,8 @@ public class EventExtractionService : IEventExtractionService
         IDbContextFactory<Data.AppDbContext> contextFactory,
         ILogger<EventExtractionService> logger,
         EventRevisionWriter? revisionWriter = null,
-        ICaptureStatusPublisher? statusPublisher = null)
+        ICaptureStatusPublisher? statusPublisher = null,
+        ITimelineProjectionPublisher? projectionPublisher = null)
     {
         _llmService = llmService;
         _sttService = sttService;
@@ -50,6 +52,7 @@ public class EventExtractionService : IEventExtractionService
         _logger = logger;
         _revisionWriter = revisionWriter;
         _statusPublisher = statusPublisher;
+        _projectionPublisher = projectionPublisher;
     }
 
     /// <summary>
@@ -218,6 +221,19 @@ public class EventExtractionService : IEventExtractionService
             await dbContext.SaveChangesAsync();
 
             _logger.LogInformation("Created {Count} pending events for review", pendingEvents.Count);
+
+            // The review queue only exists on a companion because it is
+            // projected there: capture_status says how many events are waiting,
+            // and nothing but this says what they are. Published after the
+            // commit and one row at a time, because each pending event is its
+            // own entity on the wire — there is no batched form.
+            foreach (var pendingEvent in pendingEvents)
+            {
+                await PublishProjectionAsync(
+                    publisher => publisher.PublishPendingEventAsync(pendingEvent.PendingId),
+                    "pending event", pendingEvent.PendingId);
+            }
+
             return pendingEvents;
         }
         catch (Exception ex)
@@ -300,9 +316,10 @@ public class EventExtractionService : IEventExtractionService
 
             dbContext.Events.Add(realEvent);
 
+            IReadOnlyCollection<string> linkedPersonIds = Array.Empty<string>();
             if (extracted != null)
             {
-                await MapExtractedMetadataAsync(dbContext, realEvent, extracted);
+                linkedPersonIds = await MapExtractedMetadataAsync(dbContext, realEvent, extracted);
             }
 
             // Flip pending-event status inside the same transaction
@@ -335,6 +352,58 @@ public class EventExtractionService : IEventExtractionService
             {
                 _logger.LogWarning(msgEx, "Failed to publish EventCreatedMessage for {EventId}", realEvent.EventId);
             }
+
+            // An approval moves a memory between two projected collections and
+            // touches the contact book on the way, so it publishes the event,
+            // then its people, then the tombstone — in that order.
+            //
+            // The event upsert goes first: if only one of the two reaches the
+            // companion, an item that lingers in the review queue while also
+            // appearing on the timeline is a stale duplicate the next decision
+            // clears, whereas a queue entry that vanishes with no event to
+            // replace it is indistinguishable from losing the memory.
+            //
+            // The people go between the two, not after, because outbox delivery
+            // is ordered and an event payload carries person IDS only — names
+            // come from the person projection. A batch truncated after the
+            // tombstone would leave a companion with a settled-looking timeline
+            // entry naming people it cannot resolve, and nothing pending to
+            // suggest more is coming; truncated after the people it shows a
+            // duplicate queue item, which is the cost already accepted above.
+            // Approval is also the moment these contacts first become
+            // publishable: a person minted here has never been projected, and
+            // an existing one's EventCount just moved with the junction row.
+            //
+            // The tombstone is what removes it from the queue. The row itself
+            // survives carrying IsApproved/Status, but the pending-event
+            // projection has no status field, so republishing it as an upsert
+            // would be byte-identical to the one already published and dropped
+            // as unchanged — the companion would show a resolved item forever.
+            // "No longer awaiting review" is a deletion as far as the queue is
+            // concerned, and that is the collection being projected.
+            //
+            // Neither publish is gated on publishCaptureStatus: that flag
+            // exists because a batch's many approvals collapse into one capture
+            // status, while these two describe individual entities and have
+            // nothing to coalesce.
+            await PublishProjectionAsync(
+                publisher => publisher.PublishEventAsync(realEvent.EventId), "event", realEvent.EventId);
+            foreach (var personId in linkedPersonIds)
+            {
+                // Always an upsert. A merged-away contact keeps its row and its
+                // MergedIntoId pointer, and the resolution above deliberately
+                // follows a broken chain back to a tombstone rather than mint a
+                // colliding name — so a tombstone id can legitimately land here,
+                // and publishing it as anything but an upsert would strand the
+                // events that reference it.
+                await PublishProjectionAsync(
+                    publisher => publisher.PublishPersonAsync(personId), "person", personId);
+            }
+
+            await PublishProjectionAsync(
+                publisher => publisher.PublishDeletedAsync(
+                    TimelineProjectionEntity.PendingEvent, pendingEventId),
+                "pending event deletion", pendingEventId);
 
             // The phone is watching this capture's review counts (design §19
             // Phase 3); nothing else republishes them once extraction is done.
@@ -399,6 +468,14 @@ public class EventExtractionService : IEventExtractionService
             await dbContext.SaveChangesAsync();
 
             _logger.LogInformation("Updated pending event: {PendingEventId}", tracked.PendingEventId);
+
+            // A reviewer corrected the extraction before deciding on it; the
+            // companion's copy of the queue must show what will actually be
+            // approved, not the title the model first guessed at.
+            await PublishProjectionAsync(
+                publisher => publisher.PublishPendingEventAsync(tracked.PendingId),
+                "pending event", tracked.PendingId);
+
             return tracked;
         }
         catch (Exception ex)
@@ -417,6 +494,7 @@ public class EventExtractionService : IEventExtractionService
     public async Task RejectPendingEventAsync(string pendingEventId, bool publishCaptureStatus = true)
     {
         string? queueId = null;
+        var deleted = false;
 
         try
         {
@@ -430,6 +508,7 @@ public class EventExtractionService : IEventExtractionService
                 queueId = pendingEvent.QueueId;
                 dbContext.PendingEvents.Remove(pendingEvent);
                 await dbContext.SaveChangesAsync();
+                deleted = true;
 
                 _logger.LogInformation("Rejected and deleted pending event: {PendingEventId}", pendingEventId);
             }
@@ -438,6 +517,18 @@ public class EventExtractionService : IEventExtractionService
         {
             _logger.LogError(ex, "Error rejecting pending event");
             throw;
+        }
+
+        // The row is gone, so only its id survives to tell a companion to drop
+        // its copy — a rejection leaves nothing to render, and no event follows.
+        // Tracked separately from queueId because a pending event may carry no
+        // queue (imported text), and that is still a real deletion to project.
+        if (deleted)
+        {
+            await PublishProjectionAsync(
+                publisher => publisher.PublishDeletedAsync(
+                    TimelineProjectionEntity.PendingEvent, pendingEventId),
+                "pending event deletion", pendingEventId);
         }
 
         // Rejecting the last pending event finishes the review just as approving
@@ -497,6 +588,43 @@ public class EventExtractionService : IEventExtractionService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to publish capture status for queue item {QueueId}", queueId);
+        }
+    }
+
+    /// <summary>
+    /// Runs one timeline projection publish, on the same terms as
+    /// <see cref="PublishCaptureStatusAsync"/>: a no-op when no publisher is
+    /// registered, and a failure is logged and swallowed.
+    ///
+    /// Swallowing is the point. Every caller invokes this AFTER its archive
+    /// write has committed, so rethrowing would report a failure for work that
+    /// already happened — the user would be told their approval failed while
+    /// the event sits in the timeline. A lost projection costs a companion one
+    /// stale row until the next publish for that entity; a lost approval costs
+    /// a memory.
+    ///
+    /// Callers never have to judge whether a change is worth publishing: the
+    /// publisher drops a projection identical to the last one for the same
+    /// entity.
+    /// </summary>
+    /// <param name="publish">The publish to attempt.</param>
+    /// <param name="entity">What is being projected, for the failure log.</param>
+    /// <param name="entityId">Id of the projected entity, for the failure log.</param>
+    private async Task PublishProjectionAsync(
+        Func<ITimelineProjectionPublisher, Task> publish, string entity, string entityId)
+    {
+        if (_projectionPublisher == null)
+        {
+            return;
+        }
+
+        try
+        {
+            await publish(_projectionPublisher);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to publish the {Entity} projection for {EntityId}", entity, entityId);
         }
     }
 
@@ -798,8 +926,14 @@ public class EventExtractionService : IEventExtractionService
     /// Upserts Tag/Person/Location by name (checking both the database and rows
     /// already added to this context), then adds junction rows. All work happens
     /// on the caller's context so it participates in the approve transaction.
+    ///
+    /// Returns the person ids this linked to the event, resolved and
+    /// de-duplicated. The caller needs them to project those people once the
+    /// transaction commits: a person created here exists on no companion at
+    /// all, and an existing one's linked-event count just moved.
     /// </summary>
-    private async Task MapExtractedMetadataAsync(Data.AppDbContext dbContext, Event realEvent, ExtractedEvent extracted)
+    private async Task<IReadOnlyCollection<string>> MapExtractedMetadataAsync(
+        Data.AppDbContext dbContext, Event realEvent, ExtractedEvent extracted)
     {
         // Tags -> tags + event_tags
         foreach (var rawTag in DistinctNames(extracted.Tags))
@@ -937,6 +1071,8 @@ public class EventExtractionService : IEventExtractionService
                 CreatedAt = DateTime.UtcNow
             });
         }
+
+        return linkedPersonIds;
     }
 
     /// <summary>

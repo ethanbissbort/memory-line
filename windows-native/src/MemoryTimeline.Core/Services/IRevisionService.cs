@@ -46,6 +46,7 @@ public class RevisionService : IRevisionService
     private readonly IEventService _eventService;
     private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly EventRevisionWriter _revisionWriter;
+    private readonly ITimelineProjectionPublisher? _projectionPublisher;
     private readonly ILogger<RevisionService> _logger;
 
     public RevisionService(
@@ -53,13 +54,15 @@ public class RevisionService : IRevisionService
         IEventService eventService,
         IDbContextFactory<AppDbContext> contextFactory,
         EventRevisionWriter revisionWriter,
-        ILogger<RevisionService> logger)
+        ILogger<RevisionService> logger,
+        ITimelineProjectionPublisher? projectionPublisher = null)
     {
         _revisionRepository = revisionRepository;
         _eventService = eventService;
         _contextFactory = contextFactory;
         _revisionWriter = revisionWriter;
         _logger = logger;
+        _projectionPublisher = projectionPublisher;
     }
 
     /// <inheritdoc />
@@ -121,6 +124,24 @@ public class RevisionService : IRevisionService
             _logger.LogInformation(
                 "Restored event {EventId} to revision {RevisionId} ({Kind} from {RevisedAt:u}).",
                 eventId, revisionId, revision.RevisionKind, revision.RevisedAt);
+
+            // A restore is an edit as far as a companion is concerned, but step
+            // 1 is the one write in this service that reaches the archive
+            // without passing an IEventService method — that is the whole point
+            // of the bypass, and it takes the projection with it. Step 2's
+            // association calls do publish, so a restore that also moved a
+            // junction was already covered; a restore that only changed the
+            // title published nothing at all and the companion kept the
+            // pre-restore text.
+            //
+            // Published once, here, rather than straight after step 1: an event
+            // payload denormalises its tags, people and locations, so a publish
+            // between the scalar write and the reconciliation would send a
+            // payload that was never a state the event was actually in. Landing
+            // it last costs nothing when the junctions did move — the payload
+            // then matches what the last association call already published, and
+            // the publisher drops an unchanged projection.
+            await PublishEventProjectionAsync(eventId);
 
             // Notify open views (timeline, search). A subscriber failure must
             // not turn a successful restore into an error.
@@ -335,6 +356,17 @@ public class RevisionService : IRevisionService
         };
         context.People.Add(person);
         await context.SaveChangesAsync();
+
+        // A contact minted here has never been projected, and an event payload
+        // carries person IDS only — so without this the restored event names
+        // somebody the companion cannot resolve to a name. Published from the
+        // create branch rather than left to the caller's
+        // AddPersonToEventAsync: that call publishes the person too, but only
+        // once the link succeeds, and a row that exists in the archive should
+        // not depend on a later step to become visible. The two publishes are
+        // not redundant either — this one carries a count of zero, the link's
+        // carries one.
+        await PublishPersonProjectionAsync(person.PersonId);
         return person.PersonId;
     }
 
@@ -396,4 +428,59 @@ public class RevisionService : IRevisionService
             .Where(n => !string.IsNullOrWhiteSpace(n))
             .Select(n => n.Trim())
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Projects the restored event onto the sync feed (design §19 Phase 3).
+    /// Called AFTER the restore's writes have committed: the publisher re-reads
+    /// the event to build its payload, so it has to see the restored state.
+    ///
+    /// <para>A publish failure is logged and swallowed. The restore has already
+    /// happened by this point, so rethrowing would tell the user their restore
+    /// failed while the archive shows the old version back in place; the cost of
+    /// swallowing is one stale row on a companion until the event is next
+    /// touched through a path that publishes.</para>
+    /// </summary>
+    private async Task PublishEventProjectionAsync(string eventId)
+    {
+        if (_projectionPublisher == null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _projectionPublisher.PublishEventAsync(eventId);
+        }
+        catch (Exception publishEx)
+        {
+            _logger.LogWarning(publishEx,
+                "Failed to publish the timeline projection for restored event {EventId}", eventId);
+        }
+    }
+
+    /// <summary>
+    /// Projects a person this service created while reconciling a restore's
+    /// junctions. Always an upsert — a merged-away person is never created
+    /// here, since <see cref="FindOrCreatePersonAsync"/> resolves through the
+    /// merge chain to the living contact before it considers minting one.
+    /// Failures are swallowed for the same reason as in
+    /// <see cref="PublishEventProjectionAsync"/>.
+    /// </summary>
+    private async Task PublishPersonProjectionAsync(string personId)
+    {
+        if (_projectionPublisher == null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _projectionPublisher.PublishPersonAsync(personId);
+        }
+        catch (Exception publishEx)
+        {
+            _logger.LogWarning(publishEx,
+                "Failed to publish the person projection for {PersonId} created by a restore", personId);
+        }
+    }
 }

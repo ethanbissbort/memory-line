@@ -8,15 +8,16 @@ using Microsoft.Extensions.Logging;
 namespace MemoryTimeline.Sync;
 
 /// <summary>
-/// <see cref="IRemoteChangeApplier"/> for Phase 1 (design §7.4): capture upserts
-/// resolve to download-artifact → idempotent ingestion → optional queue
-/// processing; every other entity type/operation is skipped. The local audio
-/// cache path is keyed by capture AND artifact identity, so a later conflicting
-/// artifact for an already-ingested capture downloads to a different file and
-/// can never clobber the audio the ingested queue item points at. Exceptions
-/// never escape <see cref="ApplyAsync"/> — each change maps to a
-/// <see cref="ChangeApplicationResult"/> so the worker can decide whether the
-/// cursor advances.
+/// <see cref="IRemoteChangeApplier"/> (design §7.4): capture upserts resolve to
+/// download-artifact → idempotent ingestion → optional queue processing, and a
+/// <c>pending_event_decision</c> is handed to
+/// <see cref="IPendingEventDecisionApplier"/>; every other entity type/operation
+/// is skipped. The local audio cache path is keyed by capture AND artifact
+/// identity, so a later conflicting artifact for an already-ingested capture
+/// downloads to a different file and can never clobber the audio the ingested
+/// queue item points at. Exceptions never escape <see cref="ApplyAsync"/> — each
+/// change maps to a <see cref="ChangeApplicationResult"/> so the worker can
+/// decide whether the cursor advances.
 /// </summary>
 public class RemoteChangeApplier : IRemoteChangeApplier
 {
@@ -25,19 +26,22 @@ public class RemoteChangeApplier : IRemoteChangeApplier
     private readonly IQueueService _queueService;
     private readonly ISyncSettingsStore _settingsStore;
     private readonly ILogger<RemoteChangeApplier> _logger;
+    private readonly IPendingEventDecisionApplier? _decisionApplier;
 
     public RemoteChangeApplier(
         IArtifactTransferClient transferClient,
         ICaptureIngestionService ingestionService,
         IQueueService queueService,
         ISyncSettingsStore settingsStore,
-        ILogger<RemoteChangeApplier> logger)
+        ILogger<RemoteChangeApplier> logger,
+        IPendingEventDecisionApplier? decisionApplier = null)
     {
         _transferClient = transferClient;
         _ingestionService = ingestionService;
         _queueService = queueService;
         _settingsStore = settingsStore;
         _logger = logger;
+        _decisionApplier = decisionApplier;
     }
 
     /// <inheritdoc />
@@ -46,10 +50,29 @@ public class RemoteChangeApplier : IRemoteChangeApplier
     {
         try
         {
+            // The one entity a companion may author besides its own captures.
+            // It goes to a dedicated applier because approving is a review-stack
+            // operation, not an artifact one.
+            if (string.Equals(
+                    change.EntityType,
+                    SyncChangeEntityType.PendingEventDecision,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                if (_decisionApplier == null)
+                {
+                    _logger.LogDebug(
+                        "Skipping change {ChangeId}: no pending event decision applier is registered",
+                        change.ChangeId);
+                    return ChangeApplicationResult.Skipped;
+                }
+
+                return await _decisionApplier.ApplyAsync(change, cancellationToken);
+            }
+
             if (!string.Equals(change.EntityType, SyncChangeEntityType.Capture, StringComparison.OrdinalIgnoreCase))
             {
                 _logger.LogDebug(
-                    "Skipping change {ChangeId}: entity type {EntityType} is not applied in Phase 1",
+                    "Skipping change {ChangeId}: entity type {EntityType} is not applied by this client",
                     change.ChangeId, change.EntityType);
                 return ChangeApplicationResult.Skipped;
             }

@@ -22,8 +22,9 @@ Phase 1 scope (design §19):
 - an append-only change log behind cursor-based `/sync/pull`, per-device
   idempotent `/sync/push`, and `/sync/ack`.
 
-Phase 3 added the **capture status handoff** on top of that change log — no new
-endpoints, one new change type (see below).
+Phase 3 added the **capture status handoff** and the **timeline projection
+feed** on top of that change log — no new endpoints, only new change types
+(see below).
 
 The assistant, trips, and detours endpoints exist in the API contract
 ([`shared-contracts/openapi/memory-line-sync-v1.yaml`](../shared-contracts/openapi/memory-line-sync-v1.yaml))
@@ -213,6 +214,97 @@ Windows queue advances a stage
   (§22.1/§22.2), so there is no APNs certificate and no notification server in
   this design. The phone learns about status by pulling, and posts its own
   local notification when a pull observes a milestone.
+
+## Timeline projections and review decisions (design §19 Phase 3)
+
+The same change log also carries a **read-only projection of the Windows
+archive**, so a companion can draw a timeline it does not own: `event`, `era`,
+`person` and `pending_event`. One change type travels the other way —
+`pending_event_decision`, a companion's approve/reject verdict on an extracted
+event. Payload shapes:
+[`shared-contracts/dotnet/MemoryTimeline.SyncContracts/TimelineProjectionContracts.cs`](../shared-contracts/dotnet/MemoryTimeline.SyncContracts/TimelineProjectionContracts.cs).
+
+```text
+Windows publishes  ──►  event | era | person | pending_event  ──►  every other device
+every other device ──►  pending_event_decision                ──►  Windows performs the approval
+```
+
+**What `entityId` means — one row's own key, one spelling.** Latest-wins and
+tombstoning both key on this string, so it is pinned per type and must be a
+UUID in canonical lowercase `"D"` form (`a1b2c3d4-...`). Braces, the `"N"`
+form, and upper case are rejected: an upsert of `{A1B2…}` followed by a delete
+of `a1b2…` would read as two different rows, the deletion would tombstone
+nothing, and the event would stay on the companion's timeline forever.
+
+| `entityType` | `entityId` | Payload |
+|--------------|-----------|---------|
+| `event` | `eventId` | `EventProjectionPayload` |
+| `era` | `eraId` | `EraProjectionPayload` |
+| `person` | `personId` | `PersonProjectionPayload` |
+| `pending_event` | `pendingEventId` | `PendingEventProjectionPayload` |
+| `pending_event_decision` | the `pendingEventId` being decided | `PendingEventDecisionPayload` |
+
+The payload repeats that ID (`eventId`, `eraId`, …) and must agree with
+`entityId` as a UUID, or the entry is rejected — a change whose two spellings
+disagree would be applied to one row and looked up under another. A decision is
+keyed on the review it answers so Windows can match verdict to pending event
+without a second identifier.
+
+- **Windows is the only publisher of the four projections.** A push of `event`,
+  `era`, `person` or `pending_event` from any other device is rejected with
+  `change_not_permitted`, whatever the payload says. A companion holds a
+  perfectly valid token — it needs one to upload captures — so nothing else
+  stops it writing a memory that never happened into a timeline every other
+  device renders. The check is on the pushing device's registered platform, not
+  on anything in the payload.
+- **`change_not_permitted`, deliberately not `unauthorized`.** The token is
+  fine; re-registering or refreshing would produce the same answer. The code
+  means *drop this entry from the outbox*, not *re-authenticate*.
+- **A decision is the one write a companion may author**, because it is a
+  verdict rather than an edit: no field values to merge, and applying it twice
+  means what applying it once meant. It must carry `decision` = `approve` or
+  `reject` (exact lowercase — an unknown verdict is refused rather than
+  defaulting to `approve`, which would write an unreviewed event into the
+  timeline), and `decidedByDeviceId` **must be the pushing device**: Windows
+  keeps that field as the audit trail of who reviewed what, and a trail a device
+  can write another device's name into records fiction. Windows still performs
+  the approval, and drops verdicts for reviews it has already resolved.
+- **`delete` tombstones a projection; a decision may not be retracted.** A
+  deleted event must be able to reach the companion that already drew it, so
+  `delete` is accepted for the four projection types and needs no payload (a
+  deleted row has nothing left to describe). `delete` on
+  `pending_event_decision` is rejected: a verdict is a fact about a review that
+  happened, and accepting a retraction would let a device reach back into a
+  review Windows may already have completed. Changing one's mind is a new
+  decision — which is what a second upsert is.
+- **Nothing is stored, and the bytes are relayed unchanged.** Unlike
+  `capture_status` and `assistant_turn`, these types add no table: the service
+  does not keep a copy of the archive, so there is no row whose
+  re-serialization could be more authoritative than the publisher's own
+  payload — and passing it through untouched is what lets a newer Windows build
+  add a field without this service learning it first. `revision` is therefore
+  always `1`; the change ID is the ordering that means anything, and consumers
+  apply in cursor order.
+- **Validation is per entry** (`accepted=false` with a code-prefixed `error`,
+  the rest of the batch unaffected), and rejected entries never enter the change
+  log. Beyond the identity rules above: a missing or unparseable payload on an
+  upsert; a `datePrecision` outside `exact | day | month | season | year |
+  decade | unknown` on `event`, `pending_event`, or a decision's corrections — a
+  precision nobody understands is how a consumer ends up inventing an exact day
+  for a memory the user dated to a summer; an `era` `colorCode` that is not a
+  hex colour (`#RRGGBB`, or `#AARRGGBB` — the contract says the former, the
+  Windows column can hold the latter, and losing a whole era over an alpha
+  channel would cost more than the stricter check buys); a `person`
+  `mergedIntoId` that is not a UUID (consumers are
+  expected to follow it); a negative `mediaCount` or `eventCount`; a
+  `confidenceScore` outside 0–1; and a `pending_event` `transcriptPreview` over
+  600 characters — the same §14.5 bound as the capture status preview, since
+  both are excerpts of the same recording leaving the machine that holds it, and
+  refused rather than trimmed for the same reason.
+- **Pull is unchanged.** The entity-type allow-list gates `POST /sync/push`
+  only; `GET /sync/pull` returns whatever is on the owner's log, so these types
+  need no pull-side change and echo suppression treats them like everything
+  else — a device receives its peers' projections and decisions, never its own.
 
 ## Security notes (design §14)
 

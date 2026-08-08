@@ -23,6 +23,27 @@ public interface IRemoteChangeApplier
     Task<ChangeApplicationResult> ApplyAsync(SyncChangeDto change, CancellationToken cancellationToken = default);
 }
 
+/// <summary>
+/// Applies one pulled <c>pending_event_decision</c> — a companion's approve or
+/// reject verdict on an extracted event, and the only write a non-Windows device
+/// may make besides its own captures.
+///
+/// Split out of <see cref="IRemoteChangeApplier"/> because it needs the review
+/// stack (extraction service, pending-event repository) rather than the artifact
+/// stack, and because the rules that make accepting a foreign write safe —
+/// idempotence, and never reversing a review Windows already finished — are
+/// worth stating and testing in one place.
+///
+/// Windows still performs the approval itself: the implementation routes through
+/// the same <c>IEventExtractionService</c> path the Review page uses, so the
+/// extraction rules (people resolution, tag/location mapping, the single
+/// approve transaction) exist exactly once.
+/// </summary>
+public interface IPendingEventDecisionApplier
+{
+    Task<ChangeApplicationResult> ApplyAsync(SyncChangeDto change, CancellationToken cancellationToken = default);
+}
+
 /// <summary>Outcome of applying one pulled change.</summary>
 public enum ChangeApplicationResult
 {

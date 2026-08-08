@@ -134,6 +134,51 @@ struct SyncAckRequest: Codable, Sendable {
     var cursor: Int64
 }
 
+// MARK: - Sync push
+
+/// `POST /api/v1/sync/push`. Mirrors `SyncPushRequest` in
+/// `shared-contracts/dotnet/MemoryTimeline.SyncContracts/SyncChangeContracts.cs`.
+///
+/// Declared here in `Shared/` rather than in the macOS target because it is the
+/// wire contract, not one client's feature — but note that today only the Mac
+/// pushes, and only `pending_event_decision`. The phone reaches the server
+/// through the capture and artifact endpoints instead, which is why `SyncAPI`
+/// (the protocol both apps' fakes conform to) deliberately does **not** carry
+/// `push`: adding a requirement there would oblige every existing conformer,
+/// including the iOS test doubles, to implement a call it never makes.
+struct SyncPushRequest: Codable, Sendable {
+    var entries: [SyncPushEntry]
+}
+
+struct SyncPushEntry: Codable, Sendable {
+    /// Client-local outbox sequence. This is what makes a push idempotent: the
+    /// server keys a receipt on (device, clientSequence), so a retry after a
+    /// response that never arrived is recognised as the same entry rather than
+    /// applied twice. It must therefore be allocated once, persisted with the
+    /// outbox row, and reused unchanged across every retry of that row.
+    var clientSequence: Int64
+    var entityType: String
+    var entityId: String
+    var operation: String
+    var payloadJson: String?
+    var changedAtUtc: Date
+}
+
+struct SyncPushResponse: Codable, Sendable {
+    var results: [SyncPushEntryResult]
+}
+
+struct SyncPushEntryResult: Codable, Sendable {
+    var clientSequence: Int64
+    var accepted: Bool
+    /// True when an earlier push already applied this entry. A duplicate is a
+    /// success — it means the server has what the client was trying to send —
+    /// so it must retire the outbox row rather than trigger a retry.
+    var duplicate: Bool
+    var serverChangeId: Int64?
+    var error: String?
+}
+
 // MARK: - Errors
 
 struct ApiError: Codable, Sendable {

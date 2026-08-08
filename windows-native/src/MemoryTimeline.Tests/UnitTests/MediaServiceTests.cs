@@ -14,9 +14,15 @@ namespace MemoryTimeline.Tests.UnitTests;
 /// <summary>
 /// Tests for <see cref="MediaService"/>: managed-tree copies, hash dedupe,
 /// thumbnails (mocked <see cref="IThumbnailGenerator"/>), removal, captions,
-/// reordering, probing, and batched counts. Uses EF InMemory + the real
-/// repository; the media root is a per-test temp directory injected through
-/// the service's mediaRootOverride parameter.
+/// reordering, probing, batched counts, and which of those reach the sync feed
+/// as a timeline projection. Uses EF InMemory + the real repository; the media
+/// root is a per-test temp directory injected through the service's
+/// mediaRootOverride parameter.
+///
+/// The shared <c>_mediaService</c> fixture is deliberately built WITHOUT a
+/// projection publisher - the shape every pre-existing caller uses - so every
+/// test outside the projection region doubles as proof that the null publisher
+/// is inert.
 /// </summary>
 public class MediaServiceTests : IDisposable
 {
@@ -437,7 +443,277 @@ public class MediaServiceTests : IDisposable
 
     #endregion
 
+    #region Timeline projection publishing
+
+    [Fact]
+    public async Task AttachAsync_WithProjectionPublisher_PublishesTheEvent()
+    {
+        // Arrange - the event projection denormalises a media count, so a photo
+        // changes what a companion draws without any event column moving
+        await SeedEventAsync("event-1");
+        var publisher = CreatePublisherMock();
+        var service = CreateServiceWithPublisher(publisher.Object);
+
+        // Act
+        await service.AttachAsync("event-1", CreateSourceFile("pub.jpg", Encoding.UTF8.GetBytes("pub")));
+
+        // Assert
+        publisher.Verify(
+            p => p.PublishEventAsync("event-1", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task AttachAsync_DuplicateHashSameEvent_PublishesNothingForTheNoOp()
+    {
+        // Arrange
+        await SeedEventAsync("event-1");
+        var publisher = CreatePublisherMock();
+        var service = CreateServiceWithPublisher(publisher.Object);
+        var source = CreateSourceFile("dup-pub.jpg", Encoding.UTF8.GetBytes("same bytes"));
+        await service.AttachAsync("event-1", source);
+        publisher.Invocations.Clear();
+
+        // Act - the duplicate returns the existing row and writes nothing
+        await service.AttachAsync("event-1", source);
+
+        // Assert - no row changed, so there is no new state to project
+        publisher.Verify(
+            p => p.PublishEventAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AttachAsync_ProjectionPublisherThrows_AttachmentStillCommits()
+    {
+        // Arrange - an outbox that is full, locked or misconfigured
+        await SeedEventAsync("event-1");
+        var publisher = new Mock<ITimelineProjectionPublisher>();
+        publisher
+            .Setup(p => p.PublishEventAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("outbox unavailable"));
+        var service = CreateServiceWithPublisher(publisher.Object);
+
+        // Act - the photo is the user's memory; a sync problem must not cost it
+        var media = await service.AttachAsync(
+            "event-1", CreateSourceFile("survives.jpg", Encoding.UTF8.GetBytes("survives")));
+
+        // Assert
+        (await _mediaRepository.GetByIdAsync(media.MediaId)).Should().NotBeNull();
+        File.Exists(_mediaService.GetAbsolutePath(media)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task AttachManyAsync_PublishesOncePerBatch_NotOncePerFile()
+    {
+        // Arrange
+        await SeedEventAsync("event-1");
+        var publisher = CreatePublisherMock();
+        var service = CreateServiceWithPublisher(publisher.Object);
+        var paths = new[]
+        {
+            CreateSourceFile("batch-a.jpg", Encoding.UTF8.GetBytes("aaa")),
+            CreateSourceFile("batch-b.jpg", Encoding.UTF8.GetBytes("bbb")),
+            CreateSourceFile("batch-c.jpg", Encoding.UTF8.GetBytes("ccc")),
+        };
+
+        // Act
+        var attached = await service.AttachManyAsync("event-1", paths);
+
+        // Assert - every row lands on the same event, so three photos are one
+        // badge change; per-file payloads would all be obsolete on arrival
+        attached.Should().HaveCount(3, "otherwise 'published once' proves nothing");
+        publisher.Verify(
+            p => p.PublishEventAsync("event-1", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task AttachManyAsync_PartialFailure_PublishesTheRowsThatCommitted()
+    {
+        // Arrange
+        await SeedEventAsync("event-1");
+        var publisher = CreatePublisherMock();
+        var service = CreateServiceWithPublisher(publisher.Object);
+        var good = CreateSourceFile("half-good.jpg", Encoding.UTF8.GetBytes("good"));
+        var missing = Path.Combine(_sourceDir, "half-gone.jpg");
+
+        // Act
+        Func<Task> act = () => service.AttachManyAsync("event-1", new[] { good, missing });
+
+        // Assert - the batch throws its failure summary, but one row committed
+        // and the caller's exception is no reason to leave the count stale
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        publisher.Verify(
+            p => p.PublishEventAsync("event-1", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task AttachManyAsync_CancelledMidBatch_PublishesWhatAlreadyCommitted()
+    {
+        // Arrange - cancel between files, the one place AttachManyAsync gives up
+        // with rows already durable
+        await SeedEventAsync("event-1");
+        var publisher = CreatePublisherMock();
+        var service = CreateServiceWithPublisher(publisher.Object);
+        using var cts = new CancellationTokenSource();
+        var paths = new[]
+        {
+            CreateSourceFile("cancel-a.jpg", Encoding.UTF8.GetBytes("a")),
+            CreateSourceFile("cancel-b.jpg", Encoding.UTF8.GetBytes("b")),
+        };
+
+        // Act
+        Func<Task> act = () => service.AttachManyAsync(
+            "event-1", paths, new CancellingProgress(cts), cts.Token);
+
+        // Assert - cancellation stops the work still to come, not the report of
+        // the work already done
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        (await _mediaRepository.GetForEventAsync("event-1")).Should().HaveCount(1);
+        publisher.Verify(
+            p => p.PublishEventAsync("event-1", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task AttachManyAsync_EveryFileFailed_PublishesNothing()
+    {
+        // Arrange
+        await SeedEventAsync("event-1");
+        var publisher = CreatePublisherMock();
+        var service = CreateServiceWithPublisher(publisher.Object);
+        var missingA = Path.Combine(_sourceDir, "none-a.jpg");
+        var missingB = Path.Combine(_sourceDir, "none-b.jpg");
+
+        // Act
+        Func<Task> act = () => service.AttachManyAsync("event-1", new[] { missingA, missingB });
+
+        // Assert - nothing reached the event, so nothing to say about it
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        publisher.Verify(
+            p => p.PublishEventAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RemoveAsync_WithProjectionPublisher_PublishesTheEvent()
+    {
+        // Arrange
+        await SeedEventAsync("event-1");
+        var publisher = CreatePublisherMock();
+        var service = CreateServiceWithPublisher(publisher.Object);
+        var media = await service.AttachAsync(
+            "event-1", CreateSourceFile("removed.jpg", Encoding.UTF8.GetBytes("bytes")));
+        publisher.Invocations.Clear(); // the attach's own publish is not what this asserts
+
+        // Act
+        await service.RemoveAsync(media.MediaId);
+
+        // Assert
+        publisher.Verify(
+            p => p.PublishEventAsync("event-1", It.IsAny<CancellationToken>()), Times.Once);
+
+        // The missing-row no-op removes nothing and must publish nothing.
+        await service.RemoveAsync("missing-media-id");
+        publisher.Verify(
+            p => p.PublishEventAsync("event-1", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task RemoveAsync_KeepingTheFile_StillPublishes()
+    {
+        // Arrange - deleteFile decides the file's fate, never the row's, and the
+        // count a companion badges the event with is a count of rows
+        await SeedEventAsync("event-1");
+        var publisher = CreatePublisherMock();
+        var service = CreateServiceWithPublisher(publisher.Object);
+        var media = await service.AttachAsync(
+            "event-1", CreateSourceFile("kept.jpg", Encoding.UTF8.GetBytes("bytes")));
+        publisher.Invocations.Clear();
+
+        // Act
+        await service.RemoveAsync(media.MediaId, deleteFile: false);
+
+        // Assert
+        publisher.Verify(
+            p => p.PublishEventAsync("event-1", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateCaptionAndReorder_PublishNothing_TheProjectionCarriesOnlyACount()
+    {
+        // Arrange
+        await SeedEventAsync("event-1");
+        var publisher = CreatePublisherMock();
+        var service = CreateServiceWithPublisher(publisher.Object);
+        var first = await service.AttachAsync("event-1", CreateSourceFile("q-a.jpg", Encoding.UTF8.GetBytes("qa")));
+        var second = await service.AttachAsync("event-1", CreateSourceFile("q-b.jpg", Encoding.UTF8.GetBytes("qb")));
+        publisher.Invocations.Clear();
+
+        // Act - both are real archive writes
+        await service.UpdateCaptionAsync(first.MediaId, "At the lake");
+        await service.ReorderAsync("event-1", new[] { second.MediaId, first.MediaId });
+
+        // Assert - and both are invisible to a companion: the event payload
+        // carries a media COUNT and no caption, order or thumbnail. Publishing
+        // would only rebuild a payload the publisher drops as unchanged.
+        publisher.Verify(
+            p => p.PublishEventAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        (await service.GetForEventAsync("event-1")).Select(m => m.MediaId)
+            .Should().Equal(
+                new[] { second.MediaId, first.MediaId },
+                "the reorder itself must still have happened");
+    }
+
+    [Fact]
+    public async Task CleanupOrphansAsync_SweepsFiles_AndPublishesNothing()
+    {
+        // Arrange - a live attachment plus an orphaned file, aged past the
+        // grace window so the sweep will actually delete it
+        await SeedEventAsync("event-1");
+        var publisher = CreatePublisherMock();
+        var service = CreateServiceWithPublisher(publisher.Object);
+        await service.AttachAsync("event-1", CreateSourceFile("live.jpg", Encoding.UTF8.GetBytes("live")));
+        var orphan = Path.Combine(_mediaRoot, "2019", "05", "orphan.jpg");
+        Directory.CreateDirectory(Path.GetDirectoryName(orphan)!);
+        File.WriteAllText(orphan, "no row references this");
+        File.SetCreationTimeUtc(
+            orphan, DateTime.UtcNow - MediaService.CleanupGraceWindow - TimeSpan.FromMinutes(5));
+        publisher.Invocations.Clear();
+
+        // Act
+        var result = await service.CleanupOrphansAsync();
+
+        // Assert - the sweep deletes FILES and never an event_media row, so no
+        // event's projected count moved. Publishing "everything" to be safe
+        // would flood the outbox to say nothing, and a deleted orphan has no
+        // event id to attribute it to in the first place.
+        result.MediaFilesDeleted.Should().Be(1, "otherwise 'published nothing' proves nothing");
+        File.Exists(orphan).Should().BeFalse();
+        publisher.Verify(
+            p => p.PublishEventAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        publisher.Verify(
+            p => p.PublishDeletedAsync(
+                It.IsAny<TimelineProjectionEntity>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    #endregion
+
     #region Helpers
+
+    /// <summary>
+    /// The fixture's service plus a projection publisher. Everything else is
+    /// shared - same repository, same context factory, same media root - so a
+    /// test can read the archive back through either instance.
+    /// </summary>
+    private MediaService CreateServiceWithPublisher(ITimelineProjectionPublisher publisher) =>
+        new(_mediaRepository, _contextFactory, _thumbnailMock.Object, _loggerMock.Object, _mediaRoot, publisher);
+
+    private static Mock<ITimelineProjectionPublisher> CreatePublisherMock()
+    {
+        var publisher = new Mock<ITimelineProjectionPublisher>();
+        publisher
+            .Setup(p => p.PublishEventAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        return publisher;
+    }
 
     private async Task SeedEventAsync(string eventId)
     {
@@ -479,6 +755,20 @@ public class MediaServiceTests : IDisposable
         public List<T> Reports { get; } = new();
 
         public void Report(T value) => Reports.Add(value);
+    }
+
+    /// <summary>
+    /// Cancels as soon as the first file is reported done. AttachManyAsync
+    /// checks the token between files, so this is the one way to interrupt it
+    /// at a point where some rows have committed and some never will.
+    /// </summary>
+    private sealed class CancellingProgress : IProgress<(int done, int total)>
+    {
+        private readonly CancellationTokenSource _cts;
+
+        public CancellingProgress(CancellationTokenSource cts) => _cts = cts;
+
+        public void Report((int done, int total) value) => _cts.Cancel();
     }
 
     #endregion

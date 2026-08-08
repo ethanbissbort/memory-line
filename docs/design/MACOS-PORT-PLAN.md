@@ -188,31 +188,51 @@ Each phase is shippable and leaves the app in a usable state.
 | **0 — Skeleton** ✅ | Xcode project, composition root, pairing, capture library | in the tree |
 | **1 — Keychain + sync pull** ✅ | §3.2 fixed; `MacSyncCoordinator` pulls/applies/acks the change feed on a foreground timer | in the tree |
 | **1b — Upload** | Drain pending uploads | nothing to upload until Phase 2 gives the Mac a recorder; deferred deliberately |
-| **2 — Capture** | macOS recorder, input device selection, menu-bar quick capture | §4.1 |
-| **3 — Timeline** | The big one: timeline math, zoom levels, spans, swimlanes, uncertainty bands | see §6 |
-| **4 — Review & people** | Pending-event review, approve/reject, contact book | needs extraction (§6) |
-| **5 — Ask & narrative** | Retrieval + LLM answers with citations | needs embeddings on-device or via service |
+| **2 — Capture** ✅ | macOS recorder, input device selection, menu-bar quick capture | §4.1 |
+| **3 — Timeline** ✅ | Read-only timeline, eras, people, review queue, fed by the projection feed | see "how phase 3 was actually solved" below |
+| **4 — Review decisions** ✅ | Approve/reject a pending event *from* the Mac | queued to disk, pushed as `pending_event_decision`, pruned when Windows confirms |
+| **5 — Ask & narrative** | Retrieval + LLM answers with citations | Phase 4 assistant contract exists; no responder is built on either side |
 | **6 — Packaging** | Notarisation, Sparkle or App Store, hardened runtime | entitlements already set |
 
-### The decision that gates phases 3–5
+### The decision that gated phases 3–5 — resolved, by a fourth option
 
-Everything from Phase 3 on needs the logic that currently lives in C# — extraction
-prompts, date-precision inference, hybrid retrieval, narrative grounding, timeline
-coordinate math. There are three ways to get it, and **this has not been decided**:
+This section originally said everything from Phase 3 on needed the logic living in C# —
+extraction prompts, date-precision inference, hybrid retrieval, narrative grounding,
+timeline coordinate math — and listed three ways to get it: reimplement in Swift, move it
+behind the sync service, or embed .NET as an AOT library. All three are ways of getting the
+*computation* onto the Mac.
 
-1. **Reimplement in Swift.** Full offline parity, no dependencies. Costs a second
-   implementation of a large body of subtle logic, and the two will drift.
-2. **Move the logic behind the sync service.** The Mac calls the service; the service runs
-   the existing .NET code (already `net10.0`, already runs on macOS/Linux). One
-   implementation, but the app stops being local-first and needs the service running.
-3. **Embed .NET as a library** via a native AOT-compiled shared library the Swift app
-   links. One implementation, stays local-first, but the build and debugging story is
-   genuinely unpleasant.
+**The fourth option, and the one built: publish the result instead of the computation.**
+Windows runs the logic it already has and puts the answer on the sync feed as a read-only
+projection — `shared-contracts/.../TimelineProjectionContracts.cs`. An event crosses with
+its tags, people and locations already denormalised, and with `displayDate` already
+formatted by the same `DateDisplay.FormatPrecise` the Windows UI binds to. The Mac draws
+what it is sent.
 
-Recommendation: **(1) for timeline math** — it is self-contained, well-tested on the C#
-side, and small enough that duplication is cheap — and **defer 2-vs-3 for the AI features**
-until Phase 4 makes the cost concrete. Do not decide it now; do not let Phase 1–2 work
-assume an answer.
+Why this beats all three of the originals, for this product:
+
+- **Nothing is reimplemented, so nothing can drift.** The original recommendation was to
+  reimplement date-precision formatting in Swift because it is "self-contained and
+  well-tested". It is also exactly the kind of logic where a second implementation is
+  invisible when it diverges: a memory the user dated to a summer rendered as a precise day
+  is wrong in a way no test on either side would catch, because each side is
+  self-consistent.
+- **It stays local-first.** The Mac reads its own SQLite copy and needs no service running
+  to draw a timeline, which options 2 and 3 could not both promise.
+- **It answers "who may write" at the same time.** Windows is the only writer by
+  construction rather than by convention, and the one exception —
+  `PendingEventDecisionPayload` — is narrow enough to defend: a verdict is one idempotent
+  bit with no field values to merge, so accepting it does not make the system multi-writer.
+
+What this does *not* solve: Ask (Phase 5) is genuinely computation, not a projection, and
+the original 2-vs-3 question stands for it. The Phase 4 assistant contract
+(`AssistantContracts.cs`) already frames the answer as "Windows is the brain, with an
+option to link an LLM provider or pre-process on device" — that is option 2 in a different
+suit, and it remains undecided in the sense that no responder is implemented.
+
+**Consequence for the Mac's UI: it is a reader.** Timeline, Review and People render a copy
+and offer no editing. That is the design, not a shortfall, and the screens say so rather
+than hiding it.
 
 ---
 
@@ -230,11 +250,10 @@ the Windows workflow stays green whether or not a Windows-only type creeps back 
 jobs gate — a non-gating check here would repeat exactly the failure the 2026-07 audit
 called out (finding #10, the .NET test suite that ran with `continue-on-error`).
 
-> **This job has not run yet.** It is the first execution of `MemoryTimeline.Core` and
-> `.Sync` on a non-Windows machine. `Microsoft.ML.OnnxRuntime` and `Anthropic.SDK` are
-> expected to restore on macOS, but that is reasoning, not evidence. If the job fails on a
-> native-asset restore rather than on a compile error, the fix belongs in the package
-> reference, not in a retreat from the `net10.0` target.
+The `dotnet` job has since run green, so §3.3 is now evidence rather than reasoning:
+`Microsoft.ML.OnnxRuntime` and `Anthropic.SDK` do restore on macOS and those four projects
+do compile there. If it ever fails on a native-asset restore rather than a compile error,
+the fix belongs in the package reference, not in a retreat from the `net10.0` target.
 
 ---
 
@@ -265,10 +284,25 @@ that renders a platform label — worth doing before the Mac ships, not worth do
   server's `AllowedPlatforms`, and the Swift DTO's default. Until then the Mac is `other`.
 - **Distribution:** Mac App Store (sandbox already assumed) or Developer ID + Sparkle?
   Affects whether the sandbox exceptions in §4 stay viable.
-- **Does the Mac record at all,** or is it review-only with the iPhone as the capture
-  device? Phase 2 is a large chunk of work that a review-only Mac would not need.
 - **Minimum macOS version.** Currently 14.0 (Sonoma), chosen to match the iOS 17 baseline
   and because `ContentUnavailableView` and the `@Observable` macro need it.
 - **Shared UI vocabulary with Windows.** The Windows app has a settled visual language for
   precision-honest dates, era colours, and category glyphs. The Mac should agree with it;
-  nobody has written that down as a cross-platform spec.
+  nobody has written that down as a cross-platform spec. Note that `displayDate` already
+  removes the worst of this risk — the precision-honest string is formatted once, on
+  Windows, and every client renders it verbatim.
+- **An `EraService` in Core.** Eras are the only projected entity with no Core service, so
+  their publish calls live in `ErasViewModel` and `ImportService` writes eras that nothing
+  publishes. This is also why eras have no write-path test: nothing in this repo loads a
+  ViewModel into the test host. See a4bb149.
+- **There is no iOS CI.** `.github/workflows/` builds Windows, macOS, the sync service and
+  the docs site — nothing builds the iOS companion. The macOS job compiles everything under
+  `ios-companion/…/Shared/` into the Mac target, so shared code is covered by accident, but
+  the phone's own `App/` and `Features/` are not built anywhere.
+
+**Answered since this list was written:**
+
+- ~~Does the Mac record at all?~~ Yes — Phase 2 shipped a recorder, input-device selection
+  and menu-bar quick capture.
+- ~~How does the C# business logic reach the Mac?~~ It does not; Windows publishes results
+  as projections instead. See "the decision that gated phases 3–5" in §5.

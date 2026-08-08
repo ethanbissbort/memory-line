@@ -128,6 +128,7 @@ public class MediaService : IMediaService
     private readonly IEventMediaRepository _mediaRepository;
     private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly IThumbnailGenerator _thumbnailGenerator;
+    private readonly ITimelineProjectionPublisher? _projectionPublisher;
     private readonly ILogger<MediaService> _logger;
 
     /// <summary>
@@ -135,17 +136,22 @@ public class MediaService : IMediaService
     /// default %LOCALAPPDATA%\MemoryTimeline\Media root - production leaves it
     /// null (the DI container cannot resolve a string, so the default kicks
     /// in); tests inject a temp directory.
+    /// <paramref name="projectionPublisher"/> is optional and trailing so every
+    /// existing construction keeps compiling: production picks up the registered
+    /// implementation, and the many tests that predate sync stay silent.
     /// </summary>
     public MediaService(
         IEventMediaRepository mediaRepository,
         IDbContextFactory<AppDbContext> contextFactory,
         IThumbnailGenerator thumbnailGenerator,
         ILogger<MediaService> logger,
-        string? mediaRootOverride = null)
+        string? mediaRootOverride = null,
+        ITimelineProjectionPublisher? projectionPublisher = null)
     {
         _mediaRepository = mediaRepository;
         _contextFactory = contextFactory;
         _thumbnailGenerator = thumbnailGenerator;
+        _projectionPublisher = projectionPublisher;
         _logger = logger;
 
         MediaRoot = string.IsNullOrWhiteSpace(mediaRootOverride)
@@ -160,11 +166,25 @@ public class MediaService : IMediaService
     public string MediaRoot { get; }
 
     /// <inheritdoc />
-    public async Task<EventMedia> AttachAsync(
+    public Task<EventMedia> AttachAsync(
         string eventId,
         string sourceFilePath,
         string? caption = null,
         CancellationToken ct = default)
+        => AttachCoreAsync(eventId, sourceFilePath, caption, publishProjection: true, ct);
+
+    /// <summary>
+    /// The whole of <see cref="AttachAsync"/>, with one knob:
+    /// <paramref name="publishProjection"/> lets <see cref="AttachManyAsync"/>
+    /// attach forty photos and tell the sync feed once. Every other caller wants
+    /// the publish, so the public method hard-codes it true.
+    /// </summary>
+    private async Task<EventMedia> AttachCoreAsync(
+        string eventId,
+        string sourceFilePath,
+        string? caption,
+        bool publishProjection,
+        CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(eventId))
         {
@@ -339,6 +359,22 @@ public class MediaService : IMediaService
                 "Error publishing MediaAttachedMessage for media {MediaId}", mediaId);
         }
 
+        // An event projection denormalises a media COUNT, so a companion's photo
+        // badge is wrong from here until someone republishes the event (design
+        // §19 Phase 3). Published last so the one payload also carries whatever
+        // the EXIF backfill above changed: the projection's map pin comes from
+        // the event's linked locations, and the backfill may have just given one
+        // coordinates. Locations are shared rows, so OTHER events linked to a
+        // backfilled location keep a stale pin - the same cross-entity fan-out
+        // the interface already records for a person's EventCount, and not a
+        // decision to take from inside a photo attach.
+        // The duplicate-hash early return above wrote nothing and returns before
+        // reaching this.
+        if (publishProjection)
+        {
+            await PublishEventProjectionAsync(eventId);
+        }
+
         return media;
     }
 
@@ -362,27 +398,47 @@ public class MediaService : IMediaService
         var errors = new List<string>();
         var done = 0;
 
-        foreach (var path in pathList)
+        try
         {
-            ct.ThrowIfCancellationRequested();
+            foreach (var path in pathList)
+            {
+                ct.ThrowIfCancellationRequested();
 
-            try
-            {
-                attached.Add(await AttachAsync(eventId, path, caption: null, ct));
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                // Keep going: one unreadable file must not abort the batch.
-                _logger.LogError(ex, "Error attaching '{Path}' to event {EventId}", path, eventId);
-                errors.Add($"{Path.GetFileName(path)}: {ex.Message}");
-            }
+                try
+                {
+                    attached.Add(await AttachCoreAsync(eventId, path, caption: null, publishProjection: false, ct));
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    // Keep going: one unreadable file must not abort the batch.
+                    _logger.LogError(ex, "Error attaching '{Path}' to event {EventId}", path, eventId);
+                    errors.Add($"{Path.GetFileName(path)}: {ex.Message}");
+                }
 
-            done++;
-            progress?.Report((done, pathList.Count));
+                done++;
+                progress?.Report((done, pathList.Count));
+            }
+        }
+        finally
+        {
+            // One publish for the batch rather than one per file. Every row here
+            // lands on the SAME event, so a forty-photo drop is one badge change;
+            // publishing per file would queue thirty-nine payloads that are
+            // obsolete before a phone can draw them.
+            // In a finally because the rows committed as they went: a cancelled
+            // batch, or one that ends by throwing its failure summary, has still
+            // changed the count, and the caller seeing an exception is no reason
+            // to leave a companion showing the old one. The gate is "did this
+            // call put anything on the event", not a guess at whether the change
+            // was worth sending - the publisher decides that.
+            if (attached.Count > 0)
+            {
+                await PublishEventProjectionAsync(eventId);
+            }
         }
 
         if (errors.Count > 0)
@@ -418,6 +474,12 @@ public class MediaService : IMediaService
         _logger.LogInformation(
             "Removed media {MediaId} from event {EventId} (deleteFile={DeleteFile}).",
             mediaId, media.EventId, deleteFile);
+
+        // The count a companion badges the event with came from this row
+        // existing; deleteFile only decides the file's fate, never the row's, so
+        // both variants publish. The missing-row early return above changed
+        // nothing and returned before here.
+        await PublishEventProjectionAsync(media.EventId);
     }
 
     /// <inheritdoc />
@@ -429,9 +491,21 @@ public class MediaService : IMediaService
 
         media.Caption = NormalizeCaption(caption);
         await _mediaRepository.UpdateAsync(media);
+
+        // No projection publish here, and none in ReorderAsync. The event
+        // payload denormalises a media COUNT and nothing else about the
+        // attachments - no captions, no order, no thumbnails - so neither write
+        // is visible to a companion, and a publish would only rebuild a payload
+        // the publisher then drops as unchanged. The asymmetry with attach and
+        // remove is the contract's shape, not a missed call site; it stops being
+        // true the day the projection carries a media list.
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Publishes no projection - see <see cref="UpdateCaptionAsync"/> for why
+    /// sort order does not cross the wire.
+    /// </remarks>
     public async Task ReorderAsync(string eventId, IReadOnlyList<string> mediaIdsInOrder)
     {
         var media = await _mediaRepository.GetForEventAsync(eventId);
@@ -623,7 +697,50 @@ public class MediaService : IMediaService
             result.FilesDeleted, result.BytesFreed,
             result.MediaFilesDeleted, result.ThumbnailsDeleted, result.TempFilesDeleted);
 
+        // No projections, and no event ids to gather for them: this sweep - like
+        // DeleteFiles - deletes FILES and never an event_media row, the isOrphan
+        // test above skips every file a row still references, and the count an
+        // event projection carries is a count of rows. Every row that vanished
+        // to make these files orphans went through RemoveAsync or an event
+        // delete, both of which already published. A file deleted here has no
+        // event id to attribute it to anyway; publishing "everything" to be safe
+        // would flood the outbox to say nothing.
         return result;
+    }
+
+    /// <summary>
+    /// Republishes the event onto the sync feed after its media set changed, so
+    /// a companion's photo badge stops disagreeing with the archive (design §19
+    /// Phase 3). Callers invoke this only AFTER their row write has committed -
+    /// the publisher re-reads the event to count its media, so it has to see the
+    /// new state.
+    ///
+    /// Deliberately takes no CancellationToken. Every call reports rows that are
+    /// already durable, and a cancelled batch that skipped its publish would
+    /// leave the feed stale for as long as nothing else touched the event -
+    /// cancellation should stop work still to come, not suppress the report of
+    /// work already done.
+    ///
+    /// A publish failure is warned and swallowed: the attachment is the user's
+    /// photo, the projection is a badge on someone else's screen, and no outbox
+    /// problem is worth failing the former for. The next media change
+    /// republishes.
+    /// </summary>
+    private async Task PublishEventProjectionAsync(string eventId)
+    {
+        if (_projectionPublisher == null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _projectionPublisher.PublishEventAsync(eventId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to publish the timeline projection for event {EventId}", eventId);
+        }
     }
 
     /// <summary>

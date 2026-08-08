@@ -11,23 +11,38 @@ using Xunit;
 namespace MemoryTimeline.Tests.UnitTests;
 
 /// <summary>
-/// The review half of the Phase 3 status handoff (design §19): approving or
-/// rejecting on Windows must republish the capture's status, because nothing
-/// else does. <see cref="QueueService"/> only publishes on a stage transition,
-/// and review never causes one — so without this the phone's review counts
-/// freeze at extraction time and a capture reads "Ready for review" forever,
-/// even after the user finished reviewing on the PC.
+/// What the review path publishes (design §19 Phase 3). Two projections leave
+/// Windows when an extraction is created or decided, and nothing else emits
+/// either of them:
+///
+/// <list type="bullet">
+/// <item><b>Capture status.</b> Approving or rejecting must republish the
+/// capture's status, because <see cref="QueueService"/> only publishes on a
+/// stage transition and review never causes one — so without this the phone's
+/// review counts freeze at extraction time and a capture reads "Ready for
+/// review" forever, even after the user finished reviewing on the PC.</item>
+///
+/// <item><b>Timeline projections.</b> The status says how many events are
+/// waiting; only the <c>pending_event</c> projection says what they are, and
+/// only the <c>event</c> projection puts an approved one on the companion's
+/// timeline. An approval publishes both — the new event, and a tombstone that
+/// takes the item out of the review queue — because watching a memory leave the
+/// queue and never arrive anywhere reads as data loss.</item>
+/// </list>
 ///
 /// A file-based SQLite database is used because approval opens a relational
-/// transaction. The publisher is an optional dependency exactly like
-/// <see cref="QueueService"/>'s, so the no-publisher path is covered too.
+/// transaction. Both publishers are optional dependencies exactly like
+/// <see cref="QueueService"/>'s, so the no-publisher paths are covered too.
 /// </summary>
 public class ReviewCaptureStatusTests : IDisposable
 {
     private readonly TestDbContextFactory _contextFactory;
     private readonly RecordingQueueRepository _queueRepository;
     private readonly Mock<ICaptureStatusPublisher> _statusPublisher = new();
+    private readonly Mock<ITimelineProjectionPublisher> _projectionPublisher = new();
+    private readonly Mock<ILlmService> _llmService = new();
     private readonly List<RecordingQueue> _published = new();
+    private readonly List<string> _projected = new();
     private readonly EventExtractionService _extractionService;
     private readonly string _databasePath;
 
@@ -57,7 +72,30 @@ public class ReviewCaptureStatusTests : IDisposable
             }))
             .Returns(Task.CompletedTask);
 
-        _extractionService = BuildService(_statusPublisher.Object);
+        // Recorded as strings in one list because the ORDER matters as much as
+        // the contents: an approval's event upsert has to reach a companion
+        // before the people it names, and both before the tombstone that empties
+        // the queue entry.
+        _projectionPublisher
+            .Setup(p => p.PublishPendingEventAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<string, CancellationToken>((id, _) => _projected.Add($"pending_event:{id}"))
+            .Returns(Task.CompletedTask);
+        _projectionPublisher
+            .Setup(p => p.PublishEventAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<string, CancellationToken>((id, _) => _projected.Add($"event:{id}"))
+            .Returns(Task.CompletedTask);
+        _projectionPublisher
+            .Setup(p => p.PublishPersonAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<string, CancellationToken>((id, _) => _projected.Add($"person:{id}"))
+            .Returns(Task.CompletedTask);
+        _projectionPublisher
+            .Setup(p => p.PublishDeletedAsync(
+                It.IsAny<TimelineProjectionEntity>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<TimelineProjectionEntity, string, CancellationToken>(
+                (entity, id, _) => _projected.Add($"delete:{entity}:{id}"))
+            .Returns(Task.CompletedTask);
+
+        _extractionService = BuildService(_statusPublisher.Object, _projectionPublisher.Object);
     }
 
     [Fact]
@@ -231,11 +269,185 @@ public class ReviewCaptureStatusTests : IDisposable
         stored!.ProcessingStage.Should().Be(QueueProcessingStage.ReviewReady);
     }
 
+    [Fact]
+    public async Task ExtractAndCreatePendingEventsAsync_PublishesOneProjectionPerExtractedEvent()
+    {
+        // Arrange - the capture the extraction hangs off (the FK is enforced on
+        // SQLite), and two events out of one transcript
+        var queueId = await SeedQueueItemAsync(QueueProcessingStage.Extracting, QueueStatus.Processing);
+        GivenExtractionReturns("Ferry to the island", "Dinner at the harbour");
+
+        // Act
+        var created = await _extractionService.ExtractAndCreatePendingEventsAsync(
+            queueId, "We took the ferry over and ate at the harbour that night.");
+
+        // Assert - a companion can only show the queue it was sent, so every
+        // extracted event needs its own projection
+        created.Should().HaveCount(2);
+        _projected.Should().BeEquivalentTo(
+            created.Select(pending => $"pending_event:{pending.PendingId}"));
+    }
+
+    [Fact]
+    public async Task ApprovePendingEventAsync_PublishesTheNewEventThenTombstonesTheQueueEntry()
+    {
+        // Arrange
+        var queueId = await SeedQueueItemAsync(QueueProcessingStage.ReviewReady);
+        var pendingId = await SeedPendingEventAsync(queueId, "Ferry to the island");
+
+        // Act
+        var approved = await _extractionService.ApprovePendingEventAsync(pendingId);
+
+        // Assert - both, and the event first: an item briefly in the queue AND
+        // on the timeline is a duplicate the tombstone clears, while a queue
+        // entry that vanishes with no event behind it reads as a lost memory
+        _projected.Should().Equal(
+            $"event:{approved.EventId}",
+            $"delete:{TimelineProjectionEntity.PendingEvent}:{pendingId}");
+    }
+
+    [Fact]
+    public async Task ApprovePendingEventAsync_PublishesLinkedPeopleBetweenTheEventAndTheTombstone()
+    {
+        // Arrange - an extraction that named two people. Approval is where they
+        // first reach the archive: one is created outright here, and both gain
+        // an event_people row the person projection's EventCount is derived from.
+        var queueId = await SeedQueueItemAsync(QueueProcessingStage.ReviewReady);
+        var pendingId = await SeedPendingEventAsync(
+            queueId, "Ferry to the island", new[] { "Dana", "Sarah" });
+
+        // Act
+        var approved = await _extractionService.ApprovePendingEventAsync(pendingId);
+
+        // Assert - the people the approval actually linked
+        List<string> personIds;
+        await using (var context = _contextFactory.CreateDbContext())
+        {
+            personIds = await context.EventPeople.AsNoTracking()
+                .Where(ep => ep.EventId == approved.EventId)
+                .Select(ep => ep.PersonId)
+                .ToListAsync();
+        }
+        personIds.Should().HaveCount(2);
+
+        // ...published between the event and the tombstone. An event payload
+        // carries person IDS only — names come from the person projection — so a
+        // batch truncated after the tombstone would leave a companion with a
+        // settled-looking timeline entry naming contacts it cannot resolve and
+        // nothing pending to suggest more is coming. Truncated after the people
+        // it shows a duplicate queue item, the cost already accepted above.
+        _projected.Should().HaveCount(4);
+        _projected[0].Should().Be($"event:{approved.EventId}");
+        _projected.Skip(1).Take(2).Should()
+            .BeEquivalentTo(personIds.Select(id => $"person:{id}"));
+        _projected[3].Should().Be($"delete:{TimelineProjectionEntity.PendingEvent}:{pendingId}");
+    }
+
+    [Fact]
+    public async Task ApprovePendingEventAsync_WithNoExtractedPeople_PublishesNoPersonProjections()
+    {
+        // Arrange - the cost bound: people are published only where the junction
+        // was actually written
+        var queueId = await SeedQueueItemAsync(QueueProcessingStage.ReviewReady);
+        var pendingId = await SeedPendingEventAsync(queueId, "A quiet afternoon", Array.Empty<string>());
+
+        // Act
+        var approved = await _extractionService.ApprovePendingEventAsync(pendingId);
+
+        // Assert
+        _projected.Should().Equal(
+            $"event:{approved.EventId}",
+            $"delete:{TimelineProjectionEntity.PendingEvent}:{pendingId}");
+    }
+
+    [Fact]
+    public async Task RejectPendingEventAsync_TombstonesTheQueueEntryAndPublishesNoEvent()
+    {
+        // Arrange
+        var queueId = await SeedQueueItemAsync(QueueProcessingStage.ReviewReady);
+        var pendingId = await SeedPendingEventAsync(queueId, "Nothing worth keeping");
+
+        // Act
+        await _extractionService.RejectPendingEventAsync(pendingId);
+
+        // Assert - the extraction was thrown away, so the id is all that is
+        // left to publish and no timeline entry follows it
+        _projected.Should().Equal($"delete:{TimelineProjectionEntity.PendingEvent}:{pendingId}");
+
+        await using var context = _contextFactory.CreateDbContext();
+        (await context.Events.AsNoTracking().CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task UpdatePendingEventAsync_RepublishesTheCorrectedPendingEvent()
+    {
+        // Arrange - a reviewer fixing the extraction before deciding on it
+        var queueId = await SeedQueueItemAsync(QueueProcessingStage.ReviewReady);
+        var pendingId = await SeedPendingEventAsync(queueId, "Ferry to the ilsand");
+
+        // Act
+        await _extractionService.UpdatePendingEventAsync(new PendingEvent
+        {
+            PendingId = pendingId,
+            Title = "Ferry to the island",
+            StartDate = new DateTime(2024, 7, 1),
+            Category = "travel",
+        });
+
+        // Assert - the companion's queue must show what will actually be
+        // approved, not the title the model first guessed at
+        _projected.Should().Equal($"pending_event:{pendingId}");
+    }
+
+    [Fact]
+    public async Task ApprovePendingEventAsync_ProjectionPublisherThrows_StillApprovesTheEvent()
+    {
+        // Arrange - the approve has already committed by the time anything is
+        // projected; a failed publish must not report a failure for it
+        var queueId = await SeedQueueItemAsync(QueueProcessingStage.ReviewReady);
+        var pendingId = await SeedPendingEventAsync(queueId, "Ferry to the island");
+        _projectionPublisher
+            .Setup(p => p.PublishEventAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("database is locked"));
+
+        // Act
+        var approved = await _extractionService.ApprovePendingEventAsync(pendingId);
+
+        // Assert - the event is in the archive
+        approved.Title.Should().Be("Ferry to the island");
+        await using var context = _contextFactory.CreateDbContext();
+        (await context.Events.AsNoTracking().CountAsync()).Should().Be(1);
+
+        // ...and each publish is guarded on its own, so one failing did not
+        // take the rest of the approval's projections with it
+        _projected.Should().Equal($"delete:{TimelineProjectionEntity.PendingEvent}:{pendingId}");
+    }
+
+    [Fact]
+    public async Task ApprovePendingEventAsync_WithoutAProjectionPublisher_StillApproves()
+    {
+        // Arrange - the projection publisher is optional and defaults to none,
+        // so every existing construction of the service keeps working
+        var service = BuildService(_statusPublisher.Object, projectionPublisher: null);
+        var queueId = await SeedQueueItemAsync(QueueProcessingStage.ReviewReady);
+        var pendingId = await SeedPendingEventAsync(queueId, "Ferry to the island");
+
+        // Act
+        var approved = await service.ApprovePendingEventAsync(pendingId);
+
+        // Assert
+        approved.Title.Should().Be("Ferry to the island");
+        _projected.Should().BeEmpty();
+        _published.Should().ContainSingle("the capture status is a separate publisher and still fires");
+    }
+
     // ---- Helpers ----
 
-    private EventExtractionService BuildService(ICaptureStatusPublisher? statusPublisher) =>
+    private EventExtractionService BuildService(
+        ICaptureStatusPublisher? statusPublisher,
+        ITimelineProjectionPublisher? projectionPublisher = null) =>
         new(
-            new Mock<ILlmService>().Object,
+            _llmService.Object,
             new Mock<ISpeechToTextService>().Object,
             new Mock<IEventService>().Object,
             new Mock<ISettingsService>().Object,
@@ -244,7 +456,31 @@ public class ReviewCaptureStatusTests : IDisposable
             _contextFactory,
             new Mock<ILogger<EventExtractionService>>().Object,
             revisionWriter: null,
-            statusPublisher: statusPublisher);
+            statusPublisher: statusPublisher,
+            projectionPublisher: projectionPublisher);
+
+    /// <summary>
+    /// Makes the mocked LLM return one extracted event per title, so extraction
+    /// creates exactly that many pending events.
+    /// </summary>
+    private void GivenExtractionReturns(params string[] titles)
+    {
+        _llmService
+            .Setup(s => s.ExtractEventsAsync(It.IsAny<string>(), It.IsAny<ExtractionContext?>()))
+            .ReturnsAsync(new EventExtractionResult
+            {
+                Success = true,
+                OverallConfidence = 0.8,
+                Events = titles.Select(title => new ExtractedEvent
+                {
+                    Title = title,
+                    StartDate = new DateTime(2024, 7, 1),
+                    DatePrecision = "day",
+                    Category = "other",
+                    Confidence = 0.7,
+                }).ToList(),
+            });
+    }
 
     /// <summary>Seeds a device capture sitting at the given stage.</summary>
     private async Task<string> SeedQueueItemAsync(string stage, string status = QueueStatus.Completed)
@@ -271,8 +507,22 @@ public class ReviewCaptureStatusTests : IDisposable
     /// empty so approval skips tag/person/location mapping — the subject here is
     /// the status republish, not metadata.
     /// </summary>
-    private async Task<string> SeedPendingEventAsync(string queueId, string title)
+    private async Task<string> SeedPendingEventAsync(
+        string queueId, string title, string[]? people = null)
     {
+        // An empty ExtractedData is the "no metadata to map" case the ordering
+        // tests above want; passing people opts into the junction writes.
+        var extractedData = people == null
+            ? string.Empty
+            : System.Text.Json.JsonSerializer.Serialize(new ExtractedEvent
+            {
+                Title = title,
+                StartDate = new DateTime(2024, 7, 1),
+                Category = "other",
+                People = people.ToList(),
+                Confidence = 0.9,
+            });
+
         var pending = new PendingEvent
         {
             PendingId = Guid.NewGuid().ToString(),
@@ -280,7 +530,7 @@ public class ReviewCaptureStatusTests : IDisposable
             Title = title,
             StartDate = new DateTime(2024, 7, 1),
             Category = "other",
-            ExtractedData = string.Empty,
+            ExtractedData = extractedData,
             Status = PendingStatus.PendingReview.ToStringValue(),
             IsApproved = false,
             CreatedAt = DateTime.UtcNow,

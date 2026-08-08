@@ -76,4 +76,21 @@ public static class SyncEntityType
     /// <summary>Windows-authored capture processing status (Phase 3); must match
     /// SyncChangeEntityType.CaptureStatus in the shared contracts.</summary>
     public const string CaptureStatus = "capture_status";
+
+    /// <summary>
+    /// A life period projected read-only from the archive; must match
+    /// SyncChangeEntityType.Era in the shared contracts. Eras get their own
+    /// entity type rather than riding along with their events because a
+    /// companion browses them independently (timeline backgrounds, the eras
+    /// list) and would otherwise have to reconstruct one from event fragments.
+    /// </summary>
+    public const string Era = "era";
+
+    /// <summary>
+    /// A contact-book person projected read-only from the archive; must match
+    /// SyncChangeEntityType.Person in the shared contracts. Resolves the person
+    /// IDs an event projection carries, so a merged-away person still has a row
+    /// to follow instead of rendering as a dangling id.
+    /// </summary>
+    public const string Person = "person";
 }

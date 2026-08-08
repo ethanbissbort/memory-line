@@ -25,15 +25,18 @@ public class ImportService : IImportService
     private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly ILogger<ImportService> _logger;
     private readonly EventRevisionWriter? _revisionWriter;
+    private readonly ITimelineProjectionPublisher? _projectionPublisher;
 
     public ImportService(
         IDbContextFactory<AppDbContext> contextFactory,
         ILogger<ImportService> logger,
-        EventRevisionWriter? revisionWriter = null)
+        EventRevisionWriter? revisionWriter = null,
+        ITimelineProjectionPublisher? projectionPublisher = null)
     {
         _contextFactory = contextFactory;
         _logger = logger;
         _revisionWriter = revisionWriter;
+        _projectionPublisher = projectionPublisher;
     }
 
     /// <summary>
@@ -88,21 +91,32 @@ public class ImportService : IImportService
             // Events created by this import, for post-save revision writes.
             var createdEvents = new List<Event>();
 
+            // Rows this import wrote, projected onto the sync feed once the save
+            // commits (see PublishImportedProjectionsAsync). The event list is
+            // deliberately not createdEvents: revisions are for new events only,
+            // while a companion also has to hear about the ones an import
+            // overwrote, and neither list holds rows the import merely skipped.
+            var importedEventIds = new List<string>();
+            var importedEraIds = new List<string>();
+
             // Import events
             if (importData.Events?.Any() == true)
             {
                 progress?.Report((40, $"Importing {importData.Events.Count} events..."));
-                await ImportEventsAsync(dbContext, importData.Events, options, result, createdEvents);
+                await ImportEventsAsync(dbContext, importData.Events, options, result, createdEvents, importedEventIds);
             }
 
             // Import eras
             if (options.ImportEras && importData.Eras?.Any() == true)
             {
                 progress?.Report((70, $"Importing {importData.Eras.Count} eras..."));
-                await ImportErasAsync(dbContext, importData.Eras, result);
+                await ImportErasAsync(dbContext, importData.Eras, result, importedEraIds);
             }
 
-            // Import tags
+            // Import tags. Nothing is collected for the sync feed here: a tag is
+            // not a projected entity, it reaches a companion denormalised into
+            // the events that carry it, so a tag row with no event to hang on
+            // has nothing to project until one links to it.
             if (options.ImportTags && importData.Tags?.Any() == true)
             {
                 progress?.Report((85, $"Importing {importData.Tags.Count} tags..."));
@@ -124,6 +138,17 @@ public class ImportService : IImportService
                     await _revisionWriter.TryWriteForEventIdAsync(
                         createdEvent.EventId, RevisionKind.Imported);
                 }
+            }
+
+            // Until now an import was the one whole user action a companion
+            // never saw: rows went straight to the context and nothing reached
+            // the sync feed (design §19 Phase 3). The pass can be long on a big
+            // file, so it gets its own progress step rather than hiding behind
+            // a bar that already says 100%.
+            if (_projectionPublisher != null && (importedEventIds.Count > 0 || importedEraIds.Count > 0))
+            {
+                progress?.Report((95, "Publishing to companion devices..."));
+                await PublishImportedProjectionsAsync(importedEventIds, importedEraIds);
             }
 
             result.Success = true;
@@ -253,7 +278,8 @@ public class ImportService : IImportService
         List<JsonEvent> events,
         ImportOptions options,
         ImportResult result,
-        List<Event> createdEvents)
+        List<Event> createdEvents,
+        List<string> importedEventIds)
     {
         foreach (var jsonEvent in events)
         {
@@ -278,7 +304,7 @@ public class ImportService : IImportService
                 {
                     if (options.UpdateExisting)
                     {
-                        UpdateEventFromJson(existingEvent, jsonEvent);
+                        UpdateEventFromJson(existingEvent, jsonEvent, importedEventIds);
                         result.EventsUpdated++;
                         continue;
                     }
@@ -298,19 +324,19 @@ public class ImportService : IImportService
                             continue;
 
                         case ConflictResolution.Overwrite:
-                            UpdateEventFromJson(existingEvent, jsonEvent);
+                            UpdateEventFromJson(existingEvent, jsonEvent, importedEventIds);
                             result.EventsUpdated++;
                             break;
 
                         case ConflictResolution.CreateDuplicate:
-                            await CreateEventFromJson(dbContext, jsonEvent, result, createdEvents);
+                            await CreateEventFromJson(dbContext, jsonEvent, result, createdEvents, importedEventIds);
                             result.EventsImported++;
                             break;
 
                         case ConflictResolution.Merge:
                             if (jsonEvent.UpdatedAt > existingEvent.UpdatedAt)
                             {
-                                UpdateEventFromJson(existingEvent, jsonEvent);
+                                UpdateEventFromJson(existingEvent, jsonEvent, importedEventIds);
                                 result.EventsUpdated++;
                             }
                             else
@@ -322,7 +348,7 @@ public class ImportService : IImportService
                 }
                 else
                 {
-                    await CreateEventFromJson(dbContext, jsonEvent, result, createdEvents);
+                    await CreateEventFromJson(dbContext, jsonEvent, result, createdEvents, importedEventIds);
                     result.EventsImported++;
                 }
             }
@@ -338,7 +364,8 @@ public class ImportService : IImportService
         AppDbContext dbContext,
         JsonEvent jsonEvent,
         ImportResult result,
-        List<Event> createdEvents)
+        List<Event> createdEvents,
+        List<string> importedEventIds)
     {
         var evt = new Event
         {
@@ -391,9 +418,17 @@ public class ImportService : IImportService
 
         dbContext.Events.Add(evt);
         createdEvents.Add(evt);
+        importedEventIds.Add(evt.EventId);
     }
 
-    private void UpdateEventFromJson(Event existingEvent, JsonEvent jsonEvent)
+    /// <summary>
+    /// Applies an imported record over an existing event and records its id for
+    /// the sync feed. The recording lives here, next to the mutation, rather
+    /// than at the three conflict branches that call it: an overwritten event
+    /// looks exactly like an edit to a companion, and a branch added later must
+    /// not be able to change the archive without the feed hearing about it.
+    /// </summary>
+    private void UpdateEventFromJson(Event existingEvent, JsonEvent jsonEvent, List<string> importedEventIds)
     {
         existingEvent.Title = jsonEvent.Title;
         existingEvent.Description = jsonEvent.Description;
@@ -403,9 +438,11 @@ public class ImportService : IImportService
         existingEvent.Location = jsonEvent.Location;
         existingEvent.Confidence = jsonEvent.Confidence;
         existingEvent.UpdatedAt = DateTime.UtcNow;
+        importedEventIds.Add(existingEvent.EventId);
     }
 
-    private async Task ImportErasAsync(AppDbContext dbContext, List<JsonEra> eras, ImportResult result)
+    private async Task ImportErasAsync(
+        AppDbContext dbContext, List<JsonEra> eras, ImportResult result, List<string> importedEraIds)
     {
         foreach (var jsonEra in eras)
         {
@@ -429,6 +466,14 @@ public class ImportService : IImportService
 
                     dbContext.Eras.Add(era);
                     result.ErasImported++;
+
+                    // Only created eras are recorded. An era whose name already
+                    // exists is dropped entirely — not merged, not updated — so
+                    // there is no change to project, and publishing the existing
+                    // row would be an upsert of something the companion already
+                    // holds unchanged. That is an intentional omission, not a
+                    // missed publish site.
+                    importedEraIds.Add(era.EraId);
                 }
             }
             catch (Exception ex)
@@ -470,6 +515,103 @@ public class ImportService : IImportService
                 _logger.LogWarning(ex, "Failed to import tag: {Name}", jsonTag.Name);
                 result.Warnings.Add($"Failed to import tag '{jsonTag.Name}': {ex.Message}");
             }
+        }
+    }
+
+    /// <summary>
+    /// Projects everything the import wrote onto the sync feed, in one pass over
+    /// the ids the loops collected (design §19 Phase 3). Events and eras are the
+    /// whole list because they are the only projected entities an import writes:
+    /// it creates no people and no pending events, and tags travel inside the
+    /// events that carry them.
+    ///
+    /// <para><b>Why at the end and not per row.</b> Not primarily speed: the
+    /// import stages the whole file into one context and commits it with a
+    /// single SaveChangesAsync, and the publisher reads each row back through
+    /// repositories that open their own connections. Called from inside a loop
+    /// it would find nothing committed, log "no longer exists" at debug, and
+    /// publish silently nothing — the exact failure this change exists to fix.
+    /// Splitting the import into committed batches so it could publish per batch
+    /// would buy an earlier feed by giving up the all-or-nothing commit that the
+    /// mandatory pre-import backup exists to guarantee, which is the wrong way
+    /// round for the app's only destructive bulk operation.</para>
+    ///
+    /// <para><b>What holding the ids costs.</b> A GUID string is on the order of
+    /// a hundred bytes, so even a 10,000-event file adds about a megabyte — next
+    /// to a change tracker that is already holding every imported entity, and a
+    /// createdEvents list holding the events themselves, for the whole import.
+    /// There is nothing to re-query instead: no column marks a row as "written
+    /// by this import".</para>
+    ///
+    /// <para><b>What publishing costs.</b> Each event projection re-reads the
+    /// event with its navigations, counts its media, compares against the last
+    /// published payload and inserts one outbox row in its own transaction —
+    /// four round trips, one of them a commit — and each era costs three. An
+    /// import of N events and M new eras therefore adds roughly 4N+3M queries
+    /// and N+M outbox rows, which LocalOutboxPublisher then drains 100 at a
+    /// time. On a large file that is real time and a real burst, and it is the
+    /// price of the import being visible on a phone at all; there is deliberately
+    /// no "skip publishing for large imports" option, because an import that
+    /// silently lands nothing is the bug, not the optimisation.</para>
+    ///
+    /// <para><b>Failures are counted, never fatal, and summarised once.</b> The
+    /// archive is committed by the time this runs and an import is the slowest,
+    /// least repeatable thing a user can ask for; losing one to an unwritable
+    /// outbox row would be indefensible. Per-row logging is equally wrong here:
+    /// the realistic failure (outbox locked, sync misconfigured) fails every row,
+    /// and thousands of identical warnings would bury the import's own errors.
+    /// Every unpublished entity self-corrects the next time it is edited through
+    /// a path that publishes.</para>
+    /// </summary>
+    private async Task PublishImportedProjectionsAsync(List<string> eventIds, List<string> eraIds)
+    {
+        var publisher = _projectionPublisher;
+        if (publisher == null)
+        {
+            return;
+        }
+
+        var failures = 0;
+        Exception? firstFailure = null;
+
+        async Task TryPublishAsync(Func<Task> publish)
+        {
+            try
+            {
+                await publish();
+            }
+            catch (Exception ex)
+            {
+                failures++;
+                firstFailure ??= ex;
+            }
+        }
+
+        // Eras first: there is a handful of them against potentially thousands
+        // of events, so an interrupted pass has at least delivered the cheap
+        // half — the backdrop the events are drawn against. Nothing here needs
+        // the order for referential reasons; an imported event carries no era.
+        foreach (var eraId in eraIds)
+        {
+            await TryPublishAsync(() => publisher.PublishEraAsync(eraId));
+        }
+
+        // Distinct: a file that lists the same event twice under an overwriting
+        // strategy records the id once per write, and each repeat would spend
+        // four queries to conclude the projection had not changed. Materialised
+        // so the summary below counts what was attempted, not what was collected.
+        var distinctEventIds = eventIds.Distinct(StringComparer.Ordinal).ToList();
+        foreach (var eventId in distinctEventIds)
+        {
+            await TryPublishAsync(() => publisher.PublishEventAsync(eventId));
+        }
+
+        if (firstFailure != null)
+        {
+            _logger.LogWarning(firstFailure,
+                "{FailureCount} of {TotalCount} timeline projections could not be published for this import; " +
+                "the imported data is committed and each entity republishes when it is next edited (first failure attached)",
+                failures, eraIds.Count + distinctEventIds.Count);
         }
     }
 

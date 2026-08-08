@@ -420,6 +420,387 @@ public class ImportServiceTests : IDisposable
         progressReports.Should().Contain(p => p.percentage == 100);
     }
 
+    // ---- Sync projections (design §19 Phase 3) ----
+
+    [Fact]
+    public async Task ImportFromJsonAsync_PublishesOneProjectionPerImportedEvent()
+    {
+        // Arrange
+        var published = new List<(string Kind, string EntityId)>();
+        var service = CreateImportServiceWith(CreateRecordingPublisher(published).Object);
+        var filePath = await WriteImportFileAsync("published_events.json", new
+        {
+            Events = new[]
+            {
+                new
+                {
+                    EventId = "sync1",
+                    Title = "First Imported",
+                    StartDate = new DateTime(2024, 1, 15),
+                    // Tags ride along inside the event projection, so three of
+                    // them must still produce exactly one publish.
+                    Tags = new[] { "tag1", "tag2", "tag3" },
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                },
+                new
+                {
+                    EventId = "sync2",
+                    Title = "Second Imported",
+                    StartDate = new DateTime(2024, 2, 20),
+                    Tags = Array.Empty<string>(),
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                }
+            }
+        });
+
+        // Act
+        var result = await service.ImportFromJsonAsync(filePath);
+
+        // Assert
+        result.Success.Should().BeTrue();
+        published.Should().Equal(("event", "sync1"), ("event", "sync2"));
+    }
+
+    [Fact]
+    public async Task ImportFromJsonAsync_OverwritesExisting_PublishesTheEventIdThatWasWritten()
+    {
+        // Arrange - the file carries its own id, but an overwrite updates the
+        // row already in the archive; publishing the file's id would project an
+        // event that does not exist and leave the real one stale on a companion.
+        _context.Events.Add(new Event
+        {
+            EventId = "already-here",
+            Title = "Shared Title",
+            StartDate = new DateTime(2024, 1, 15),
+            CreatedAt = DateTime.UtcNow
+        });
+        await _context.SaveChangesAsync();
+
+        var published = new List<(string Kind, string EntityId)>();
+        var service = CreateImportServiceWith(CreateRecordingPublisher(published).Object);
+        var filePath = await WriteImportFileAsync("published_overwrite.json", new
+        {
+            Events = new[]
+            {
+                new
+                {
+                    EventId = "id-from-the-file",
+                    Title = "Shared Title",
+                    Description = "Updated Description",
+                    StartDate = new DateTime(2024, 1, 15),
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                }
+            }
+        });
+
+        // Act
+        var result = await service.ImportFromJsonAsync(
+            filePath, new ImportOptions { ConflictResolution = ConflictResolution.Overwrite });
+
+        // Assert
+        result.EventsUpdated.Should().Be(1);
+        published.Should().Equal(("event", "already-here"));
+    }
+
+    [Fact]
+    public async Task ImportFromJsonAsync_SkippedDuplicate_PublishesNothing()
+    {
+        // Arrange
+        _context.Events.Add(new Event
+        {
+            EventId = "untouched",
+            Title = "Shared Title",
+            StartDate = new DateTime(2024, 1, 15),
+            CreatedAt = DateTime.UtcNow
+        });
+        await _context.SaveChangesAsync();
+
+        var published = new List<(string Kind, string EntityId)>();
+        var service = CreateImportServiceWith(CreateRecordingPublisher(published).Object);
+        var filePath = await WriteImportFileAsync("published_skip.json", new
+        {
+            Events = new[]
+            {
+                new
+                {
+                    EventId = "ignored",
+                    Title = "Shared Title",
+                    StartDate = new DateTime(2024, 1, 15),
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                }
+            }
+        });
+
+        // Act
+        var result = await service.ImportFromJsonAsync(
+            filePath, new ImportOptions { ConflictResolution = ConflictResolution.Skip });
+
+        // Assert - a skipped event wrote nothing, so there is nothing to project
+        result.EventsSkipped.Should().Be(1);
+        published.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ImportFromJsonAsync_PublishesOnlyTheErasItCreated()
+    {
+        // Arrange - an era whose name already exists is dropped by the import,
+        // so it must not be projected either
+        _context.Eras.Add(new Era
+        {
+            EraId = "existing-era",
+            Name = "College Years",
+            StartDate = new DateTime(2015, 9, 1),
+            CreatedAt = DateTime.UtcNow
+        });
+        await _context.SaveChangesAsync();
+
+        var published = new List<(string Kind, string EntityId)>();
+        var service = CreateImportServiceWith(CreateRecordingPublisher(published).Object);
+        var filePath = await WriteImportFileAsync("published_eras.json", new
+        {
+            Events = new[]
+            {
+                new
+                {
+                    EventId = "era-import-event",
+                    Title = "An Event",
+                    StartDate = new DateTime(2020, 5, 1),
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                }
+            },
+            Eras = new[]
+            {
+                new
+                {
+                    EraId = "era-from-file",
+                    Name = "College Years",
+                    StartDate = new DateTime(2015, 9, 1),
+                    CreatedAt = DateTime.UtcNow
+                },
+                new
+                {
+                    EraId = "new-era",
+                    Name = "First Job",
+                    StartDate = new DateTime(2019, 6, 1),
+                    CreatedAt = DateTime.UtcNow
+                }
+            }
+        });
+
+        // Act
+        var result = await service.ImportFromJsonAsync(filePath);
+
+        // Assert - and the era leads: the small set reaches the feed before the
+        // long tail of events
+        result.ErasImported.Should().Be(1);
+        published.Should().Equal(("era", "new-era"), ("event", "era-import-event"));
+    }
+
+    [Fact]
+    public async Task ImportFromJsonAsync_PublishesOnlyRowsTheSaveAlreadyCommitted()
+    {
+        // Arrange - the publisher reads each entity back through its own
+        // connection in production, so a publish issued before SaveChangesAsync
+        // would find nothing and quietly project nothing at all. This asserts
+        // the pass runs after the commit, by looking the row up from a context
+        // the import is not using.
+        var visibleAtPublishTime = new List<(string Kind, bool Visible)>();
+        var publisherMock = new Mock<ITimelineProjectionPublisher>();
+        publisherMock
+            .Setup(p => p.PublishEventAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<string, CancellationToken>((eventId, _) =>
+            {
+                using var context = _contextFactory.CreateDbContext();
+                visibleAtPublishTime.Add(("event", context.Events.Any(e => e.EventId == eventId)));
+            })
+            .Returns(Task.CompletedTask);
+        publisherMock
+            .Setup(p => p.PublishEraAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<string, CancellationToken>((eraId, _) =>
+            {
+                using var context = _contextFactory.CreateDbContext();
+                visibleAtPublishTime.Add(("era", context.Eras.Any(e => e.EraId == eraId)));
+            })
+            .Returns(Task.CompletedTask);
+
+        var service = CreateImportServiceWith(publisherMock.Object);
+        var filePath = await WriteImportFileAsync("published_after_commit.json", new
+        {
+            Events = new[]
+            {
+                new
+                {
+                    EventId = "committed-event",
+                    Title = "Committed",
+                    StartDate = new DateTime(2024, 3, 1),
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                }
+            },
+            Eras = new[]
+            {
+                new
+                {
+                    EraId = "committed-era",
+                    Name = "Committed Era",
+                    StartDate = new DateTime(2024, 1, 1),
+                    CreatedAt = DateTime.UtcNow
+                }
+            }
+        });
+
+        // Act
+        await service.ImportFromJsonAsync(filePath);
+
+        // Assert
+        visibleAtPublishTime.Should().HaveCount(2).And.OnlyContain(v => v.Visible);
+    }
+
+    [Fact]
+    public async Task ImportFromJsonAsync_ProjectionPublisherThrows_StillReportsASuccessfulImport()
+    {
+        // Arrange - the sync outbox is unavailable for every row
+        var publisherMock = new Mock<ITimelineProjectionPublisher>();
+        publisherMock
+            .Setup(p => p.PublishEventAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("sync outbox unavailable"));
+        publisherMock
+            .Setup(p => p.PublishEraAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("sync outbox unavailable"));
+        var service = CreateImportServiceWith(publisherMock.Object);
+
+        var filePath = await WriteImportFileAsync("publisher_throws.json", new
+        {
+            Events = new[]
+            {
+                new
+                {
+                    EventId = "survivor1",
+                    Title = "Survivor One",
+                    StartDate = new DateTime(2024, 4, 1),
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                },
+                new
+                {
+                    EventId = "survivor2",
+                    Title = "Survivor Two",
+                    StartDate = new DateTime(2024, 4, 2),
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                }
+            },
+            Eras = new[]
+            {
+                new
+                {
+                    EraId = "survivor-era",
+                    Name = "Survivor Era",
+                    StartDate = new DateTime(2024, 1, 1),
+                    CreatedAt = DateTime.UtcNow
+                }
+            }
+        });
+
+        // Act
+        var result = await service.ImportFromJsonAsync(filePath);
+
+        // Assert - the import committed before the publish pass ran, and a slow,
+        // hard-to-repeat operation must never be reported as failed because a
+        // companion could not be told about it
+        result.Success.Should().BeTrue();
+        result.ErrorMessage.Should().BeNull();
+        result.EventsImported.Should().Be(2);
+        result.ErasImported.Should().Be(1);
+
+        await using var verifyContext = _contextFactory.CreateDbContext();
+        (await verifyContext.Events.CountAsync()).Should().Be(2);
+        (await verifyContext.Eras.CountAsync()).Should().Be(1);
+
+        // And a failure that hits every row is summarised once, not logged per
+        // entity: a 5,000-event import would otherwise bury its own errors.
+        _loggerMock.Verify(
+            l => l.Log(
+                LogLevel.Warning,
+                It.IsAny<EventId>(),
+                It.IsAny<It.IsAnyType>(),
+                It.IsAny<Exception>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task ImportFromJsonAsync_WithoutAProjectionPublisher_ImportsNormally()
+    {
+        // Arrange - _importService uses the three-argument constructor, i.e. the
+        // default null publisher every non-sync host (and every older test) gets
+        var filePath = await WriteImportFileAsync("no_publisher.json", new
+        {
+            Events = new[]
+            {
+                new
+                {
+                    EventId = "unsynced",
+                    Title = "Unsynced Event",
+                    StartDate = new DateTime(2024, 5, 1),
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                }
+            }
+        });
+
+        // Act
+        var result = await _importService.ImportFromJsonAsync(filePath);
+
+        // Assert
+        result.Success.Should().BeTrue();
+        result.EventsImported.Should().Be(1);
+    }
+
+    // ---- Projection helpers ----
+
+    /// <summary>
+    /// Builds an import service wired to a projection publisher. Mirrors the
+    /// default fixture in every other respect, so a projection test differs from
+    /// a plain one by exactly the dependency under test.
+    /// </summary>
+    private ImportService CreateImportServiceWith(ITimelineProjectionPublisher projectionPublisher) =>
+        new(_contextFactory, _loggerMock.Object, projectionPublisher: projectionPublisher);
+
+    /// <summary>
+    /// A publisher mock that records WHAT was projected and in WHICH order.
+    /// Payloads are the Sync layer's business and are covered there; what the
+    /// import owes the feed is one call per row it actually wrote, after the
+    /// save, for the id that ended up in the archive.
+    /// </summary>
+    private static Mock<ITimelineProjectionPublisher> CreateRecordingPublisher(
+        List<(string Kind, string EntityId)> published)
+    {
+        var mock = new Mock<ITimelineProjectionPublisher>();
+
+        mock.Setup(p => p.PublishEventAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<string, CancellationToken>((eventId, _) => published.Add(("event", eventId)))
+            .Returns(Task.CompletedTask);
+
+        mock.Setup(p => p.PublishEraAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<string, CancellationToken>((eraId, _) => published.Add(("era", eraId)))
+            .Returns(Task.CompletedTask);
+
+        return mock;
+    }
+
+    private async Task<string> WriteImportFileAsync(string fileName, object importData)
+    {
+        var filePath = Path.Combine(_tempDirectory, fileName);
+        await File.WriteAllTextAsync(filePath, JsonSerializer.Serialize(importData));
+        return filePath;
+    }
+
     public void Dispose()
     {
         _context.Database.EnsureDeleted();
