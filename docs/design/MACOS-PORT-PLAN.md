@@ -295,10 +295,10 @@ that renders a platform label — worth doing before the Mac ships, not worth do
   their publish calls live in `ErasViewModel` and `ImportService` writes eras that nothing
   publishes. This is also why eras have no write-path test: nothing in this repo loads a
   ViewModel into the test host. See a4bb149.
-- **There is no iOS CI.** `.github/workflows/` builds Windows, macOS, the sync service and
-  the docs site — nothing builds the iOS companion. The macOS job compiles everything under
-  `ios-companion/…/Shared/` into the Mac target, so shared code is covered by accident, but
-  the phone's own `App/` and `Features/` are not built anywhere.
+- **May the phone author review verdicts?** The Mac may (§5 phase 4), because that was asked
+  and answered. The contract admits a decision from any companion, and the Mac's
+  queue-to-disk outbox would share cleanly — but nobody has decided whether a phone should
+  approve memories into an archive, so the iOS timeline is read-only.
 
 **Answered since this list was written:**
 
@@ -306,3 +306,7 @@ that renders a platform label — worth doing before the Mac ships, not worth do
   and menu-bar quick capture.
 - ~~How does the C# business logic reach the Mac?~~ It does not; Windows publishes results
   as projections instead. See "the decision that gated phases 3–5" in §5.
+- ~~There is no iOS CI.~~ There is now — `.github/workflows/ios-companion-build.yml`. It
+  needed a committed shared scheme first: Xcode writes schemes per-user under `xcuserdata/`,
+  which is not in git, so `xcodebuild -scheme` had nothing to resolve and CI could not have
+  been added without one.
